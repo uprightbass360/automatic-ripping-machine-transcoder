@@ -1,0 +1,94 @@
+# ARM Configuration Overlay for External Transcoding
+#
+# This configuration is designed to work with arm-transcoder.
+# Mount this file to /etc/arm/config/arm.yaml in the ARM container.
+#
+# Key changes from default:
+#   - SKIP_TRANSCODE: true (disable built-in transcoding)
+#   - DELRAWFILES: false (let transcoder handle cleanup)
+#   - JSON_URL: points to arm-transcoder webhook
+#
+
+# ========== RIPMETHOD ==========
+# Must be "mkv" when using SKIP_TRANSCODE
+RIPMETHOD: "mkv"
+
+# ========== TRANSCODING ==========
+# Disable transcoding - arm-transcoder will handle this
+SKIP_TRANSCODE: true
+
+# Keep raw files - transcoder will clean up after success
+DELRAWFILES: false
+
+# ========== PATHS ==========
+# These should be NFS mounts shared with the transcoder
+RAW_PATH: "/home/arm/media/raw"
+TRANSCODE_PATH: "/home/arm/media/transcode"
+COMPLETED_PATH: "/home/arm/media/completed"
+
+# ========== NOTIFICATIONS ==========
+# Webhook to arm-transcoder service
+# Replace 'arm-transcoder' with actual hostname/IP if not using Docker network
+JSON_URL: "http://arm-transcoder:5000/webhook/arm"
+
+# Enable Apprise notifications (includes the JSON_URL above)
+APPRISE: ""
+
+# Optional: Also notify via bash script (alternative to JSON_URL)
+# BASH_SCRIPT: "/home/arm/scripts/notify_transcoder.sh"
+
+# ========== TRACK SELECTION ==========
+# Minimum track length in seconds (filter out short clips)
+MINLENGTH: 600
+
+# Maximum track length in seconds
+MAXLENGTH: 99999
+
+# Rip main feature only, or all tracks meeting length criteria
+MAINFEATURE: false
+
+# ========== DISC IDENTIFICATION ==========
+# Get metadata from OMDb
+GET_VIDEO_TITLE: true
+OMDB_API_KEY: ""
+
+# ========== FILE PERMISSIONS ==========
+SET_MEDIA_PERMISSIONS: false
+CHMOD_VALUE: 777
+SET_MEDIA_OWNER: false
+CHOWN_USER: ""
+CHOWN_GROUP: ""
+
+# ========== LOGGING ==========
+LOGPATH: "/home/arm/logs/"
+LOGLEVEL: "DEBUG"
+LOGLIFE: 30
+
+# ========== OTHER SETTINGS ==========
+# These are kept at defaults but included for reference
+
+# Data disc handling
+DBFILE: "/home/arm/db/arm.db"
+
+# Date format for naming
+DATE_FORMAT: "%Y-%m-%d %H:%M:%S"
+
+# Number of retries for ripping
+MAX_CONCURRENT_TRANSCODES: 0
+
+# Wait time for disc identification
+SLEEP_RIP_WAIT: 30
+
+# ========== METADATA ==========
+# Video type detection
+VIDEOTYPE: "auto"
+
+# Title search year range
+YEAR: ""
+
+# ========== EMBY/PLEX INTEGRATION ==========
+# Disable - transcoder will handle this after transcoding
+EMBY_REFRESH: false
+EMBY_SERVER: ""
+EMBY_PORT: ""
+EMBY_API_KEY: ""

@@ -1,0 +1,57 @@
+services:
+  # Webhook receiver and transcode orchestrator
+  arm-transcoder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arm-transcoder
+    restart: unless-stopped
+    ports:
+      - "${WEBHOOK_PORT:-5000}:5000"
+    environment:
+      - TZ=${TZ:-America/New_York}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Paths inside container
+      - RAW_PATH=/data/raw
+      - COMPLETED_PATH=/data/completed
+      - WORK_PATH=/data/work
+      - DB_PATH=/data/db/transcoder.db
+    volumes:
+      - ${NFS_RAW_PATH}:/data/raw:ro
+      - ${NFS_COMPLETED_PATH}:/data/completed:rw
+      - ${WORK_PATH:-./work}:/data/work:rw
+      - ${DB_PATH:-./data}:/data/db:rw
+      - ${PRESET_PATH:-./presets}:/config/presets:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, video, compute]
+    runtime: nvidia
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: Run ARM ripper alongside (uncomment if desired)
+  # arm-rippers:
+  #   image: automaticrippingmachine/automatic-ripping-machine:latest
+  #   container_name: arm-rippers
+  #   restart: always
+  #   privileged: true
+  #   ports:
+  #     - "${ARM_PORT:-8080}:8080"
+  #   environment:
+  #     - ARM_UID=${ARM_UID}
+  #     - ARM_GID=${ARM_GID}
+  #     - TZ=${TZ}
+  #   volumes:
+  #     - ${NFS_RAW_PATH}:/home/arm/media/raw
+  #     - ${NFS_COMPLETED_PATH}:/home/arm/media/completed
+  #     - ${ARM_LOGS_PATH}:/home/arm/logs
+  #     - ./config/arm:/etc/arm/config
+  #   cpuset: ${ARM_CPUSET:-2,3,4,5,6,7}
