@@ -40,8 +40,12 @@ This service allows you to offload transcoding from your ARM ripper machine to a
 - NVIDIA NVENC hardware-accelerated transcoding
 - Queue management with SQLite persistence
 - REST API for job monitoring and management
+- **Simple header-based authentication** (API keys)
+- **Input validation** to prevent security issues
 - Automatic source cleanup after successful transcode
 - Pre-configured HandBrake presets for NVENC
+- Pagination support on job listings
+- Retry limits with tracking
 
 ## Requirements
 

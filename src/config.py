@@ -22,8 +22,19 @@ class Settings(BaseSettings):
     db_path: str = Field("/data/db/transcoder.db", description="SQLite database path")
     preset_path: str = Field("/config/presets", description="HandBrake presets directory")
 
-    # Webhook
-    webhook_secret: str = Field("", description="Optional secret for webhook authentication")
+    # Authentication
+    require_api_auth: bool = Field(
+        False,
+        description="Require API key authentication for all endpoints"
+    )
+    api_keys: str = Field(
+        "",
+        description="Comma-separated API keys. Format: 'key1,key2' or 'admin:key1,readonly:key2'"
+    )
+    webhook_secret: str = Field(
+        "",
+        description="Optional secret for webhook authentication (X-Webhook-Secret header)"
+    )
 
     # Transcoding
     handbrake_preset: str = Field(

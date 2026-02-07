@@ -4,14 +4,17 @@ ARM Transcoder - Webhook receiver and transcode orchestrator
 
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Header, Request
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import select, delete, func
 
+from auth import get_current_user, require_admin, verify_webhook_secret
 from config import settings
 from database import init_db, get_db
-from models import WebhookPayload, JobStatus, TranscodeJob
+from models import WebhookPayload, JobStatus, TranscodeJob, TranscodeJobDB
 from transcoder import TranscodeWorker
 
 logging.basicConfig(
@@ -69,8 +72,7 @@ async def health_check():
 @app.post("/webhook/arm")
 async def arm_webhook(
     request: Request,
-    background_tasks: BackgroundTasks,
-    x_webhook_secret: str | None = Header(None, alias="X-Webhook-Secret"),
+    _verified: bool = Depends(verify_webhook_secret),
 ):
     """
     Receive webhook from ARM's JSON_URL or BASH_SCRIPT curl.
@@ -92,74 +94,105 @@ async def arm_webhook(
         "status": "success"
     }
     """
-    # Validate webhook secret if configured
-    if settings.webhook_secret:
-        if x_webhook_secret != settings.webhook_secret:
-            raise HTTPException(status_code=401, detail="Invalid webhook secret")
+    # Validate request size (10KB limit)
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > 10240:  # 10KB
+        raise HTTPException(status_code=413, detail="Payload too large (max 10KB)")
 
     try:
-        payload = await request.json()
+        payload_dict = await request.json()
+        # Validate with Pydantic model
+        payload = WebhookPayload(**payload_dict)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+        logger.warning(f"Invalid webhook payload: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid payload: {e}")
 
-    logger.info(f"Received webhook: {payload}")
-
-    # Parse the payload
-    title = payload.get("title", "")
-    body = payload.get("body", "")
-    path = payload.get("path")
-    job_id = payload.get("job_id")
+    logger.info(f"Received webhook: {payload.title}")
 
     # Check if this is a completion notification
     is_complete = (
-        "complete" in title.lower() or
-        "complete" in body.lower() or
-        payload.get("status") == "success"
+        "complete" in payload.title.lower() or
+        (payload.body and "complete" in payload.body.lower()) or
+        payload.status == "success"
     )
 
     if not is_complete:
-        logger.debug(f"Ignoring non-completion webhook: {title}")
+        logger.debug(f"Ignoring non-completion webhook: {payload.title}")
         return {"status": "ignored", "reason": "not a completion event"}
 
+    # Determine source path
+    source_path = payload.path
+
     # Extract path from body if not provided directly
-    if not path and body:
+    if not source_path and payload.body:
         # Try to extract path from ARM notification body
         # Format: "Rip of Movie Title (2024) complete"
-        import re
-        match = re.search(r"Rip of (.+?) complete", body)
+        match = re.search(r"Rip of (.+?) complete", payload.body)
         if match:
             title_from_body = match.group(1)
-            path = f"{settings.raw_path}/{title_from_body}"
+            # Security: Only use the filename part, not full path
+            from pathlib import Path
+            safe_title = Path(title_from_body).name
+            source_path = f"{safe_title}"
 
-    if not path:
-        logger.warning(f"Could not determine path from webhook: {payload}")
+    if not source_path:
+        logger.warning(f"Could not determine path from webhook: {payload.title}")
         return {"status": "error", "reason": "could not determine source path"}
+
+    # Security: Validate path is just a directory name (no traversal)
+    from pathlib import Path
+    if "/" in source_path or "\\" in source_path or ".." in source_path:
+        logger.warning(f"Rejected path with traversal attempt: {source_path}")
+        return {"status": "error", "reason": "invalid path"}
+
+    # Construct full path within RAW_PATH
+    full_path = str(Path(settings.raw_path) / source_path)
 
     # Queue the transcode job
     await worker.queue_job(
-        source_path=path,
-        title=title or payload.get("title", "Unknown"),
-        arm_job_id=job_id,
+        source_path=full_path,
+        title=payload.title,
+        arm_job_id=payload.job_id,
     )
 
     return {
         "status": "queued",
-        "path": path,
+        "path": source_path,
         "queue_size": worker.queue_size,
     }
 
 
 @app.get("/jobs")
-async def list_jobs(status: JobStatus | None = None):
+async def list_jobs(
+    status: JobStatus | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    _role: str = Depends(get_current_user),
+):
     """List all transcode jobs, optionally filtered by status."""
-    async with get_db() as db:
-        from sqlalchemy import select
-        from models import TranscodeJobDB
+    # Validate pagination
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+    if offset < 0:
+        offset = 0
 
+    async with get_db() as db:
         query = select(TranscodeJobDB)
         if status:
             query = query.where(TranscodeJobDB.status == status)
         query = query.order_by(TranscodeJobDB.created_at.desc())
+
+        # Get total count
+        count_query = select(func.count()).select_from(TranscodeJobDB)
+        if status:
+            count_query = count_query.where(TranscodeJobDB.status == status)
+        total_result = await db.execute(count_query)
+        total = total_result.scalar()
+
+        # Apply pagination
+        query = query.limit(limit).offset(offset)
 
         result = await db.execute(query)
         jobs = result.scalars().all()
@@ -178,17 +211,20 @@ async def list_jobs(status: JobStatus | None = None):
                     "error": job.error,
                 }
                 for job in jobs
-            ]
+            ],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
         }
 
 
 @app.post("/jobs/{job_id}/retry")
-async def retry_job(job_id: int):
-    """Retry a failed job."""
+async def retry_job(
+    job_id: int,
+    _role: str = Depends(require_admin),
+):
+    """Retry a failed job (admin only)."""
     async with get_db() as db:
-        from sqlalchemy import select
-        from models import TranscodeJobDB
-
         result = await db.execute(
             select(TranscodeJobDB).where(TranscodeJobDB.id == job_id)
         )
@@ -200,10 +236,18 @@ async def retry_job(job_id: int):
         if job.status != JobStatus.FAILED:
             raise HTTPException(status_code=400, detail="Job is not in failed state")
 
+        # Check retry limit
+        if job.retry_count >= settings.max_retry_count:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Maximum retry limit reached ({settings.max_retry_count})"
+            )
+
         # Reset job status
         job.status = JobStatus.PENDING
         job.error = None
         job.progress = 0
+        job.retry_count += 1
         await db.commit()
 
         # Re-queue
@@ -214,16 +258,16 @@ async def retry_job(job_id: int):
             existing_job_id=job.id,
         )
 
-        return {"status": "queued", "job_id": job.id}
+        return {"status": "queued", "job_id": job.id, "retry_count": job.retry_count}
 
 
 @app.delete("/jobs/{job_id}")
-async def delete_job(job_id: int):
-    """Delete a job from the database."""
+async def delete_job(
+    job_id: int,
+    _role: str = Depends(require_admin),
+):
+    """Delete a job from the database (admin only)."""
     async with get_db() as db:
-        from sqlalchemy import select, delete
-        from models import TranscodeJobDB
-
         result = await db.execute(
             select(TranscodeJobDB).where(TranscodeJobDB.id == job_id)
         )
@@ -242,12 +286,9 @@ async def delete_job(job_id: int):
 
 
 @app.get("/stats")
-async def get_stats():
+async def get_stats(_role: str = Depends(get_current_user)):
     """Get transcoding statistics."""
     async with get_db() as db:
-        from sqlalchemy import select, func
-        from models import TranscodeJobDB
-
         # Count by status
         result = await db.execute(
             select(TranscodeJobDB.status, func.count(TranscodeJobDB.id))
@@ -260,6 +301,7 @@ async def get_stats():
             "processing": status_counts.get(JobStatus.PROCESSING, 0),
             "completed": status_counts.get(JobStatus.COMPLETED, 0),
             "failed": status_counts.get(JobStatus.FAILED, 0),
+            "cancelled": status_counts.get(JobStatus.CANCELLED, 0),
             "worker_running": worker is not None and worker.is_running,
             "current_job": worker.current_job if worker else None,
         }
