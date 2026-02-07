@@ -38,8 +38,8 @@ All keys have admin access.
 API_KEYS=admin:abc123,readonly:def456
 ```
 
-- **admin** - Full access (read, write, delete, retry)
-- **readonly** - Currently same as admin (future: read-only)
+- **admin** - Full access (list, stats, retry, delete)
+- **readonly** - Read-only access (list, stats only; cannot retry or delete)
 
 ## Using API Keys
 
@@ -237,7 +237,6 @@ Planned features:
 
 - [ ] Per-key rate limiting
 - [ ] Key expiration dates
-- [ ] Readonly role (list/stats only)
 - [ ] Audit log of API key usage
 - [ ] JWT tokens instead of static keys
 - [ ] OAuth2 support
@@ -245,6 +244,5 @@ Planned features:
 ## Questions?
 
 See:
-- [SECURITY.md](SECURITY.md) - Security best practices
-- [API.md](API.md) - Full API documentation
+- [IMPLEMENTATION_SPEC.md](IMPLEMENTATION_SPEC.md) - Full improvement roadmap
 - [README.md](../README.md) - General setup
