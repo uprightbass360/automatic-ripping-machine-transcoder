@@ -43,7 +43,7 @@ MODE=""
 CONTAINER=""
 COMPOSE_FILE=""
 DEVICE="sr0"
-DEBOUNCE=10
+DEBOUNCE=60
 UNINSTALL=false
 
 # --- Usage ---
@@ -63,7 +63,7 @@ Options:
   --container NAME       ARM container name (default: auto-detect ^arm)
   --compose-file PATH    Path to docker-compose.yml (for compose restart)
   --device NAME          Device name without /dev/ (default: sr0)
-  --debounce SECONDS     Min seconds between restarts (default: 10, udev only)
+  --debounce SECONDS     Min seconds between restarts (default: 60, udev only)
   --uninstall            Remove all installed files
   -h, --help             Show this help
 EOF
