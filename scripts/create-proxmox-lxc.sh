@@ -3,7 +3,7 @@
 # Run this on the Proxmox host to create and configure the container
 #
 # Usage: ./create-proxmox-lxc.sh [VMID] [IP_ADDRESS]
-# Example: ./create-proxmox-lxc.sh 108 192.168.0.87
+# Example: ./create-proxmox-lxc.sh 108 192.168.1.100
 
 set -e
 
@@ -43,7 +43,7 @@ echo "Creating container..."
 if [ "$IP_ADDRESS" = "dhcp" ]; then
     NET_CONFIG="name=eth0,bridge=vmbr0,ip=dhcp"
 else
-    NET_CONFIG="name=eth0,bridge=vmbr0,gw=192.168.0.1,ip=${IP_ADDRESS}/24"
+    NET_CONFIG="name=eth0,bridge=vmbr0,gw=192.168.1.1,ip=${IP_ADDRESS}/24"
 fi
 
 pct create ${VMID} ${TEMPLATE} \

@@ -9,7 +9,33 @@ Configuration files for integrating [Automatic Ripping Machine](https://github.c
 | `arm.yaml` | ARM config overlay - disables built-in transcoding and sets up webhook |
 | `notify_transcoder.sh` | Bash notification script for authenticated webhooks |
 
-## Setup
+## Automated Setup
+
+The quickest way to configure ARM is with the setup script. Run it on the ARM machine (or anywhere with access to ARM's config directory):
+
+```bash
+# Simple webhook (no authentication)
+./scripts/setup-arm.sh \
+  --url http://TRANSCODER_IP:5000/webhook/arm \
+  --config /etc/arm/config
+
+# Authenticated webhook (recommended)
+./scripts/setup-arm.sh \
+  --url http://TRANSCODER_IP:5000/webhook/arm \
+  --config /etc/arm/config \
+  --secret your-secret-here
+
+# With Docker container restart
+./scripts/setup-arm.sh \
+  --url http://TRANSCODER_IP:5000/webhook/arm \
+  --config /etc/arm/config \
+  --secret your-secret-here \
+  --restart
+```
+
+The script patches `arm.yaml` in place (idempotent, safe to re-run) and optionally deploys `notify_transcoder.sh` with your URL and secret baked in. It prints a test curl command when finished.
+
+## Manual Setup
 
 ### 1. NFS Shared Storage
 
@@ -40,7 +66,7 @@ docker cp arm.yaml arm:/etc/arm/config/arm.yaml
 Edit the file and replace `TRANSCODER_IP` with the actual IP or hostname of your transcoder machine:
 
 ```yaml
-JSON_URL: "http://192.168.1.100:5000/webhook/arm"
+JSON_URL: "http://TRANSCODER_IP:5000/webhook/arm"
 ```
 
 ### 3. Authentication (Optional)
@@ -55,7 +81,7 @@ ARM's `JSON_URL` uses the Apprise library internally, which does not support cus
 
 2. Edit the script and set your transcoder URL and secret:
    ```bash
-   TRANSCODER_URL="http://192.168.1.100:5000/webhook/arm"
+   TRANSCODER_URL="http://TRANSCODER_IP:5000/webhook/arm"
    WEBHOOK_SECRET="your-secret-here"
    ```
 
