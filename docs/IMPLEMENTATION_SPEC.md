@@ -516,7 +516,7 @@ Required tests:
 **Files (284 tests total):**
 - `tests/test_utils.py` — 48 tests (PathValidator, CommandValidator, disk space, title cleaning, log sanitization)
 - `tests/test_models.py` — 34 tests (WebhookPayload validation, JobStatus, TranscodeJob)
-- `tests/test_transcoder.py` — 73 tests (GPU detection, encoder routing, FFmpeg commands, file discovery, audio file discovery, resolution detection, preset selection, FFmpeg upscale per GPU)
+- `tests/test_transcoder.py` — 82 tests (GPU detection, encoder routing, FFmpeg commands, file discovery, audio file discovery, resolution detection, preset selection, FFmpeg upscale per GPU)
 - `tests/test_auth.py` — 27 tests (API key auth, webhook secret, settings validation)
 
 ### 6.2 Integration Tests — COMPLETE
