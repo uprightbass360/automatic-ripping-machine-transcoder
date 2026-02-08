@@ -1,0 +1,29 @@
+services:
+  arm-transcoder:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: arm-transcoder-dev
+    ports:
+      - "5000:5000"
+    environment:
+      - TZ=America/New_York
+      - LOG_LEVEL=DEBUG
+      - RAW_PATH=/data/raw
+      - COMPLETED_PATH=/data/completed
+      - WORK_PATH=/data/work
+      - DB_PATH=/data/db/transcoder.db
+      - REQUIRE_API_AUTH=false
+      - DELETE_SOURCE=false
+      - STABILIZE_SECONDS=10
+    volumes:
+      - ./dev-data/raw:/data/raw:rw
+      - ./dev-data/completed:/data/completed:rw
+      - ./dev-data/work:/data/work:rw
+      - ./dev-data/db:/data/db:rw
+      - ./presets:/config/presets:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

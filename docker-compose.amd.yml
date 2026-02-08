@@ -1,0 +1,36 @@
+services:
+  arm-transcoder:
+    build:
+      context: .
+      dockerfile: Dockerfile.amd
+    container_name: arm-transcoder-amd
+    restart: unless-stopped
+    ports:
+      - "${WEBHOOK_PORT:-5000}:5000"
+    environment:
+      - TZ=${TZ:-America/New_York}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - VIDEO_ENCODER=${VIDEO_ENCODER:-vaapi_h265}
+      - VAAPI_DEVICE=/dev/dri/renderD128
+      # Paths inside container
+      - RAW_PATH=/data/raw
+      - COMPLETED_PATH=/data/completed
+      - WORK_PATH=/data/work
+      - DB_PATH=/data/db/transcoder.db
+    volumes:
+      - ${NFS_RAW_PATH}:/data/raw:ro
+      - ${NFS_COMPLETED_PATH}:/data/completed:rw
+      - ${WORK_PATH:-./work}:/data/work:rw
+      - ${DB_PATH:-./data}:/data/db:rw
+      - ${PRESET_PATH:-./presets}:/config/presets:ro
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

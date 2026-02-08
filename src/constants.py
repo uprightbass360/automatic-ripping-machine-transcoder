@@ -32,14 +32,29 @@ API_RATE_LIMIT = "60/minute"
 
 # Valid encoders
 VALID_VIDEO_ENCODERS = [
+    # NVIDIA NVENC
     "nvenc_h265",
     "nvenc_h264",
     "hevc_nvenc",
     "h264_nvenc",
-    "x265",
-    "x264",
+    # AMD VAAPI (Linux)
+    "vaapi_h265",
+    "vaapi_h264",
+    "hevc_vaapi",
+    "h264_vaapi",
+    # AMD AMF
+    "amf_h265",
+    "amf_h264",
+    "hevc_amf",
+    "h264_amf",
+    # Intel Quick Sync
     "qsv_h265",
     "qsv_h264",
+    "hevc_qsv",
+    "h264_qsv",
+    # Software
+    "x265",
+    "x264",
 ]
 
 # Valid audio encoders

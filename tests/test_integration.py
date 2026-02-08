@@ -70,8 +70,11 @@ class TestJobQueueCreation:
         _, session_factory, test_get_db = test_db_setup
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -98,8 +101,11 @@ class TestJobQueueCreation:
         _, _, test_get_db = test_db_setup
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -117,8 +123,11 @@ class TestJobQueueCreation:
         _, session_factory, test_get_db = test_db_setup
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -160,8 +169,11 @@ class TestProcessJobLifecycle:
         completed_dir.mkdir()
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -213,8 +225,11 @@ class TestProcessJobLifecycle:
         completed_dir.mkdir()
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -250,8 +265,11 @@ class TestProcessJobLifecycle:
         (source_dir / "readme.txt").write_text("no video here")
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -281,8 +299,11 @@ class TestProcessJobLifecycle:
         completed_dir.mkdir()
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -317,8 +338,11 @@ class TestProcessJobLifecycle:
         completed_dir.mkdir()
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -364,8 +388,11 @@ class TestLoadPendingJobsOnStartup:
             await session.commit()
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -387,8 +414,11 @@ class TestLoadPendingJobsOnStartup:
             await session.commit()
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -421,8 +451,11 @@ class TestLoadPendingJobsOnStartup:
             await session.commit()
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -449,8 +482,11 @@ class TestWorkerRunLoop:
         completed_dir.mkdir()
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -497,8 +533,11 @@ class TestWorkerRunLoop:
         current_job_during_process = None
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -893,8 +932,11 @@ class TestMultiFileTranscode:
             transcode_calls.append(source.name)
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
@@ -939,8 +981,11 @@ class TestMultiFileTranscode:
         completed_dir.mkdir()
 
         with patch("transcoder.get_db", test_get_db), \
-             patch("transcoder.check_nvenc_support", return_value={
+             patch("transcoder.check_gpu_support", return_value={
                  "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
              }):
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()

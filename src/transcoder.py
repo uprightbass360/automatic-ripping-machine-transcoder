@@ -21,12 +21,19 @@ from models import TranscodeJobDB, JobStatus, TranscodeJob
 logger = logging.getLogger(__name__)
 
 
-def check_nvenc_support() -> dict:
-    """Check which NVENC encoders are available."""
+def check_gpu_support() -> dict:
+    """Check which GPU encoders are available (NVENC, VAAPI, AMF, QSV)."""
     result = {
         "handbrake_nvenc": False,
         "ffmpeg_nvenc_h265": False,
         "ffmpeg_nvenc_h264": False,
+        "ffmpeg_vaapi_h265": False,
+        "ffmpeg_vaapi_h264": False,
+        "ffmpeg_amf_h265": False,
+        "ffmpeg_amf_h264": False,
+        "ffmpeg_qsv_h265": False,
+        "ffmpeg_qsv_h264": False,
+        "vaapi_device": False,
     }
 
     # Check HandBrake NVENC
@@ -40,20 +47,46 @@ def check_nvenc_support() -> dict:
     except Exception:
         pass
 
-    # Check FFmpeg NVENC
+    # Check FFmpeg encoders (NVENC, VAAPI, AMF, QSV)
     try:
         output = subprocess.run(
             ["ffmpeg", "-encoders"],
             capture_output=True, text=True, timeout=10
         )
-        if "hevc_nvenc" in output.stdout:
+        stdout = output.stdout
+        # NVENC (NVIDIA)
+        if "hevc_nvenc" in stdout:
             result["ffmpeg_nvenc_h265"] = True
-        if "h264_nvenc" in output.stdout:
+        if "h264_nvenc" in stdout:
             result["ffmpeg_nvenc_h264"] = True
+        # VAAPI (AMD/Intel on Linux)
+        if "hevc_vaapi" in stdout:
+            result["ffmpeg_vaapi_h265"] = True
+        if "h264_vaapi" in stdout:
+            result["ffmpeg_vaapi_h264"] = True
+        # AMF (AMD)
+        if "hevc_amf" in stdout:
+            result["ffmpeg_amf_h265"] = True
+        if "h264_amf" in stdout:
+            result["ffmpeg_amf_h264"] = True
+        # QSV (Intel Quick Sync)
+        if "hevc_qsv" in stdout:
+            result["ffmpeg_qsv_h265"] = True
+        if "h264_qsv" in stdout:
+            result["ffmpeg_qsv_h264"] = True
     except Exception:
         pass
 
+    # Check for VAAPI/QSV device (typically /dev/dri/renderD128)
+    vaapi_device = os.environ.get("VAAPI_DEVICE", "/dev/dri/renderD128")
+    if os.path.exists(vaapi_device):
+        result["vaapi_device"] = True
+
     return result
+
+
+# Keep backward-compatible alias
+check_nvenc_support = check_gpu_support
 
 
 class TranscodeWorker:
@@ -64,23 +97,60 @@ class TranscodeWorker:
         self._running = False
         self._current_job: Optional[str] = None
         self._shutdown_event = asyncio.Event()
-        self._nvenc_support = check_nvenc_support()
+        self._gpu_support = check_gpu_support()
 
-        logger.info(f"NVENC support: {self._nvenc_support}")
+        logger.info(f"GPU support: {self._gpu_support}")
 
-        # Determine which encoder to use
-        if settings.video_encoder.startswith("nvenc"):
-            if self._nvenc_support["handbrake_nvenc"]:
-                self._encoder_backend = "handbrake"
+        # Determine encoder family from settings
+        encoder = settings.video_encoder
+        self._encoder_family = self._detect_encoder_family(encoder)
+        self._encoder_backend = self._select_backend(encoder, self._encoder_family)
+
+        logger.info(f"Encoder family: {self._encoder_family}, backend: {self._encoder_backend}")
+
+    def _detect_encoder_family(self, encoder: str) -> str:
+        """Determine encoder family from encoder name."""
+        if "vaapi" in encoder:
+            return "vaapi"
+        if "amf" in encoder:
+            return "amf"
+        if "nvenc" in encoder:
+            return "nvenc"
+        if "qsv" in encoder:
+            return "qsv"
+        if encoder in ("x265", "x264"):
+            return "software"
+        return "unknown"
+
+    def _select_backend(self, encoder: str, family: str) -> str:
+        """Select transcoding backend (handbrake or ffmpeg) based on encoder."""
+        if family == "nvenc":
+            if self._gpu_support["handbrake_nvenc"]:
                 logger.info("Using HandBrake with NVENC")
-            elif self._nvenc_support["ffmpeg_nvenc_h265"] or self._nvenc_support["ffmpeg_nvenc_h264"]:
-                self._encoder_backend = "ffmpeg"
-                logger.info("Using FFmpeg with NVENC (HandBrake NVENC not available)")
+                return "handbrake"
+            elif self._gpu_support["ffmpeg_nvenc_h265"] or self._gpu_support["ffmpeg_nvenc_h264"]:
+                logger.info("Using FFmpeg with NVENC")
+                return "ffmpeg"
             else:
-                self._encoder_backend = "ffmpeg"
                 logger.warning("NVENC not detected - will attempt FFmpeg anyway")
+                return "ffmpeg"
+        elif family == "vaapi":
+            if not self._gpu_support["vaapi_device"]:
+                logger.warning("VAAPI device not found at /dev/dri/renderD128 - encoding may fail")
+            logger.info("Using FFmpeg with VAAPI (AMD/Intel)")
+            return "ffmpeg"
+        elif family == "amf":
+            logger.info("Using FFmpeg with AMF (AMD)")
+            return "ffmpeg"
+        elif family == "qsv":
+            logger.info("Using FFmpeg with Quick Sync (Intel)")
+            return "ffmpeg"
+        elif family == "software":
+            logger.info("Using FFmpeg with software encoding")
+            return "ffmpeg"
         else:
-            self._encoder_backend = "handbrake"
+            logger.info("Using HandBrake (default backend)")
+            return "handbrake"
 
     @property
     def is_running(self) -> bool:
@@ -396,36 +466,73 @@ class TranscodeWorker:
 
         logger.info(f"Transcoded: {source.name} -> {output.name}")
 
-    async def _transcode_file_ffmpeg(
-        self,
-        source: Path,
-        output: Path,
-        job_db: TranscodeJobDB,
-        db,
-    ):
-        """Transcode a single file using FFmpeg with NVENC."""
+    def _build_ffmpeg_command(self, source: Path, output: Path) -> list[str]:
+        """Build FFmpeg command based on encoder family."""
+        encoder_name = settings.video_encoder
+        family = self._encoder_family
+        quality = settings.video_quality
 
-        # Determine encoder
-        if "h265" in settings.video_encoder or "hevc" in settings.video_encoder:
-            encoder = "hevc_nvenc"
+        # Determine FFmpeg encoder name
+        if family == "nvenc":
+            if "h265" in encoder_name or "hevc" in encoder_name:
+                ffmpeg_encoder = "hevc_nvenc"
+            else:
+                ffmpeg_encoder = "h264_nvenc"
+        elif family == "vaapi":
+            if "h265" in encoder_name or "hevc" in encoder_name:
+                ffmpeg_encoder = "hevc_vaapi"
+            else:
+                ffmpeg_encoder = "h264_vaapi"
+        elif family == "amf":
+            if "h265" in encoder_name or "hevc" in encoder_name:
+                ffmpeg_encoder = "hevc_amf"
+            else:
+                ffmpeg_encoder = "h264_amf"
+        elif family == "qsv":
+            if "h265" in encoder_name or "hevc" in encoder_name:
+                ffmpeg_encoder = "hevc_qsv"
+            else:
+                ffmpeg_encoder = "h264_qsv"
+        elif family == "software":
+            if encoder_name == "x265":
+                ffmpeg_encoder = "libx265"
+            else:
+                ffmpeg_encoder = "libx264"
         else:
-            encoder = "h264_nvenc"
+            ffmpeg_encoder = encoder_name
 
-        # Map quality to CQ (constant quality) for NVENC
-        # HandBrake quality ~20-24 maps roughly to NVENC CQ 20-28
-        cq = settings.video_quality
+        cmd = ["ffmpeg", "-y"]
 
-        cmd = [
-            "ffmpeg",
-            "-y",  # Overwrite output
-            "-hwaccel", "cuda",  # Use CUDA for decoding too
-            "-hwaccel_output_format", "cuda",
-            "-i", str(source),
-            "-c:v", encoder,
-            "-preset", "p4",  # NVENC preset (p1=fastest, p7=slowest)
-            "-cq", str(cq),  # Constant quality mode
-            "-b:v", "0",  # Required for CQ mode
-        ]
+        # Hardware acceleration input flags (per encoder family)
+        if family == "nvenc":
+            cmd.extend(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
+        elif family == "vaapi":
+            vaapi_device = os.environ.get("VAAPI_DEVICE", "/dev/dri/renderD128")
+            cmd.extend([
+                "-hwaccel", "vaapi",
+                "-hwaccel_device", vaapi_device,
+                "-hwaccel_output_format", "vaapi",
+            ])
+        elif family == "qsv":
+            cmd.extend(["-hwaccel", "qsv", "-hwaccel_output_format", "qsv"])
+
+        # Input file
+        cmd.extend(["-i", str(source)])
+
+        # Video encoder
+        cmd.extend(["-c:v", ffmpeg_encoder])
+
+        # Quality settings (per encoder family)
+        if family == "nvenc":
+            cmd.extend(["-preset", "p4", "-cq", str(quality), "-b:v", "0"])
+        elif family == "vaapi":
+            cmd.extend(["-rc_mode", "CQP", "-qp", str(quality)])
+        elif family == "amf":
+            cmd.extend(["-rc", "cqp", "-qp_i", str(quality), "-qp_p", str(quality)])
+        elif family == "qsv":
+            cmd.extend(["-global_quality", str(quality)])
+        elif family == "software":
+            cmd.extend(["-crf", str(quality), "-preset", "medium"])
 
         # Audio handling
         if settings.audio_encoder == "copy":
@@ -443,6 +550,18 @@ class TranscodeWorker:
 
         # Output
         cmd.append(str(output))
+
+        return cmd
+
+    async def _transcode_file_ffmpeg(
+        self,
+        source: Path,
+        output: Path,
+        job_db: TranscodeJobDB,
+        db,
+    ):
+        """Transcode a single file using FFmpeg."""
+        cmd = self._build_ffmpeg_command(source, output)
 
         logger.debug(f"FFmpeg command: {' '.join(cmd)}")
 
