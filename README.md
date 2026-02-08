@@ -1,8 +1,8 @@
 # ARM Transcoder
 
-GPU-accelerated transcoding service for [Automatic Ripping Machine](https://github.com/automatic-ripping-machine/automatic-ripping-machine).
+Hardware-accelerated transcoding service for [Automatic Ripping Machine](https://github.com/automatic-ripping-machine/automatic-ripping-machine).
 
-Offloads transcoding from your ARM ripper to a separate GPU-equipped server. Supports NVIDIA NVENC, AMD VAAPI/AMF, Intel Quick Sync, and software encoding.
+Offloads transcoding from your ARM ripper to a dedicated transcode server. Supports NVIDIA, AMD, and Intel GPUs, or CPU-only software encoding.
 
 ## Quick Start
 
@@ -11,15 +11,13 @@ Offloads transcoding from your ARM ripper to a separate GPU-equipped server. Sup
 git clone https://github.com/uprightbass360/automatic-ripping-machine-transcoder.git
 cd arm-transcoder
 cp .env.example .env
-nano .env  # Set NFS_RAW_PATH and NFS_COMPLETED_PATH
+nano .env  # Set NFS_RAW_PATH, NFS_COMPLETED_PATH, and VIDEO_ENCODER
 
-# 2. Start the service
-#    NVIDIA GPU:
-docker compose up -d
-#    AMD GPU:
-#    docker compose -f docker-compose.amd.yml up -d
-#    Intel QSV:
-#    docker compose -f docker-compose.intel.yml up -d
+# 2. Start the service (pick one)
+docker compose -f docker-compose.amd.yml up -d       # AMD Radeon (VAAPI)
+docker compose -f docker-compose.intel.yml up -d      # Intel Quick Sync
+docker compose up -d                                  # NVIDIA (NVENC)
+docker compose -f docker-compose.dev.yml up -d        # No GPU (software encoding)
 
 # 3. Configure ARM ripper (on the ARM machine)
 #    Edit arm.yaml:
@@ -39,11 +37,11 @@ For Proxmox LXC deployment, see [docs/proxmox-lxc-setup.md](docs/proxmox-lxc-set
 
 ```
 ┌─────────────────────────────────────┐      ┌─────────────────────────────────────┐
-│         ARM Ripper Machine          │      │       GPU Transcode Machine         │
+│         ARM Ripper Machine          │      │         Transcode Machine           │
 │                                     │      │                                     │
 │  ┌─────────────────────────────┐   │      │   ┌─────────────────────────────┐   │
 │  │     ARM Container           │   │      │   │     arm-transcoder          │   │
-│  │     (MakeMKV only)          │   │      │   │     (GPU Transcoding)       │   │
+│  │     (MakeMKV only)          │   │      │   │     (FFmpeg / HandBrake)    │   │
 │  └──────────────┬──────────────┘   │      │   └──────────────┬──────────────┘   │
 │                 │                  │      │                  │                  │
 │                 │ webhook          │      │                  │                  │
@@ -59,38 +57,42 @@ For Proxmox LXC deployment, see [docs/proxmox-lxc-setup.md](docs/proxmox-lxc-set
 ## Features
 
 - Webhook receiver for ARM job completion notifications
-- Hardware-accelerated transcoding: NVIDIA NVENC, AMD VAAPI/AMF, Intel Quick Sync
+- Hardware-accelerated transcoding via FFmpeg (with HandBrake fallback for NVIDIA)
+- Multi-GPU support: NVIDIA NVENC, AMD VAAPI/AMF, Intel Quick Sync, software fallback
 - Queue management with SQLite persistence
 - REST API for job monitoring and management
 - API key authentication with role-based access (admin/readonly)
 - Input validation and path traversal protection
 - Automatic source cleanup after successful transcode
-- Pre-configured HandBrake presets for NVENC
 - Pagination support on job listings
 - Retry limits with tracking
 - Disk space pre-checks
 
 ## Requirements
 
-- Docker (with GPU runtime for hardware encoding)
-- GPU with hardware encoding support:
-  - **NVIDIA**: NVIDIA Container Toolkit + NVENC-capable GPU
-  - **AMD**: Radeon GPU with VAAPI support + `/dev/dri` device passthrough
-  - **Intel**: Quick Sync capable CPU/GPU
-  - **Software**: No GPU required (slower)
+- Docker
 - NFS (or similar) shared storage between machines
 - ARM configured to skip transcoding (`SKIP_TRANSCODE: true`)
+- One of the following for encoding:
+
+| Hardware | Requirements | Compose File | Encoder |
+|----------|-------------|--------------|---------|
+| **AMD Radeon** | `/dev/dri` device + mesa-va-drivers | `docker-compose.amd.yml` | `vaapi_h265` |
+| **Intel** | `/dev/dri` device + intel-media-driver | `docker-compose.intel.yml` | `qsv_h265` |
+| **NVIDIA** | NVIDIA Container Toolkit | `docker-compose.yml` | `nvenc_h265` |
+| **No GPU** | None | `docker-compose.dev.yml` | `x265` |
 
 ## Configuration
 
 ### Docker Environment Variables (.env)
 
-These variables are used in `docker-compose.yml`:
+These variables are used across all `docker-compose*.yml` files:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NFS_RAW_PATH` | *(required)* | Host path to ARM's raw output (NFS mount) |
 | `NFS_COMPLETED_PATH` | *(required)* | Host path for completed transcodes |
+| `VIDEO_ENCODER` | *(per compose file)* | Video encoder (see [Encoder Options](#encoder-options)) |
 | `WEBHOOK_PORT` | 5000 | Port exposed on host |
 | `WEBHOOK_SECRET` | *(empty)* | Secret for webhook authentication |
 | `LOG_LEVEL` | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
@@ -98,43 +100,44 @@ These variables are used in `docker-compose.yml`:
 
 ### Application Settings
 
-These are set inside the container via `docker-compose.yml` (defaults work for Docker):
-
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RAW_PATH` | /data/raw | Path to raw MKV files inside container |
 | `COMPLETED_PATH` | /data/completed | Path for completed transcodes inside container |
-| `VIDEO_ENCODER` | nvenc_h265 | Video encoder (see [Encoder Options](#encoder-options)) |
-| `VIDEO_QUALITY` | 22 | Quality (0-51, lower = better) |
+| `VIDEO_QUALITY` | 22 | Quality (0-51, lower = better). Maps to CQ (NVENC), QP (VAAPI), global_quality (QSV), or CRF (software) |
 | `AUDIO_ENCODER` | copy | Audio handling (`copy`, `aac`, `ac3`, `eac3`, `flac`, `mp3`) |
 | `SUBTITLE_MODE` | all | Subtitle handling (`all`, `none`, `first`) |
 | `DELETE_SOURCE` | true | Remove source after successful transcode |
-| `HANDBRAKE_PRESET` | NVENC H.265 1080p | HandBrake preset name |
 | `MAX_CONCURRENT` | 1 | Max concurrent transcodes (1 recommended for single GPU) |
 | `STABILIZE_SECONDS` | 60 | Seconds to wait for source files to stop changing |
 | `MAX_RETRY_COUNT` | 3 | Maximum retry attempts for failed jobs (0-10) |
 | `MINIMUM_FREE_SPACE_GB` | 10 | Minimum free disk space required (GB) |
 | `REQUIRE_API_AUTH` | false | Require API key for endpoints |
 | `API_KEYS` | *(empty)* | Comma-separated API keys (see [Authentication](docs/AUTHENTICATION.md)) |
+| `VAAPI_DEVICE` | /dev/dri/renderD128 | VAAPI/QSV render device path (AMD and Intel only) |
 
 See `.env.example` for the full template.
 
 ### Encoder Options
 
-| GPU | Encoder | Description |
-|-----|---------|-------------|
-| NVIDIA | `nvenc_h265` / `hevc_nvenc` | NVENC H.265 (best compression) |
-| NVIDIA | `nvenc_h264` / `h264_nvenc` | NVENC H.264 (broader compatibility) |
-| AMD | `vaapi_h265` / `hevc_vaapi` | VAAPI H.265 (Linux, recommended for AMD) |
-| AMD | `vaapi_h264` / `h264_vaapi` | VAAPI H.264 (Linux) |
+| Hardware | Encoder | Description |
+|----------|---------|-------------|
+| AMD | `vaapi_h265` / `hevc_vaapi` | VAAPI H.265 (recommended for Radeon on Linux) |
+| AMD | `vaapi_h264` / `h264_vaapi` | VAAPI H.264 |
 | AMD | `amf_h265` / `hevc_amf` | AMF H.265 |
 | AMD | `amf_h264` / `h264_amf` | AMF H.264 |
 | Intel | `qsv_h265` / `hevc_qsv` | Quick Sync H.265 |
 | Intel | `qsv_h264` / `h264_qsv` | Quick Sync H.264 |
-| None | `x265` | Software H.265 (slow, no GPU needed) |
-| None | `x264` | Software H.264 (slow, no GPU needed) |
+| NVIDIA | `nvenc_h265` / `hevc_nvenc` | NVENC H.265 |
+| NVIDIA | `nvenc_h264` / `h264_nvenc` | NVENC H.264 |
+| None | `x265` | Software H.265 (no GPU required, slower) |
+| None | `x264` | Software H.264 (no GPU required, slower) |
+
+Each compose file sets a sensible default encoder for its GPU type. Override with `VIDEO_ENCODER` in your `.env`.
 
 ### HandBrake Presets
+
+HandBrake is used as the transcoding backend when NVIDIA NVENC is selected and HandBrake is available. For all other encoder families, FFmpeg is used directly.
 
 Pre-configured presets in `presets/nvenc_presets.json`:
 
@@ -182,7 +185,7 @@ The transcoder extracts the title and looks for files in `RAW_PATH/<directory na
 
 ## Testing
 
-The project includes 202 tests covering unit, integration, and security testing.
+The project includes 229 tests covering unit, integration, and security testing.
 
 ```bash
 # Install test dependencies
@@ -194,27 +197,27 @@ python -m pytest tests/ -v
 
 | Test File | Tests | Coverage |
 |-----------|-------|----------|
-| `test_utils.py` | 33 | PathValidator, CommandValidator, disk space, title cleaning |
-| `test_models.py` | 24 | Pydantic validation, enums, data models |
-| `test_auth.py` | 23 | API key auth, webhook secret, config validation |
+| `test_utils.py` | 48 | PathValidator, CommandValidator, disk space, title cleaning |
+| `test_transcoder.py` | 45 | GPU detection, encoder family routing, FFmpeg commands, file discovery |
+| `test_security.py` | 43 | Path traversal, injection, payload attacks, auth bypass |
+| `test_integration.py` | 39 | Full pipeline: job lifecycle, retry/delete, startup restore |
+| `test_models.py` | 27 | Pydantic validation, enums, data models |
+| `test_auth.py` | 27 | API key auth, webhook secret, config validation |
 | `test_api.py` | 15 | All API endpoints via async HTTP client |
-| `test_security.py` | 31 | Path traversal, injection, payload attacks, auth bypass |
-| `test_transcoder.py` | 16 | NVENC detection, file discovery, output paths, cleanup |
-| `test_integration.py` | 24 | Full pipeline: job lifecycle, retry/delete, startup restore |
 
 ## Directory Structure
 
 ```
 arm-transcoder/
-├── docker-compose.yml          # NVIDIA GPU orchestration
-├── docker-compose.amd.yml      # AMD GPU orchestration
-├── docker-compose.intel.yml    # Intel QSV orchestration
-├── docker-compose.dev.yml      # Development (no GPU)
+├── docker-compose.yml          # NVIDIA GPU
+├── docker-compose.amd.yml      # AMD Radeon (VAAPI)
+├── docker-compose.intel.yml    # Intel Quick Sync
+├── docker-compose.dev.yml      # Development / software encoding
 ├── docker-compose.security.yml # Security-hardened compose
-├── Dockerfile                  # NVIDIA container build
-├── Dockerfile.amd              # AMD VAAPI container build
-├── Dockerfile.intel            # Intel QSV container build
-├── Dockerfile.dev              # Development container build
+├── Dockerfile                  # NVIDIA container
+├── Dockerfile.amd              # AMD VAAPI container
+├── Dockerfile.intel            # Intel QSV container
+├── Dockerfile.dev              # Development container
 ├── requirements.txt            # Python dependencies
 ├── requirements-test.txt       # Test dependencies
 ├── .env.example                # Environment template
@@ -245,7 +248,7 @@ arm-transcoder/
 │   └── arm/
 │       └── arm.yaml            # ARM config overlay
 ├── presets/
-│   └── nvenc_presets.json      # HandBrake presets
+│   └── nvenc_presets.json      # HandBrake presets (NVIDIA)
 └── scripts/
     ├── create-proxmox-lxc.sh   # Proxmox LXC setup
     └── install-lxc.sh          # LXC installation
@@ -254,8 +257,8 @@ arm-transcoder/
 ## Monitoring
 
 ```bash
-# View logs
-docker compose logs -f arm-transcoder
+# View logs (use the compose file matching your GPU)
+docker compose -f docker-compose.amd.yml logs -f arm-transcoder
 
 # Check queue and stats
 curl http://localhost:5000/stats
@@ -270,12 +273,7 @@ curl http://localhost:5000/jobs?limit=10&offset=0
 
 ### GPU Not Detected
 
-**NVIDIA** - Verify container toolkit:
-```bash
-docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi
-```
-
-**AMD** - Verify VAAPI device and drivers:
+**AMD Radeon** - Verify VAAPI device and drivers:
 ```bash
 # Check device exists on host
 ls -la /dev/dri/renderD128
@@ -284,13 +282,15 @@ ls -la /dev/dri/renderD128
 docker compose -f docker-compose.amd.yml exec arm-transcoder vainfo
 ```
 
-**Intel QSV** - Verify Quick Sync:
+**Intel Quick Sync** - Verify QSV device:
 ```bash
-# Check device exists on host
 ls -la /dev/dri/renderD128
-
-# Test inside container
 docker compose -f docker-compose.intel.yml exec arm-transcoder vainfo
+```
+
+**NVIDIA** - Verify container toolkit:
+```bash
+docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi
 ```
 
 ### Webhook Not Receiving
@@ -304,8 +304,8 @@ docker compose -f docker-compose.intel.yml exec arm-transcoder vainfo
 
 1. Check job error: `curl http://localhost:5000/jobs?status=failed`
 2. Verify source files exist in `RAW_PATH`
-3. Check HandBrake supports the source format
-4. Verify sufficient disk space (default minimum: 10GB free)
+3. Verify sufficient disk space (default minimum: 10GB free)
+4. Check container logs for FFmpeg/HandBrake error output
 
 ### Authentication Errors
 
