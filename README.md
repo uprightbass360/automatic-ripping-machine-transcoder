@@ -65,6 +65,7 @@ flowchart TB
 - REST API for job monitoring and management
 - API key authentication with role-based access (admin/readonly)
 - Input validation and path traversal protection
+- Local scratch storage to avoid heavy I/O on NFS (copy→transcode→move)
 - Automatic source cleanup after successful transcode
 - Pagination support on job listings
 - Retry limits with tracking
@@ -187,7 +188,7 @@ The transcoder extracts the title and looks for files in `RAW_PATH/<directory na
 
 ## Testing
 
-The project includes 229 tests covering unit, integration, and security testing.
+The project includes 242 tests covering unit, integration, and security testing.
 
 ```bash
 # Install test dependencies
@@ -202,10 +203,10 @@ python -m pytest tests/ -v
 | `test_utils.py` | 48 | PathValidator, CommandValidator, disk space, title cleaning |
 | `test_transcoder.py` | 45 | GPU detection, encoder family routing, FFmpeg commands, file discovery |
 | `test_security.py` | 43 | Path traversal, injection, payload attacks, auth bypass |
-| `test_integration.py` | 39 | Full pipeline: job lifecycle, retry/delete, startup restore |
-| `test_models.py` | 27 | Pydantic validation, enums, data models |
+| `test_models.py` | 34 | Pydantic validation, enums, data models |
 | `test_auth.py` | 27 | API key auth, webhook secret, config validation |
-| `test_api.py` | 15 | All API endpoints via async HTTP client |
+| `test_integration.py` | 26 | Full pipeline: job lifecycle, retry/delete, startup restore, work dir cleanup |
+| `test_api.py` | 19 | All API endpoints via async HTTP client |
 
 ## Directory Structure
 
@@ -243,17 +244,19 @@ arm-transcoder/
 │   ├── test_transcoder.py      # Worker unit tests
 │   └── test_integration.py     # Full pipeline tests
 ├── docs/
-│   ├── IMPLEMENTATION_SPEC.md  # Improvement roadmap
-│   ├── AUTHENTICATION.md       # Auth setup guide
-│   └── proxmox-lxc-setup.md   # Proxmox deployment
+│   ├── IMPLEMENTATION_SPEC.md      # Improvement roadmap
+│   ├── AUTHENTICATION.md           # Auth setup guide
+│   ├── SECURITY_FIXES_PROGRESS.md  # Security audit progress
+│   └── proxmox-lxc-setup.md       # Proxmox deployment
 ├── config/
 │   └── arm/
-│       └── arm.yaml            # ARM config overlay
+│       ├── arm.yaml              # ARM config overlay
+│       └── notify_transcoder.sh  # Authenticated webhook + local→NFS move
 ├── presets/
 │   └── nvenc_presets.json      # HandBrake presets (NVIDIA)
 └── scripts/
-    ├── create-proxmox-lxc.sh   # Proxmox LXC setup
-    └── install-lxc.sh          # LXC installation
+    ├── create-proxmox-lxc.sh     # Proxmox LXC setup
+    └── setup-arm.sh              # ARM ripper configuration automation
 ```
 
 ## Monitoring
