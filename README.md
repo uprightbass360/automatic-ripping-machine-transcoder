@@ -115,6 +115,7 @@ These variables are used across all `docker-compose*.yml` files:
 | `AUDIO_ENCODER` | copy | Audio handling (`copy`, `aac`, `ac3`, `eac3`, `flac`, `mp3`) |
 | `SUBTITLE_MODE` | all | Subtitle handling (`all`, `none`, `first`) |
 | `MOVIES_SUBDIR` | movies | Subdirectory under COMPLETED_PATH for movies |
+| `TV_SUBDIR` | tv | Subdirectory under COMPLETED_PATH for TV shows |
 | `AUDIO_SUBDIR` | audio | Subdirectory under COMPLETED_PATH for audio CD rips |
 | `DELETE_SOURCE` | true | Remove source after successful transcode |
 | `MAX_CONCURRENT` | 1 | Max concurrent transcodes (1 recommended for single GPU) |
