@@ -11,7 +11,7 @@ Offloads transcoding from your ARM ripper to a dedicated transcode server. Suppo
 git clone https://github.com/uprightbass360/automatic-ripping-machine-transcoder.git
 cd automatic-ripping-machine-transcoder
 cp .env.example .env
-nano .env  # Set NFS_RAW_PATH, NFS_COMPLETED_PATH, and VIDEO_ENCODER
+nano .env  # Set HOST_RAW_PATH, HOST_COMPLETED_PATH, and VIDEO_ENCODER
 
 # 2. Start the service (pick one)
 docker compose -f docker-compose.amd.yml up -d       # AMD Radeon (VAAPI)
@@ -45,7 +45,7 @@ flowchart TB
         TC["arm-transcoder<br/>(FFmpeg / HandBrake)"]
     end
 
-    subgraph nfs["NFS Shared Storage"]
+    subgraph storage["Shared Storage"]
         RAW["/raw/ — MakeMKV output"]
         DONE["/completed/movies/ — Transcoded video"]
         AUDIO["/completed/audio/ — Audio CD rips"]
@@ -69,7 +69,7 @@ flowchart TB
 - API key authentication with role-based access (admin/readonly)
 - Input validation and path traversal protection
 - Audio CD passthrough — detects audio rips (FLAC/MP3/etc.) and copies them to an audio folder without transcoding
-- Local scratch storage to avoid heavy I/O on NFS (copy→transcode→move)
+- Local scratch storage to avoid heavy I/O on network shares (copy→transcode→move)
 - Automatic source cleanup after successful transcode
 - Pagination support on job listings
 - Retry limits with tracking
@@ -78,7 +78,7 @@ flowchart TB
 ## Requirements
 
 - Docker
-- NFS (or similar) shared storage between machines
+- Shared storage between machines (NFS, SMB/CIFS, or any network/local mount)
 - ARM configured to skip transcoding (`SKIP_TRANSCODE: true`)
 - One of the following for encoding:
 
@@ -97,8 +97,8 @@ These variables are used across all `docker-compose*.yml` files:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NFS_RAW_PATH` | *(required)* | Host path to ARM's raw output (NFS mount) |
-| `NFS_COMPLETED_PATH` | *(required)* | Host path for completed transcodes |
+| `HOST_RAW_PATH` | *(required)* | Host path to ARM's raw output (shared storage mount) |
+| `HOST_COMPLETED_PATH` | *(required)* | Host path for completed transcodes |
 | `VIDEO_ENCODER` | *(per compose file)* | Video encoder (see [Encoder Options](#encoder-options)) |
 | `WEBHOOK_PORT` | 5000 | Port exposed on host |
 | `WEBHOOK_SECRET` | *(empty)* | Secret for webhook authentication |
@@ -272,7 +272,7 @@ arm-transcoder/
 ├── config/
 │   └── arm/
 │       ├── arm.yaml              # ARM config overlay
-│       └── notify_transcoder.sh  # Authenticated webhook + local→NFS move
+│       └── notify_transcoder.sh  # Authenticated webhook + local→shared move
 ├── presets/
 │   └── nvenc_presets.json      # HandBrake presets (NVIDIA)
 └── scripts/
@@ -336,6 +336,124 @@ docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi
 ### Authentication Errors
 
 See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for setup and troubleshooting.
+
+## Setting Up with ARM
+
+Step-by-step guide for a typical two-machine setup: an ARM ripper that rips discs and a separate transcode server with a GPU, connected by shared storage.
+
+### 1. Set up shared storage
+
+Both machines need access to the same directories via NFS, SMB/CIFS, or any network mount:
+
+```
+/mnt/media/raw         ← ARM writes raw MKV files here
+/mnt/media/completed   ← Transcoder writes finished files here
+```
+
+ARM writes to `raw/`. The transcoder reads from `raw/` and writes to `completed/movies/`, `completed/tv/`, and `completed/audio/`.
+
+### 2. Start the transcoder
+
+On your transcode server:
+
+```bash
+git clone https://github.com/uprightbass360/automatic-ripping-machine-transcoder.git
+cd automatic-ripping-machine-transcoder
+cp .env.example .env
+```
+
+Edit `.env` with your shared storage paths:
+
+```bash
+HOST_RAW_PATH=/mnt/media/raw
+HOST_COMPLETED_PATH=/mnt/media/completed
+```
+
+Start the container for your GPU:
+
+```bash
+docker compose up -d                                  # NVIDIA
+docker compose -f docker-compose.amd.yml up -d        # AMD Radeon
+docker compose -f docker-compose.intel.yml up -d       # Intel Quick Sync
+docker compose -f docker-compose.dev.yml up -d         # No GPU (software)
+```
+
+Verify it's running:
+
+```bash
+curl http://localhost:5000/health
+```
+
+### 3. Configure ARM
+
+On your ARM ripper, disable built-in transcoding and point webhooks at the transcoder.
+
+**Option A: Automated setup (recommended)**
+
+Copy the setup script to your ARM machine and run it:
+
+```bash
+# Simple webhook (no auth)
+./scripts/setup-arm.sh \
+  --url http://TRANSCODER_IP:5000/webhook/arm \
+  --config /etc/arm/config
+
+# With webhook authentication
+./scripts/setup-arm.sh \
+  --url http://TRANSCODER_IP:5000/webhook/arm \
+  --config /etc/arm/config \
+  --secret your-webhook-secret \
+  --restart
+```
+
+The script patches `arm.yaml`, deploys the notification script (when using `--secret`), and optionally restarts ARM.
+
+**Option B: Manual setup**
+
+Edit your ARM `arm.yaml`:
+
+```yaml
+# Disable ARM's built-in transcoding
+SKIP_TRANSCODE: true
+RIPMETHOD: "mkv"
+DELRAWFILES: false
+MAX_CONCURRENT_TRANSCODES: 0
+
+# Send webhook when rip completes
+JSON_URL: "http://TRANSCODER_IP:5000/webhook/arm"
+NOTIFY_RIP: true
+NOTIFY_TRANSCODE: false
+```
+
+Replace `TRANSCODER_IP` with the IP or hostname of your transcode server. For authenticated webhooks, use the `notify_transcoder.sh` script instead of `JSON_URL` — see [config/arm/arm.yaml](config/arm/arm.yaml) for both options.
+
+### 4. Test the pipeline
+
+Send a test webhook to verify connectivity:
+
+```bash
+curl -s -X POST http://TRANSCODER_IP:5000/webhook/arm \
+  -H "Content-Type: application/json" \
+  -d '{"title": "ARM notification", "body": "Test Movie (2024) rip complete. Starting transcode.", "type": "info"}'
+```
+
+A `200` response means the transcoder received the webhook. Check job status:
+
+```bash
+curl http://TRANSCODER_IP:5000/jobs
+curl http://TRANSCODER_IP:5000/stats
+```
+
+### 5. Rip a disc
+
+Insert a disc into your ARM ripper and let it rip. When the rip completes:
+
+1. ARM sends a webhook to the transcoder
+2. The transcoder finds the raw MKV files on shared storage
+3. Files are transcoded with your GPU (resolution-aware — 4K preserved, DVDs upscaled to 720p)
+4. Output is written to `completed/movies/` or `completed/tv/` (auto-detected)
+5. Audio CD rips are copied to `completed/audio/` without transcoding
+6. Source files are cleaned up (if `DELETE_SOURCE=true`)
 
 ## License
 
