@@ -1,7 +1,9 @@
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
-# Install system dependencies and HandBrake CLI from PPA
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies and HandBrake CLI from Ubuntu universe repo
+RUN echo "deb http://archive.ubuntu.com/ubuntu jammy universe" >> /etc/apt/sources.list \
+    && echo "deb http://archive.ubuntu.com/ubuntu jammy-updates universe" >> /etc/apt/sources.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
@@ -11,12 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libva2 \
     libva-drm2 \
     libdrm2 \
-    software-properties-common \
-    && add-apt-repository -y ppa:stebbins/handbrake-releases \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends handbrake-cli \
-    && apt-get remove -y software-properties-common \
-    && apt-get autoremove -y \
+    handbrake-cli \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user
