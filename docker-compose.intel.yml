@@ -9,15 +9,34 @@ services:
       - "${WEBHOOK_PORT:-5000}:5000"
     environment:
       - TZ=${TZ:-America/New_York}
-      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - VIDEO_ENCODER=${VIDEO_ENCODER:-qsv_h265}
-      - VAAPI_DEVICE=/dev/dri/renderD128
       # Paths inside container
       - RAW_PATH=/data/raw
       - COMPLETED_PATH=/data/completed
       - WORK_PATH=/data/work
       - DB_PATH=/data/db/transcoder.db
+      # Authentication
+      - REQUIRE_API_AUTH=${REQUIRE_API_AUTH:-false}
+      - API_KEYS=${API_KEYS:-}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      # Transcoding
+      - VIDEO_ENCODER=${VIDEO_ENCODER:-qsv_h265}
+      - VIDEO_QUALITY=${VIDEO_QUALITY:-22}
+      - AUDIO_ENCODER=${AUDIO_ENCODER:-copy}
+      - SUBTITLE_MODE=${SUBTITLE_MODE:-all}
+      - VAAPI_DEVICE=/dev/dri/renderD128
+      # File handling
+      - DELETE_SOURCE=${DELETE_SOURCE:-true}
+      - OUTPUT_EXTENSION=${OUTPUT_EXTENSION:-mkv}
+      # Organization
+      - MOVIES_SUBDIR=${MOVIES_SUBDIR:-movies}
+      - TV_SUBDIR=${TV_SUBDIR:-tv}
+      - AUDIO_SUBDIR=${AUDIO_SUBDIR:-audio}
+      # Performance
+      - MAX_CONCURRENT=${MAX_CONCURRENT:-1}
+      - STABILIZE_SECONDS=${STABILIZE_SECONDS:-60}
+      - MINIMUM_FREE_SPACE_GB=${MINIMUM_FREE_SPACE_GB:-10}
+      - MAX_RETRY_COUNT=${MAX_RETRY_COUNT:-3}
     volumes:
       - ${NFS_RAW_PATH}:/data/raw:ro
       - ${NFS_COMPLETED_PATH}:/data/completed:rw

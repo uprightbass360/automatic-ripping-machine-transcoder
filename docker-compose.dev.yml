@@ -9,13 +9,32 @@ services:
     environment:
       - TZ=America/New_York
       - LOG_LEVEL=DEBUG
+      # Paths inside container
       - RAW_PATH=/data/raw
       - COMPLETED_PATH=/data/completed
       - WORK_PATH=/data/work
       - DB_PATH=/data/db/transcoder.db
+      # Authentication
       - REQUIRE_API_AUTH=false
+      - API_KEYS=
+      - WEBHOOK_SECRET=
+      # Transcoding
+      - VIDEO_ENCODER=x265
+      - VIDEO_QUALITY=22
+      - AUDIO_ENCODER=copy
+      - SUBTITLE_MODE=all
+      # File handling
       - DELETE_SOURCE=false
+      - OUTPUT_EXTENSION=mkv
+      # Organization
+      - MOVIES_SUBDIR=movies
+      - TV_SUBDIR=tv
+      - AUDIO_SUBDIR=audio
+      # Performance
+      - MAX_CONCURRENT=1
       - STABILIZE_SECONDS=10
+      - MINIMUM_FREE_SPACE_GB=10
+      - MAX_RETRY_COUNT=3
     volumes:
       - ./dev-data/raw:/data/raw:rw
       - ./dev-data/completed:/data/completed:rw
