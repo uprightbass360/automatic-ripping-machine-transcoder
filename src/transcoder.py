@@ -472,12 +472,15 @@ class TranscodeWorker:
         job_db.completed_at = datetime.utcnow()
         await db.commit()
 
-        # Clean up empty source directory if delete_source is set
-        if settings.delete_source:
-            self._cleanup_source(job.source_path)
-            logger.info(f"Cleaned up source: {job.source_path}")
-
         logger.info(f"Completed music passthrough for job {job.id}: {job.title}")
+
+        # Clean up source directory if delete_source is set (non-fatal)
+        if settings.delete_source:
+            try:
+                self._cleanup_source(job.source_path)
+                logger.info(f"Cleaned up source: {job.source_path}")
+            except OSError as e:
+                logger.warning(f"Could not clean up source {job.source_path}: {e}")
 
     def _determine_output_path(self, title: str, source_path: str) -> Path:
         """Determine the output directory path."""
