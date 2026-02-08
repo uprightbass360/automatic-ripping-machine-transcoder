@@ -136,14 +136,70 @@ class TestWebhookPayload:
         payload = WebhookPayload(
             title="Test",
             body=None,
+            message=None,
             path=None,
             job_id=None,
             status=None,
             type=None,
         )
         assert payload.body is None
+        assert payload.message is None
         assert payload.path is None
         assert payload.job_id is None
+
+    # ─── Apprise message field support ──────────────────────────────────────
+
+    def test_apprise_message_field_accepted(self):
+        """Apprise json:// sends 'message' instead of 'body'."""
+        payload = WebhookPayload(
+            title="ARM notification",
+            message="Movie Title (2024) rip complete. Starting transcode.",
+            type="info",
+        )
+        assert payload.message == "Movie Title (2024) rip complete. Starting transcode."
+        assert payload.body is None
+
+    def test_effective_body_prefers_body(self):
+        """effective_body should prefer 'body' over 'message' when both present."""
+        payload = WebhookPayload(
+            title="Test",
+            body="from body",
+            message="from message",
+        )
+        assert payload.effective_body == "from body"
+
+    def test_effective_body_falls_back_to_message(self):
+        """effective_body should return 'message' when 'body' is None."""
+        payload = WebhookPayload(
+            title="Test",
+            message="from message",
+        )
+        assert payload.effective_body == "from message"
+
+    def test_effective_body_none_when_both_empty(self):
+        """effective_body should return None when both fields are empty."""
+        payload = WebhookPayload(title="Test")
+        assert payload.effective_body is None
+
+    def test_apprise_full_payload(self):
+        """Apprise json:// sends version, title, message, type."""
+        payload = WebhookPayload(
+            title="ARM notification",
+            message="Movie (2024) rip complete. Starting transcode.",
+            type="info",
+        )
+        assert payload.effective_body == "Movie (2024) rip complete. Starting transcode."
+
+    def test_message_max_length(self):
+        """Message over 2000 chars must be rejected."""
+        with pytest.raises(ValidationError):
+            WebhookPayload(title="Test", message="M" * 2001)
+
+    def test_message_control_chars_stripped(self):
+        """Control characters should be stripped from message field."""
+        payload = WebhookPayload(title="Test", message="Clean\x01\x02text")
+        assert "\x01" not in payload.message
+        assert "\x02" not in payload.message
 
 
 # ─── JobStatus Enum ──────────────────────────────────────────────────────────

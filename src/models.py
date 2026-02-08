@@ -58,10 +58,19 @@ class WebhookPayload(BaseModel):
 
     title: str = Field(..., max_length=MAX_TITLE_LENGTH)
     body: Optional[str] = Field(None, max_length=MAX_BODY_LENGTH)
+    message: Optional[str] = Field(None, max_length=MAX_BODY_LENGTH)
     path: Optional[str] = Field(None, max_length=MAX_PATH_LENGTH)
     job_id: Optional[str] = Field(None, max_length=MAX_JOB_ID_LENGTH)
     status: Optional[str] = Field(None, max_length=50)
     type: Optional[str] = Field(None, max_length=50)
+
+    @property
+    def effective_body(self) -> Optional[str]:
+        """Return body content from either 'body' or 'message' field.
+
+        Apprise json:// sends 'message', while direct curl sends 'body'.
+        """
+        return self.body or self.message
 
     @field_validator("title")
     @classmethod
@@ -74,10 +83,10 @@ class WebhookPayload(BaseModel):
         cleaned = "".join(char for char in v if ord(char) >= 32)
         return cleaned.strip()
 
-    @field_validator("body")
+    @field_validator("body", "message")
     @classmethod
     def validate_body(cls, v: Optional[str]) -> Optional[str]:
-        """Validate body field."""
+        """Validate body/message field."""
         if v is None:
             return v
 

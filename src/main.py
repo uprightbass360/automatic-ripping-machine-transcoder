@@ -107,12 +107,14 @@ async def arm_webhook(
         logger.warning(f"Invalid webhook payload: {e}")
         raise HTTPException(status_code=400, detail=f"Invalid payload: {e}")
 
-    logger.info(f"Received webhook: {payload.title}")
+    # Use effective_body which handles both 'body' (curl) and 'message' (Apprise) fields
+    body = payload.effective_body
+    logger.info(f"Received webhook: {payload.title} (body={'present' if body else 'empty'})")
 
     # Check if this is a completion notification
     is_complete = (
         "complete" in payload.title.lower() or
-        (payload.body and "complete" in payload.body.lower()) or
+        (body and "complete" in body.lower()) or
         payload.status == "success"
     )
 
@@ -123,17 +125,28 @@ async def arm_webhook(
     # Determine source path
     source_path = payload.path
 
-    # Extract path from body if not provided directly
-    if not source_path and payload.body:
-        # Try to extract path from ARM notification body
-        # Format: "Rip of Movie Title (2024) complete"
-        match = re.search(r"Rip of (.+?) complete", payload.body)
-        if match:
-            title_from_body = match.group(1)
+    # Extract title from body if path not provided directly
+    if not source_path and body:
+        # ARM notification formats:
+        #   "{title} rip complete. Starting transcode."  (NOTIFY_RIP)
+        #   "{title} processing complete."               (NOTIFY_TRANSCODE)
+        #   "Rip of {title} complete"                    (legacy/custom)
+        title_from_body = None
+        for pattern in [
+            r"^(.+?)\s+rip complete",           # ARM rip notification
+            r"^(.+?)\s+processing complete",     # ARM transcode notification
+            r"Rip of (.+?) complete",            # legacy format
+        ]:
+            match = re.search(pattern, body, re.IGNORECASE)
+            if match:
+                title_from_body = match.group(1).strip()
+                break
+
+        if title_from_body:
             # Security: Only use the filename part, not full path
             from pathlib import Path
             safe_title = Path(title_from_body).name
-            source_path = f"{safe_title}"
+            source_path = safe_title
 
     if not source_path:
         logger.warning(f"Could not determine path from webhook: {payload.title}")

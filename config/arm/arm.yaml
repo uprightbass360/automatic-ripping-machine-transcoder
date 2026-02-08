@@ -1,94 +1,54 @@
 # ARM Configuration Overlay for External Transcoding
 #
-# This configuration is designed to work with arm-transcoder.
-# Mount this file to /etc/arm/config/arm.yaml in the ARM container.
+# Mount this file into your ARM container at /etc/arm/config/arm.yaml
+# to configure ARM to send completed rips to arm-transcoder.
 #
-# Key changes from default:
-#   - SKIP_TRANSCODE: true (disable built-in transcoding)
-#   - DELRAWFILES: false (let transcoder handle cleanup)
-#   - JSON_URL: points to arm-transcoder webhook
-#
-
-# ========== RIPMETHOD ==========
-# Must be "mkv" when using SKIP_TRANSCODE
-RIPMETHOD: "mkv"
+# Only settings that differ from ARM defaults are included here.
+# ARM will use its built-in defaults for everything else.
 
 # ========== TRANSCODING ==========
-# Disable transcoding - arm-transcoder will handle this
+# Disable ARM's built-in HandBrake transcoding.
+# arm-transcoder will handle all transcoding externally.
+# RIPMETHOD must be "mkv" when SKIP_TRANSCODE is true.
+RIPMETHOD: "mkv"
 SKIP_TRANSCODE: true
 
-# Keep raw files - transcoder will clean up after success
+# Keep raw files after rip. arm-transcoder will clean up
+# source files after successful transcode (controlled by DELETE_SOURCE).
 DELRAWFILES: false
 
-# ========== PATHS ==========
-# These should be NFS mounts shared with the transcoder
-RAW_PATH: "/home/arm/media/raw"
-TRANSCODE_PATH: "/home/arm/media/transcode"
-COMPLETED_PATH: "/home/arm/media/completed"
-
-# ========== NOTIFICATIONS ==========
-# Webhook to arm-transcoder service
-# Replace 'arm-transcoder' with actual hostname/IP if not using Docker network
-JSON_URL: "http://arm-transcoder:5000/webhook/arm"
-
-# Enable Apprise notifications (includes the JSON_URL above)
-APPRISE: ""
-
-# Optional: Also notify via bash script (alternative to JSON_URL)
-# BASH_SCRIPT: "/home/arm/scripts/notify_transcoder.sh"
-
-# ========== TRACK SELECTION ==========
-# Minimum track length in seconds (filter out short clips)
-MINLENGTH: 600
-
-# Maximum track length in seconds
-MAXLENGTH: 99999
-
-# Rip main feature only, or all tracks meeting length criteria
-MAINFEATURE: false
-
-# ========== DISC IDENTIFICATION ==========
-# Get metadata from OMDb
-GET_VIDEO_TITLE: true
-OMDB_API_KEY: ""
-
-# ========== FILE PERMISSIONS ==========
-SET_MEDIA_PERMISSIONS: false
-CHMOD_VALUE: 777
-SET_MEDIA_OWNER: false
-CHOWN_USER: ""
-CHOWN_GROUP: ""
-
-# ========== LOGGING ==========
-LOGPATH: "/home/arm/logs/"
-LOGLEVEL: "DEBUG"
-LOGLIFE: 30
-
-# ========== OTHER SETTINGS ==========
-# These are kept at defaults but included for reference
-
-# Data disc handling
-DBFILE: "/home/arm/db/arm.db"
-
-# Date format for naming
-DATE_FORMAT: "%Y-%m-%d %H:%M:%S"
-
-# Number of retries for ripping
+# Disable ARM's concurrent transcode limiter (not needed since ARM won't transcode)
 MAX_CONCURRENT_TRANSCODES: 0
 
-# Wait time for disc identification
-SLEEP_RIP_WAIT: 30
+# ========== PATHS ==========
+# These should be NFS mounts shared between the ARM ripper and the transcoder.
+# arm-transcoder reads from RAW_PATH and writes to COMPLETED_PATH.
+#
+# Adjust these to match your NFS mount points:
+RAW_PATH: "/home/arm/media/raw/"
+TRANSCODE_PATH: "/home/arm/media/transcode/"
+COMPLETED_PATH: "/home/arm/media/completed/"
 
-# ========== METADATA ==========
-# Video type detection
-VIDEOTYPE: "auto"
+# ========== NOTIFICATIONS ==========
+# ARM sends a JSON webhook when a rip completes.
+# Replace TRANSCODER_IP with the IP/hostname of your transcoder machine.
+#
+# Option 1: Simple webhook (no authentication)
+#   Set JSON_URL and leave BASH_SCRIPT empty.
+#
+# Option 2: Authenticated webhook (recommended)
+#   Leave JSON_URL empty and set BASH_SCRIPT to use the notify script,
+#   which sends the X-Webhook-Secret header.
 
-# Title search year range
-YEAR: ""
+# --- Option 1: Simple webhook (no auth) ---
+JSON_URL: "http://TRANSCODER_IP:5000/webhook/arm"
 
-# ========== EMBY/PLEX INTEGRATION ==========
-# Disable - transcoder will handle this after transcoding
-EMBY_REFRESH: false
-EMBY_SERVER: ""
-EMBY_PORT: ""
-EMBY_API_KEY: ""
+# --- Option 2: Authenticated webhook ---
+# JSON_URL: ""
+# BASH_SCRIPT: "/home/arm/scripts/notify_transcoder.sh"
+
+# Notify after rip completes (triggers the webhook to arm-transcoder)
+NOTIFY_RIP: true
+
+# Disable transcode notification (ARM won't be transcoding)
+NOTIFY_TRANSCODE: false

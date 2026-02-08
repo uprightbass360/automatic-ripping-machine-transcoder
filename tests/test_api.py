@@ -127,11 +127,68 @@ class TestWebhookEndpoint:
         mock_worker.queue_job.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_apprise_message_field(self, client, mock_worker):
+        """Apprise json:// sends 'message' instead of 'body' - should still work."""
+        payload = {
+            "version": "1.0",
+            "title": "ARM notification",
+            "message": "Test Movie (2024) rip complete. Starting transcode.",
+            "type": "info",
+        }
+        response = await client.post("/webhook/arm", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "queued"
+        mock_worker.queue_job.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_arm_rip_notification_format(self, client, mock_worker):
+        """ARM's actual NOTIFY_RIP format: '{title} rip complete. Starting transcode.'"""
+        payload = {
+            "title": "ARM notification",
+            "body": "Movie Title (2024) rip complete. Starting transcode.",
+            "type": "info",
+        }
+        response = await client.post("/webhook/arm", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "queued"
+        assert data["path"] == "Movie Title (2024)"
+        mock_worker.queue_job.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_arm_processing_complete_format(self, client, mock_worker):
+        """ARM's NOTIFY_TRANSCODE format: '{title} processing complete.'"""
+        payload = {
+            "title": "ARM notification",
+            "body": "Movie Title (2024) processing complete.",
+            "type": "info",
+        }
+        response = await client.post("/webhook/arm", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "queued"
+        assert data["path"] == "Movie Title (2024)"
+
+    @pytest.mark.asyncio
     async def test_non_completion_ignored(self, client):
         """Non-completion webhooks should be ignored."""
         payload = {
             "title": "ARM notification",
             "body": "Rip started for some movie",
+            "type": "info",
+        }
+        response = await client.post("/webhook/arm", json=payload)
+        assert response.status_code == 200
+        assert response.json()["status"] == "ignored"
+
+    @pytest.mark.asyncio
+    async def test_non_completion_apprise_ignored(self, client):
+        """Non-completion Apprise notifications should be ignored."""
+        payload = {
+            "version": "1.0",
+            "title": "ARM notification",
+            "message": "Found data disc. Copying data.",
             "type": "info",
         }
         response = await client.post("/webhook/arm", json=payload)
