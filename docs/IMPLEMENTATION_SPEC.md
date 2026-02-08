@@ -243,7 +243,7 @@ This specification addresses critical security vulnerabilities, high-priority bu
 - ~~Create constants file with named values~~
 
 **Files Modified:**
-- `src/constants.py` — STABILIZE_CHECK_INTERVAL, PROGRESS_UPDATE_THRESHOLD, NVENC_PRESET_DEFAULT, SHUTDOWN_TIMEOUT, encoder/audio/subtitle allowlists, disk space constants, rate limit constants
+- `src/constants.py` — STABILIZE_CHECK_INTERVAL, PROGRESS_UPDATE_THRESHOLD, NVENC_PRESET_DEFAULT, SHUTDOWN_TIMEOUT, encoder/audio/subtitle allowlists, AUDIO_FILE_EXTENSIONS, disk space constants, rate limit constants
 
 ---
 
@@ -352,7 +352,34 @@ WEBHOOK_SECRET=mySecret
 - `src/transcoder.py` (pre-job check — not yet wired)
 - `src/main.py` (health check — not yet wired)
 
-### 4.7 Completion Notifications
+### 4.7 Audio CD Passthrough — COMPLETE
+
+**Implementation:**
+- ~~Detect audio-only source directories (FLAC/MP3/OGG/WAV/M4A/WMA/AAC/ALAC)~~
+- ~~Move audio files directly to `completed_path/music/Title/` without transcoding~~
+- ~~Mark job as COMPLETED with track count~~
+- ~~Clean up source directory when `delete_source` is set~~
+- ~~Mixed MKV + audio directories treated as video (MKV path takes priority)~~
+- ~~Updated error message: "No video or audio files found" when neither type present~~
+
+**Configuration:**
+```
+MUSIC_SUBDIR=music  # default
+```
+
+**Files Modified:**
+- `src/constants.py` — `AUDIO_FILE_EXTENSIONS` set (8 formats)
+- `src/config.py` — `music_subdir` setting (default "music")
+- `src/transcoder.py` — `_discover_audio_files()`, `_passthrough_audio()`, updated `_process_job()` fallback logic
+
+**Test Cases (all covered):**
+- ~~Audio files moved to music/ and job marked COMPLETED~~
+- ~~Mixed MKV + audio treated as video~~
+- ~~No video or audio files fails with updated error message~~
+- ~~Source cleanup after audio passthrough~~
+- ~~Audio file discovery: FLAC, mixed formats, empty dirs, single files, sort order~~
+
+### 4.8 Completion Notifications
 
 **Implementation:**
 - Support webhook callbacks on job completion
@@ -436,10 +463,10 @@ Required tests:
 - ~~Disk space calculations~~
 - ~~Retry logic with backoff~~
 
-**Files (242 tests total):**
+**Files (254 tests total):**
 - `tests/test_utils.py` — 48 tests (PathValidator, CommandValidator, disk space, title cleaning, log sanitization)
 - `tests/test_models.py` — 34 tests (WebhookPayload validation, JobStatus, TranscodeJob)
-- `tests/test_transcoder.py` — 45 tests (GPU detection, encoder routing, FFmpeg commands, file discovery)
+- `tests/test_transcoder.py` — 53 tests (GPU detection, encoder routing, FFmpeg commands, file discovery, audio file discovery)
 - `tests/test_auth.py` — 27 tests (API key auth, webhook secret, settings validation)
 
 ### 6.2 Integration Tests — COMPLETE
@@ -454,7 +481,7 @@ Required tests:
 **Note:** Job cancellation, graceful shutdown, and concurrent processing tests pending their respective feature implementations.
 
 **Files:**
-- `tests/test_integration.py` — 26 tests (job lifecycle, retry/delete, startup restore, worker run loop, multi-file transcode, work dir cleanup)
+- `tests/test_integration.py` — 30 tests (job lifecycle, retry/delete, startup restore, worker run loop, multi-file transcode, work dir cleanup, audio CD passthrough)
 
 ### 6.3 Security Tests — COMPLETE
 
@@ -525,9 +552,10 @@ Required tests:
    - Job cancellation — partial
    - Notifications — not started
    - ~~Retry limits~~
+   - ~~Audio CD passthrough~~
 
 5. **Phase 5: Testing & Documentation** — Partial
-   - ~~Write tests (242 tests)~~
+   - ~~Write tests (254 tests)~~
    - ~~Update documentation~~
    - ~~Security audit~~
    - Performance testing — not started
@@ -567,7 +595,7 @@ After implementation:
 Implementation complete when:
 
 - [x] All critical/high security issues resolved
-- [x] All tests passing (242 tests)
+- [x] All tests passing (254 tests)
 - [x] Security audit passed
 - [x] Documentation updated
 - [ ] Performance targets met
