@@ -460,10 +460,10 @@ class TranscodeWorker:
         source = Path(job.source_path)
         audio_files = self._discover_audio_files(job.source_path)
 
-        logger.info(f"Music passthrough: moving {len(audio_files)} audio files to {output_dir}")
+        logger.info(f"Music passthrough: copying {len(audio_files)} audio files to {output_dir}")
 
         for f in audio_files:
-            shutil.move(str(f), str(output_dir / f.name))
+            shutil.copy2(str(f), str(output_dir / f.name))
 
         job_db.output_path = str(output_dir)
         job_db.total_tracks = len(audio_files)
