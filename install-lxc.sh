@@ -5,7 +5,7 @@
 # Prerequisites:
 #   - Privileged LXC container with GPU passthrough configured
 #   - NVIDIA driver 580.119.02 installed (same as host)
-#   - NFS mounts configured
+#   - Shared storage mounts configured (NFS, SMB, etc.)
 #
 # Usage: Run this script inside the LXC container
 
@@ -121,7 +121,7 @@ echo "=== Installation complete ==="
 echo ""
 echo "Next steps:"
 echo "  1. Edit /etc/arm-transcoder.env with your paths"
-echo "  2. Ensure NFS mounts are configured in /etc/fstab"
+echo "  2. Ensure shared storage mounts are configured in /etc/fstab"
 echo "  3. Start the service: systemctl start arm-transcoder"
 echo "  4. Check status: systemctl status arm-transcoder"
 echo "  5. View logs: tail -f /var/log/arm-transcoder/service.log"

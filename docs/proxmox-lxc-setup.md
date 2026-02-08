@@ -6,7 +6,7 @@ This guide covers setting up arm-transcoder in a Proxmox LXC container with NVID
 
 - Proxmox VE with NVIDIA driver 580.119.02 installed on host
 - nvidia_uvm module loading on boot (`/etc/modules-load.d/nvidia.conf`)
-- NFS storage mounted on host
+- Shared storage mounted on host (NFS, SMB/CIFS, etc.)
 
 ## Step 1: Create the LXC Container
 
@@ -47,19 +47,19 @@ lxc.mount.entry: /dev/nvidia-caps/nvidia-cap2 dev/nvidia-caps/nvidia-cap2 none b
 EOF
 ```
 
-## Step 3: Add NFS Mounts
+## Step 3: Add Storage Mounts
 
-Add bind mounts for NFS storage to the container config:
+Add bind mounts for shared storage to the container config:
 
 ```bash
 # Add to /etc/pve/lxc/108.conf
-# Adjust paths to match your NFS mounts on the host
+# Adjust paths to match your shared storage mounts on the host
 
 cat <<EOF >> /etc/pve/lxc/108.conf
 
-# NFS storage mounts
-lxc.mount.entry: /nfs/files/Video/Import/raw mnt/raw none bind,create=dir 0 0
-lxc.mount.entry: /nfs/files/Video/Import/completed mnt/completed none bind,create=dir 0 0
+# Shared storage mounts (NFS, SMB, etc.)
+lxc.mount.entry: /mnt/media/raw mnt/raw none bind,create=dir 0 0
+lxc.mount.entry: /mnt/media/completed mnt/completed none bind,create=dir 0 0
 EOF
 ```
 

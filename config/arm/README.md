@@ -37,18 +37,18 @@ The script patches `arm.yaml` in place (idempotent, safe to re-run) and optional
 
 ## Manual Setup
 
-### 1. NFS Shared Storage
+### 1. Shared Storage
 
-Both machines need access to the same storage paths:
+Both machines need access to the same storage paths (via NFS, SMB/CIFS, or any shared mount):
 
 ```
-ARM Ripper                          Transcoder
-─────────                           ──────────
-/home/arm/media/raw/        ←NFS→   /data/raw/       (RAW_PATH)
-/home/arm/media/completed/  ←NFS→   /data/completed/  (COMPLETED_PATH)
+ARM Ripper                                    Transcoder
+─────────                                     ──────────
+/home/arm/media/raw/        ←shared mount→    /data/raw/       (RAW_PATH)
+/home/arm/media/completed/  ←shared mount→    /data/completed/  (COMPLETED_PATH)
 ```
 
-On the ARM machine, export or mount these paths. On the transcoder, set `NFS_RAW_PATH` and `NFS_COMPLETED_PATH` in `.env` to point to the same NFS shares.
+On the ARM machine, export or mount these paths. On the transcoder, set `HOST_RAW_PATH` and `HOST_COMPLETED_PATH` in `.env` to point to the same shared storage.
 
 ### 2. ARM Configuration
 

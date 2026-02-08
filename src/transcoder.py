@@ -265,12 +265,12 @@ class TranscodeWorker:
     async def _process_job(self, job: TranscodeJob):
         """Process a single transcode job.
 
-        Uses local scratch storage (work_path) to avoid doing heavy I/O on NFS:
-          1. Copy source from NFS raw → local work dir
+        Uses local scratch storage (work_path) to avoid doing heavy I/O on shared storage:
+          1. Copy source from raw → local work dir
           2. Transcode locally
-          3. Move output from local → NFS completed
+          3. Move output from local → completed
           4. Clean up local work dir (always, even on failure)
-          5. Clean up NFS raw source (if delete_source is set)
+          5. Clean up raw source (if delete_source is set)
         """
         logger.info(f"Processing job {job.id}: {job.title}")
 
@@ -292,7 +292,7 @@ class TranscodeWorker:
                 # Wait for source to stabilize (files still being written)
                 await self._wait_for_stable(job.source_path)
 
-                # Discover source files on NFS
+                # Discover source files
                 source_files = self._discover_source_files(job.source_path)
                 if not source_files:
                     # Check for audio files (audio CD rip)
@@ -307,7 +307,7 @@ class TranscodeWorker:
 
                 logger.info(f"Found {len(source_files)} MKV files to transcode")
 
-                # Copy source from NFS to local scratch
+                # Copy source to local scratch
                 work_source_dir = work_job_dir / "source"
                 work_output_dir = work_job_dir / "output"
                 source = Path(job.source_path)
@@ -325,7 +325,7 @@ class TranscodeWorker:
                 # Re-discover files from local copy
                 local_source_files = self._discover_source_files(str(work_source_dir))
 
-                # Determine final NFS output path
+                # Determine final output path
                 job_db.video_type = self._detect_video_type(job.title, job.source_path)
                 output_dir = self._determine_output_path(job.title, job.source_path)
                 os.makedirs(output_dir, exist_ok=True)
@@ -358,7 +358,7 @@ class TranscodeWorker:
                     else:
                         await self._transcode_file_handbrake(source_file, output_file, job_db, db)
 
-                # Move local output → NFS completed
+                # Move local output → completed
                 logger.info(f"Moving output to completed: {output_dir}")
                 for f in work_output_dir.iterdir():
                     shutil.move(str(f), str(output_dir / f.name))
@@ -369,7 +369,7 @@ class TranscodeWorker:
                 job_db.completed_at = datetime.utcnow()
                 await db.commit()
 
-                # Clean up NFS raw source if configured
+                # Clean up raw source if configured
                 if settings.delete_source:
                     self._cleanup_source(job.source_path)
                     logger.info(f"Cleaned up source: {job.source_path}")

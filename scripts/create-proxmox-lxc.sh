@@ -16,9 +16,9 @@ DISK_SIZE=16
 STORAGE="local-lvm"
 TEMPLATE="local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst"
 
-# NFS paths on host (adjust these!)
-NFS_RAW="/nfs/files/Video/Import/raw"
-NFS_COMPLETED="/nfs/files/Video/Import/completed"
+# Shared storage paths on host (adjust these!)
+RAW_STORAGE="/mnt/media/raw"
+COMPLETED_STORAGE="/mnt/media/completed"
 
 echo "=== Creating ARM Transcoder LXC Container ==="
 echo "VMID: ${VMID}"
@@ -59,7 +59,7 @@ pct create ${VMID} ${TEMPLATE} \
 
 echo "Container created"
 
-# Add GPU passthrough and NFS mounts
+# Add GPU passthrough and storage mounts
 echo "Configuring GPU passthrough and mounts..."
 cat <<EOF >> /etc/pve/lxc/${VMID}.conf
 
@@ -74,9 +74,9 @@ lxc.mount.entry: /dev/nvidia-uvm-tools dev/nvidia-uvm-tools none bind,optional,c
 lxc.mount.entry: /dev/nvidia-caps/nvidia-cap1 dev/nvidia-caps/nvidia-cap1 none bind,optional,create=file
 lxc.mount.entry: /dev/nvidia-caps/nvidia-cap2 dev/nvidia-caps/nvidia-cap2 none bind,optional,create=file
 
-# NFS storage bind mounts
-lxc.mount.entry: ${NFS_RAW} mnt/raw none bind,create=dir 0 0
-lxc.mount.entry: ${NFS_COMPLETED} mnt/completed none bind,create=dir 0 0
+# Shared storage bind mounts
+lxc.mount.entry: ${RAW_STORAGE} mnt/raw none bind,create=dir 0 0
+lxc.mount.entry: ${COMPLETED_STORAGE} mnt/completed none bind,create=dir 0 0
 EOF
 
 echo "Starting container..."

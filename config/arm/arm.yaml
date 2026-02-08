@@ -21,10 +21,11 @@ DELRAWFILES: false
 MAX_CONCURRENT_TRANSCODES: 0
 
 # ========== PATHS ==========
-# These should be NFS mounts shared between the ARM ripper and the transcoder.
+# These should be shared storage mounts (NFS, SMB/CIFS, etc.) accessible
+# by both the ARM ripper and the transcoder.
 # arm-transcoder reads from RAW_PATH and writes to COMPLETED_PATH.
 #
-# Adjust these to match your NFS mount points:
+# Adjust these to match your shared mount points:
 RAW_PATH: "/home/arm/media/raw/"
 TRANSCODE_PATH: "/home/arm/media/transcode/"
 COMPLETED_PATH: "/home/arm/media/completed/"

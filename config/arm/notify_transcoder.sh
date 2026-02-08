@@ -18,10 +18,10 @@ TRANSCODER_URL="http://TRANSCODER_IP:5000/webhook/arm"
 WEBHOOK_SECRET=""  # Set this to match WEBHOOK_SECRET in arm-transcoder's .env
 
 # Local scratch storage: when both are set, ripped files are moved from
-# local disk to NFS before notifying the transcoder.
-# Leave empty to skip (ARM writes directly to NFS).
+# local disk to shared storage before notifying the transcoder.
+# Leave empty to skip (ARM writes directly to shared storage).
 LOCAL_RAW_PATH=""   # Local disk where ARM rips to (e.g. /home/arm/media/raw)
-NFS_RAW_PATH=""     # NFS handoff location (e.g. /nfs/files/Video/Import/raw)
+SHARED_RAW_PATH=""  # Shared storage handoff location (e.g. /mnt/media/raw)
 
 TITLE="${1:-}"
 BODY="${2:-}"
@@ -31,8 +31,8 @@ if [ -z "$BODY" ]; then
     exit 1
 fi
 
-# Move ripped files from local scratch → NFS (if configured)
-if [ -n "$LOCAL_RAW_PATH" ] && [ -n "$NFS_RAW_PATH" ]; then
+# Move ripped files from local scratch → shared storage (if configured)
+if [ -n "$LOCAL_RAW_PATH" ] && [ -n "$SHARED_RAW_PATH" ]; then
     # Extract title directory from body: "Title Name (2024) rip complete. ..."
     TITLE_DIR=""
     if [[ "$BODY" =~ ^(.+)[[:space:]]rip\ complete ]]; then
@@ -43,9 +43,9 @@ if [ -n "$LOCAL_RAW_PATH" ] && [ -n "$NFS_RAW_PATH" ]; then
 
     if [ -n "$TITLE_DIR" ]; then
         SRC="$LOCAL_RAW_PATH/$TITLE_DIR"
-        DST="$NFS_RAW_PATH/$TITLE_DIR"
+        DST="$SHARED_RAW_PATH/$TITLE_DIR"
         if [ -d "$SRC" ]; then
-            mkdir -p "$NFS_RAW_PATH"
+            mkdir -p "$SHARED_RAW_PATH"
             mv "$SRC" "$DST"
             echo "Moved $SRC → $DST"
         else

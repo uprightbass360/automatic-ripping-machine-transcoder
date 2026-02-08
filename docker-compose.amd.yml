@@ -39,8 +39,8 @@ services:
       - MINIMUM_FREE_SPACE_GB=${MINIMUM_FREE_SPACE_GB:-10}
       - MAX_RETRY_COUNT=${MAX_RETRY_COUNT:-3}
     volumes:
-      - ${NFS_RAW_PATH}:/data/raw:ro
-      - ${NFS_COMPLETED_PATH}:/data/completed:rw
+      - ${HOST_RAW_PATH}:/data/raw:ro
+      - ${HOST_COMPLETED_PATH}:/data/completed:rw
       - ${WORK_PATH:-./work}:/data/work:rw
       - ${DB_PATH:-./data}:/data/db:rw
       - ${PRESET_PATH:-./presets}:/config/presets:ro

@@ -6,7 +6,7 @@
 # the authenticated notify_transcoder.sh script.
 #
 # Usage:
-#   ./setup-arm.sh --url URL --config DIR [--secret SECRET] [--local-raw PATH] [--nfs-raw PATH] [--restart]
+#   ./setup-arm.sh --url URL --config DIR [--secret SECRET] [--local-raw PATH] [--shared-raw PATH] [--restart]
 #
 # Examples:
 #   # Simple webhook (no auth)
@@ -15,9 +15,9 @@
 #   # Authenticated webhook
 #   ./setup-arm.sh --url http://TRANSCODER_IP:5000/webhook/arm --config /etc/arm/config --secret myS3cret
 #
-#   # Local scratch storage (rip to local disk, move to NFS before transcoding)
+#   # Local scratch storage (rip to local disk, move to shared storage before transcoding)
 #   ./setup-arm.sh --url http://TRANSCODER_IP:5000/webhook/arm --config /etc/arm/config \
-#     --secret myS3cret --local-raw /home/arm/media/raw --nfs-raw /nfs/files/Video/Import/raw
+#     --secret myS3cret --local-raw /home/arm/media/raw --shared-raw /mnt/media/raw
 #
 #   # Docker ARM with container restart
 #   ./setup-arm.sh --url http://TRANSCODER_IP:5000/webhook/arm --config /opt/arm/config --secret myS3cret --restart
@@ -33,13 +33,13 @@ TRANSCODER_URL=""
 ARM_CONFIG_DIR=""
 WEBHOOK_SECRET=""
 LOCAL_RAW_PATH=""
-NFS_RAW_PATH=""
+SHARED_RAW_PATH=""
 RESTART=false
 
 # --- Usage ---
 usage() {
     cat <<EOF
-Usage: $(basename "$0") --url URL --config DIR [--secret SECRET] [--local-raw PATH] [--nfs-raw PATH] [--restart]
+Usage: $(basename "$0") --url URL --config DIR [--secret SECRET] [--local-raw PATH] [--shared-raw PATH] [--restart]
 
 Configure an ARM installation for external transcoding via arm-transcoder.
 
@@ -50,13 +50,13 @@ Required:
 Optional:
   --secret SECRET     Webhook secret — deploys notify_transcoder.sh for authenticated webhooks
   --local-raw PATH    Local disk path where ARM rips to (e.g. /home/arm/media/raw)
-  --nfs-raw PATH      NFS path for handoff to transcoder (e.g. /nfs/files/Video/Import/raw)
+  --shared-raw PATH      Shared storage path for handoff to transcoder (e.g. /mnt/media/raw)
   --restart           Restart ARM after setup (tries Docker first, then systemd)
   -h, --help          Show this help
 
-When --local-raw and --nfs-raw are both provided, the notify script will move
-ripped files from local disk to NFS before sending the webhook. This requires
---secret mode (BASH_SCRIPT).
+When --local-raw and --shared-raw are both provided, the notify script will move
+ripped files from local disk to shared storage before sending the webhook. This
+requires --secret mode (BASH_SCRIPT).
 EOF
     exit "${1:-0}"
 }
@@ -80,8 +80,8 @@ while [[ $# -gt 0 ]]; do
             LOCAL_RAW_PATH="$2"
             shift 2
             ;;
-        --nfs-raw)
-            NFS_RAW_PATH="$2"
+        --shared-raw)
+            SHARED_RAW_PATH="$2"
             shift 2
             ;;
         --restart)
@@ -116,16 +116,16 @@ if [[ ! -f "$ARM_YAML" ]]; then
     exit 1
 fi
 
-# Validate local-raw / nfs-raw pairing
-if [[ -n "$LOCAL_RAW_PATH" && -z "$NFS_RAW_PATH" ]] || [[ -z "$LOCAL_RAW_PATH" && -n "$NFS_RAW_PATH" ]]; then
-    echo "ERROR: --local-raw and --nfs-raw must be used together" >&2
+# Validate local-raw / shared-raw pairing
+if [[ -n "$LOCAL_RAW_PATH" && -z "$SHARED_RAW_PATH" ]] || [[ -z "$LOCAL_RAW_PATH" && -n "$SHARED_RAW_PATH" ]]; then
+    echo "ERROR: --local-raw and --shared-raw must be used together" >&2
     usage 1
 fi
 
 # Local scratch requires BASH_SCRIPT mode (needs the move logic in notify script)
 if [[ -n "$LOCAL_RAW_PATH" && -z "$WEBHOOK_SECRET" ]]; then
-    echo "ERROR: --local-raw/--nfs-raw requires --secret (BASH_SCRIPT mode)" >&2
-    echo "       The notify script must be deployed to handle the local→NFS move." >&2
+    echo "ERROR: --local-raw/--shared-raw requires --secret (BASH_SCRIPT mode)" >&2
+    echo "       The notify script must be deployed to handle the local→shared move." >&2
     usage 1
 fi
 
@@ -134,7 +134,7 @@ echo "Transcoder URL: $TRANSCODER_URL"
 echo "ARM config:     $ARM_CONFIG_DIR"
 echo "Auth mode:      $(if [[ -n "$WEBHOOK_SECRET" ]]; then echo "BASH_SCRIPT (authenticated)"; else echo "JSON_URL (simple)"; fi)"
 if [[ -n "$LOCAL_RAW_PATH" ]]; then
-    echo "Local scratch:  $LOCAL_RAW_PATH → $NFS_RAW_PATH"
+    echo "Local scratch:  $LOCAL_RAW_PATH → $SHARED_RAW_PATH"
 fi
 echo ""
 
@@ -202,7 +202,7 @@ if [[ -n "$WEBHOOK_SECRET" ]]; then
     sed -i "s|WEBHOOK_SECRET=\".*\"|WEBHOOK_SECRET=\"${WEBHOOK_SECRET}\"|" "$DEPLOYED_SCRIPT"
     if [[ -n "$LOCAL_RAW_PATH" ]]; then
         sed -i "s|LOCAL_RAW_PATH=\".*\"|LOCAL_RAW_PATH=\"${LOCAL_RAW_PATH}\"|" "$DEPLOYED_SCRIPT"
-        sed -i "s|NFS_RAW_PATH=\".*\"|NFS_RAW_PATH=\"${NFS_RAW_PATH}\"|" "$DEPLOYED_SCRIPT"
+        sed -i "s|SHARED_RAW_PATH=\".*\"|SHARED_RAW_PATH=\"${SHARED_RAW_PATH}\"|" "$DEPLOYED_SCRIPT"
     fi
     chmod +x "$DEPLOYED_SCRIPT"
 
@@ -211,7 +211,7 @@ if [[ -n "$WEBHOOK_SECRET" ]]; then
     echo "  WEBHOOK_SECRET=****${WEBHOOK_SECRET: -4}"
     if [[ -n "$LOCAL_RAW_PATH" ]]; then
         echo "  LOCAL_RAW_PATH=$LOCAL_RAW_PATH"
-        echo "  NFS_RAW_PATH=$NFS_RAW_PATH"
+        echo "  SHARED_RAW_PATH=$SHARED_RAW_PATH"
     fi
 
     # Update arm.yaml: use BASH_SCRIPT, clear JSON_URL

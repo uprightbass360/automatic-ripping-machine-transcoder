@@ -471,9 +471,9 @@ Enhanced health check that verifies:
 - Database is accessible
 - GPU is available (nvidia-smi)
 - Disk space > minimum
-- NFS mounts are readable/writable
+- Shared storage mounts are readable/writable
 
-**Current state:** Partial — `/health` returns worker status and queue size. No GPU, disk, or NFS checks.
+**Current state:** Partial — `/health` returns worker status and queue size. No GPU, disk, or storage mount checks.
 
 **Files:**
 - `src/main.py` (enhanced health endpoint)
