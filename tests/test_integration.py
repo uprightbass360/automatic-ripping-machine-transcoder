@@ -197,6 +197,7 @@ class TestProcessJobLifecycle:
                 mock_settings.output_extension = "mkv"
                 mock_settings.delete_source = False
                 mock_settings.video_encoder = "nvenc_h265"
+                mock_settings.work_path = str(tmp_path / "work")
 
                 await worker._process_job(job)
 
@@ -246,6 +247,7 @@ class TestProcessJobLifecycle:
                 mock_settings.movies_subdir = "movies"
                 mock_settings.output_extension = "mkv"
                 mock_settings.video_encoder = "nvenc_h265"
+                mock_settings.work_path = str(tmp_path / "work")
 
                 await worker._process_job(job)
 
@@ -319,6 +321,7 @@ class TestProcessJobLifecycle:
                 mock_settings.output_extension = "mkv"
                 mock_settings.delete_source = True
                 mock_settings.video_encoder = "nvenc_h265"
+                mock_settings.work_path = str(tmp_path / "work")
 
                 await worker._process_job(job)
 
@@ -359,10 +362,97 @@ class TestProcessJobLifecycle:
                 mock_settings.output_extension = "mkv"
                 mock_settings.delete_source = True
                 mock_settings.video_encoder = "nvenc_h265"
+                mock_settings.work_path = str(tmp_path / "work")
 
                 await worker._process_job(job)
 
         # Source should still exist after failure
+        assert source_dir.exists()
+
+    @pytest.mark.asyncio
+    async def test_work_dir_cleaned_on_success(self, test_db_setup, tmp_path):
+        """Local scratch dir should be cleaned up after successful transcode."""
+        _, session_factory, test_get_db = test_db_setup
+
+        source_dir = tmp_path / "raw" / "Work Cleanup Movie"
+        source_dir.mkdir(parents=True)
+        (source_dir / "main.mkv").write_bytes(b"\x00" * 5000)
+        completed_dir = tmp_path / "completed"
+        completed_dir.mkdir()
+        work_dir = tmp_path / "work"
+
+        with patch("transcoder.get_db", test_get_db), \
+             patch("transcoder.check_gpu_support", return_value={
+                 "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
+             }):
+            from transcoder import TranscodeWorker
+            worker = TranscodeWorker()
+
+            await worker.queue_job(source_path=str(source_dir), title="Work Cleanup Movie")
+            job = await worker._queue.get()
+
+            with patch.object(worker, "_wait_for_stable", AsyncMock()), \
+                 patch.object(worker, "_transcode_file_handbrake", AsyncMock()), \
+                 patch("transcoder.settings") as mock_settings:
+                mock_settings.completed_path = str(completed_dir)
+                mock_settings.movies_subdir = "movies"
+                mock_settings.output_extension = "mkv"
+                mock_settings.delete_source = False
+                mock_settings.video_encoder = "nvenc_h265"
+                mock_settings.work_path = str(work_dir)
+
+                await worker._process_job(job)
+
+        # Work dir for this job should be cleaned up
+        work_job_dir = work_dir / f"job-{job.id}"
+        assert not work_job_dir.exists()
+
+    @pytest.mark.asyncio
+    async def test_work_dir_cleaned_on_failure(self, test_db_setup, tmp_path):
+        """Local scratch dir should be cleaned up even after failed transcode."""
+        _, session_factory, test_get_db = test_db_setup
+
+        source_dir = tmp_path / "raw" / "Work Fail Movie"
+        source_dir.mkdir(parents=True)
+        (source_dir / "main.mkv").write_bytes(b"\x00" * 5000)
+        completed_dir = tmp_path / "completed"
+        completed_dir.mkdir()
+        work_dir = tmp_path / "work"
+
+        with patch("transcoder.get_db", test_get_db), \
+             patch("transcoder.check_gpu_support", return_value={
+                 "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
+             }):
+            from transcoder import TranscodeWorker
+            worker = TranscodeWorker()
+
+            await worker.queue_job(source_path=str(source_dir), title="Work Fail Movie")
+            job = await worker._queue.get()
+
+            with patch.object(worker, "_wait_for_stable", AsyncMock()), \
+                 patch.object(worker, "_transcode_file_handbrake",
+                              AsyncMock(side_effect=RuntimeError("encoder crash"))), \
+                 patch("transcoder.settings") as mock_settings:
+                mock_settings.completed_path = str(completed_dir)
+                mock_settings.movies_subdir = "movies"
+                mock_settings.output_extension = "mkv"
+                mock_settings.delete_source = False
+                mock_settings.video_encoder = "nvenc_h265"
+                mock_settings.work_path = str(work_dir)
+
+                await worker._process_job(job)
+
+        # Work dir should still be cleaned up despite failure
+        work_job_dir = work_dir / f"job-{job.id}"
+        assert not work_job_dir.exists()
+
+        # But source should still exist
         assert source_dir.exists()
 
 
@@ -502,6 +592,7 @@ class TestWorkerRunLoop:
                 mock_settings.delete_source = False
                 mock_settings.video_encoder = "nvenc_h265"
                 mock_settings.stabilize_seconds = 0
+                mock_settings.work_path = str(tmp_path / "work")
 
                 # Run worker briefly - it should process the job then we shut it down
                 async def run_and_stop():
@@ -952,6 +1043,7 @@ class TestMultiFileTranscode:
                 mock_settings.output_extension = "mkv"
                 mock_settings.delete_source = False
                 mock_settings.video_encoder = "nvenc_h265"
+                mock_settings.work_path = str(tmp_path / "work")
 
                 await worker._process_job(job)
 
@@ -1001,6 +1093,7 @@ class TestMultiFileTranscode:
                 mock_settings.output_extension = "mkv"
                 mock_settings.delete_source = False
                 mock_settings.video_encoder = "nvenc_h265"
+                mock_settings.work_path = str(tmp_path / "work")
 
                 await worker._process_job(job)
 

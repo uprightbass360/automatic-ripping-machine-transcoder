@@ -262,7 +262,15 @@ class TranscodeWorker:
                 logger.info(f"Restored pending job {job.id}: {job.title}")
 
     async def _process_job(self, job: TranscodeJob):
-        """Process a single transcode job."""
+        """Process a single transcode job.
+
+        Uses local scratch storage (work_path) to avoid doing heavy I/O on NFS:
+          1. Copy source from NFS raw → local work dir
+          2. Transcode locally
+          3. Move output from local → NFS completed
+          4. Clean up local work dir (always, even on failure)
+          5. Clean up NFS raw source (if delete_source is set)
+        """
         logger.info(f"Processing job {job.id}: {job.title}")
 
         async with get_db() as db:
@@ -270,6 +278,9 @@ class TranscodeWorker:
                 select(TranscodeJobDB).where(TranscodeJobDB.id == job.id)
             )
             job_db = result.scalar_one()
+
+            # Local scratch directory for this job
+            work_job_dir = Path(settings.work_path) / f"job-{job.id}"
 
             try:
                 # Update status to processing
@@ -280,7 +291,7 @@ class TranscodeWorker:
                 # Wait for source to stabilize (files still being written)
                 await self._wait_for_stable(job.source_path)
 
-                # Discover source files
+                # Discover source files on NFS
                 source_files = self._discover_source_files(job.source_path)
                 if not source_files:
                     raise ValueError(f"No MKV files found in {job.source_path}")
@@ -290,30 +301,48 @@ class TranscodeWorker:
 
                 logger.info(f"Found {len(source_files)} MKV files to transcode")
 
-                # Determine output path
+                # Copy source from NFS to local scratch
+                work_source_dir = work_job_dir / "source"
+                work_output_dir = work_job_dir / "output"
+                source = Path(job.source_path)
+
+                work_job_dir.mkdir(parents=True, exist_ok=True)
+                work_output_dir.mkdir()
+
+                logger.info(f"Copying source to local scratch: {work_source_dir}")
+                if source.is_file():
+                    work_source_dir.mkdir()
+                    shutil.copy2(str(source), str(work_source_dir / source.name))
+                else:
+                    shutil.copytree(str(source), str(work_source_dir))
+
+                # Re-discover files from local copy
+                local_source_files = self._discover_source_files(str(work_source_dir))
+
+                # Determine final NFS output path
                 output_dir = self._determine_output_path(job.title, job.source_path)
                 os.makedirs(output_dir, exist_ok=True)
                 job_db.output_path = str(output_dir)
                 await db.commit()
 
                 # Find main feature (largest file)
-                main_feature = max(source_files, key=lambda f: f.stat().st_size)
+                main_feature = max(local_source_files, key=lambda f: f.stat().st_size)
                 job_db.main_feature_file = main_feature.name
                 await db.commit()
 
-                # Transcode each file
-                for i, source_file in enumerate(source_files):
-                    progress = (i / len(source_files)) * 100
+                # Transcode each file locally
+                for i, source_file in enumerate(local_source_files):
+                    progress = (i / len(local_source_files)) * 100
                     job_db.progress = progress
                     await db.commit()
 
-                    output_file = output_dir / f"{source_file.stem}.{settings.output_extension}"
+                    output_file = work_output_dir / f"{source_file.stem}.{settings.output_extension}"
 
                     # Determine if this is the main feature
                     is_main = source_file == main_feature
 
                     logger.info(
-                        f"Transcoding [{i+1}/{len(source_files)}]: {source_file.name}"
+                        f"Transcoding [{i+1}/{len(local_source_files)}]: {source_file.name}"
                         f"{' (main feature)' if is_main else ''}"
                     )
 
@@ -322,12 +351,18 @@ class TranscodeWorker:
                     else:
                         await self._transcode_file_handbrake(source_file, output_file, job_db, db)
 
-                # Success - clean up source if configured
+                # Move local output → NFS completed
+                logger.info(f"Moving output to completed: {output_dir}")
+                for f in work_output_dir.iterdir():
+                    shutil.move(str(f), str(output_dir / f.name))
+
+                # Success
                 job_db.status = JobStatus.COMPLETED
                 job_db.progress = 100.0
                 job_db.completed_at = datetime.utcnow()
                 await db.commit()
 
+                # Clean up NFS raw source if configured
                 if settings.delete_source:
                     self._cleanup_source(job.source_path)
                     logger.info(f"Cleaned up source: {job.source_path}")
@@ -339,6 +374,12 @@ class TranscodeWorker:
                 job_db.status = JobStatus.FAILED
                 job_db.error = str(e)
                 await db.commit()
+
+            finally:
+                # Always clean up local scratch
+                if work_job_dir.exists():
+                    shutil.rmtree(work_job_dir)
+                    logger.info(f"Cleaned up work dir: {work_job_dir}")
 
     async def _wait_for_stable(self, path: str, timeout: int = 3600):
         """Wait for directory to stop receiving new files."""
