@@ -195,24 +195,34 @@ echo ""
 # --- Generate helper script ---
 echo "Installing helper script..."
 
-# Build device visibility check
-# If the container can already see the device, no restart needed.
-# This prevents restart loops: container restart → udev events → restart again.
-DEVICE_CHECK=""
+# Build container uptime check
+# If the container was recently restarted (by us), skip — the udev events
+# are from the restart itself, not a genuine drive reconnect.
+# This prevents restart loops without relying on stale device nodes.
+UPTIME_CHECK=""
 if [[ -n "$COMPOSE_FILE" ]]; then
-    # For compose mode, find the first running container from the compose project
-    DEVICE_CHECK="
-# --- Check if container already has the device ---
+    UPTIME_CHECK="
+# --- Check if container was recently restarted ---
 COMPOSE_CONTAINER=\$(docker compose -f \"$COMPOSE_FILE\" ps -q 2>/dev/null | head -1)
-if [[ -n \"\$COMPOSE_CONTAINER\" ]] && docker exec \"\$COMPOSE_CONTAINER\" test -b /dev/$DEVICE 2>/dev/null; then
-    logger -t arm-drive-watcher \"Container already has /dev/$DEVICE, skipping restart\"
-    exit 0
+if [[ -n \"\$COMPOSE_CONTAINER\" ]]; then
+    STARTED=\$(docker inspect --format '{{.State.StartedAt}}' \"\$COMPOSE_CONTAINER\" 2>/dev/null)
+    STARTED_EPOCH=\$(date -d \"\$STARTED\" +%s 2>/dev/null || echo 0)
+    NOW_EPOCH=\$(date +%s)
+    UPTIME=\$((NOW_EPOCH - STARTED_EPOCH))
+    if [[ \$UPTIME -lt $DEBOUNCE ]]; then
+        logger -t arm-drive-watcher \"Container restarted \${UPTIME}s ago, skipping\"
+        exit 0
+    fi
 fi"
 elif [[ -n "$CONTAINER" ]]; then
-    DEVICE_CHECK="
-# --- Check if container already has the device ---
-if docker exec \"$CONTAINER\" test -b /dev/$DEVICE 2>/dev/null; then
-    logger -t arm-drive-watcher \"Container already has /dev/$DEVICE, skipping restart\"
+    UPTIME_CHECK="
+# --- Check if container was recently restarted ---
+STARTED=\$(docker inspect --format '{{.State.StartedAt}}' \"$CONTAINER\" 2>/dev/null)
+STARTED_EPOCH=\$(date -d \"\$STARTED\" +%s 2>/dev/null || echo 0)
+NOW_EPOCH=\$(date +%s)
+UPTIME=\$((NOW_EPOCH - STARTED_EPOCH))
+if [[ \$UPTIME -lt $DEBOUNCE ]]; then
+    logger -t arm-drive-watcher \"Container restarted \${UPTIME}s ago, skipping\"
     exit 0
 fi"
 fi
@@ -227,9 +237,13 @@ else
     # Auto-detect: find container matching ^arm, fall back to systemd
     RESTART_LOGIC='CONTAINER=$(docker ps -a --format "{{.Names}}" 2>/dev/null | grep "^arm" | head -1)
 if [[ -n "$CONTAINER" ]]; then
-    # Check if container already has the device
-    if docker exec "$CONTAINER" test -b /dev/'"$DEVICE"' 2>/dev/null; then
-        logger -t arm-drive-watcher "Container already has /dev/'"$DEVICE"', skipping restart"
+    # Check if container was recently restarted
+    STARTED=$(docker inspect --format '"'"'{{.State.StartedAt}}'"'"' "$CONTAINER" 2>/dev/null)
+    STARTED_EPOCH=$(date -d "$STARTED" +%s 2>/dev/null || echo 0)
+    NOW_EPOCH=$(date +%s)
+    UPTIME=$((NOW_EPOCH - STARTED_EPOCH))
+    if [[ $UPTIME -lt '"$DEBOUNCE"' ]]; then
+        logger -t arm-drive-watcher "Container restarted ${UPTIME}s ago, skipping"
         exit 0
     fi
     docker restart "$CONTAINER"
@@ -271,7 +285,7 @@ cat > "$HELPER_SCRIPT" <<HELPEREOF
 set -euo pipefail
 
 logger -t arm-drive-watcher "Drive event detected, checking restart..."
-${DEVICE_CHECK}
+${UPTIME_CHECK}
 ${DEBOUNCE_BLOCK}
 # --- Restart ARM ---
 logger -t arm-drive-watcher "Restarting ARM..."
