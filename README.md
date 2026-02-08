@@ -35,23 +35,25 @@ For Proxmox LXC deployment, see [docs/proxmox-lxc-setup.md](docs/proxmox-lxc-set
 
 ## Architecture
 
-```
-┌─────────────────────────────────────┐      ┌─────────────────────────────────────┐
-│         ARM Ripper Machine          │      │         Transcode Machine           │
-│                                     │      │                                     │
-│  ┌─────────────────────────────┐   │      │   ┌─────────────────────────────┐   │
-│  │     ARM Container           │   │      │   │     arm-transcoder          │   │
-│  │     (MakeMKV only)          │   │      │   │     (FFmpeg / HandBrake)    │   │
-│  └──────────────┬──────────────┘   │      │   └──────────────┬──────────────┘   │
-│                 │                  │      │                  │                  │
-│                 │ webhook          │      │                  │                  │
-│                 ▼                  │      │                  ▼                  │
-│  ┌──────────────────────────────────┴──────┴──────────────────────────────────┐ │
-│  │                         NFS Shared Storage                                  │ │
-│  │  /raw/           - MakeMKV output (read by transcoder)                     │ │
-│  │  /completed/     - Final transcoded files                                  │ │
-│  └─────────────────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph ripper["ARM Ripper Machine"]
+        ARM["ARM Container<br/>(MakeMKV only)"]
+    end
+
+    subgraph transcoder["Transcode Machine"]
+        TC["arm-transcoder<br/>(FFmpeg / HandBrake)"]
+    end
+
+    subgraph nfs["NFS Shared Storage"]
+        RAW["/raw/ — MakeMKV output"]
+        DONE["/completed/ — Final transcodes"]
+    end
+
+    ARM -- "webhook" --> TC
+    ARM -- "writes" --> RAW
+    RAW -- "reads" --> TC
+    TC -- "writes" --> DONE
 ```
 
 ## Features
