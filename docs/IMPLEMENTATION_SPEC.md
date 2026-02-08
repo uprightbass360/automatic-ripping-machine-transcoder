@@ -565,7 +565,6 @@ Required tests:
 ### 7.2 New Documentation
 
 - `docs/AUTHENTICATION.md` — COMPLETE
-- `docs/SECURITY_FIXES_PROGRESS.md` — COMPLETE
 - `docs/proxmox-lxc-setup.md` — COMPLETE
 - `docs/SECURITY.md` - Security best practices — not started
 - `docs/API.md` - Complete API reference — not started
