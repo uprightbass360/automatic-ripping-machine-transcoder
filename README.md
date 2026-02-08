@@ -47,13 +47,15 @@ flowchart TB
 
     subgraph nfs["NFS Shared Storage"]
         RAW["/raw/ — MakeMKV output"]
-        DONE["/completed/ — Final transcodes"]
+        DONE["/completed/movies/ — Transcoded video"]
+        MUSIC["/completed/music/ — Audio CD rips"]
     end
 
     ARM -- "webhook" --> TC
     ARM -- "writes" --> RAW
     RAW -- "reads" --> TC
-    TC -- "writes" --> DONE
+    TC -- "transcodes" --> DONE
+    TC -- "moves" --> MUSIC
 ```
 
 ## Features
@@ -65,6 +67,7 @@ flowchart TB
 - REST API for job monitoring and management
 - API key authentication with role-based access (admin/readonly)
 - Input validation and path traversal protection
+- Audio CD passthrough — detects music rips (FLAC/MP3/etc.) and moves them to a music folder without transcoding
 - Local scratch storage to avoid heavy I/O on NFS (copy→transcode→move)
 - Automatic source cleanup after successful transcode
 - Pagination support on job listings
@@ -110,6 +113,8 @@ These variables are used across all `docker-compose*.yml` files:
 | `VIDEO_QUALITY` | 22 | Quality (0-51, lower = better). Maps to CQ (NVENC), QP (VAAPI), global_quality (QSV), or CRF (software) |
 | `AUDIO_ENCODER` | copy | Audio handling (`copy`, `aac`, `ac3`, `eac3`, `flac`, `mp3`) |
 | `SUBTITLE_MODE` | all | Subtitle handling (`all`, `none`, `first`) |
+| `MOVIES_SUBDIR` | movies | Subdirectory under COMPLETED_PATH for movies |
+| `MUSIC_SUBDIR` | music | Subdirectory under COMPLETED_PATH for music CD rips |
 | `DELETE_SOURCE` | true | Remove source after successful transcode |
 | `MAX_CONCURRENT` | 1 | Max concurrent transcodes (1 recommended for single GPU) |
 | `STABILIZE_SECONDS` | 60 | Seconds to wait for source files to stop changing |
@@ -188,7 +193,7 @@ The transcoder extracts the title and looks for files in `RAW_PATH/<directory na
 
 ## Testing
 
-The project includes 242 tests covering unit, integration, and security testing.
+The project includes 254 tests covering unit, integration, and security testing.
 
 ```bash
 # Install test dependencies
@@ -201,11 +206,11 @@ python -m pytest tests/ -v
 | Test File | Tests | Coverage |
 |-----------|-------|----------|
 | `test_utils.py` | 48 | PathValidator, CommandValidator, disk space, title cleaning |
-| `test_transcoder.py` | 45 | GPU detection, encoder family routing, FFmpeg commands, file discovery |
+| `test_transcoder.py` | 53 | GPU detection, encoder family routing, FFmpeg commands, file/audio discovery |
 | `test_security.py` | 43 | Path traversal, injection, payload attacks, auth bypass |
 | `test_models.py` | 34 | Pydantic validation, enums, data models |
 | `test_auth.py` | 27 | API key auth, webhook secret, config validation |
-| `test_integration.py` | 26 | Full pipeline: job lifecycle, retry/delete, startup restore, work dir cleanup |
+| `test_integration.py` | 30 | Full pipeline: job lifecycle, retry/delete, startup restore, audio passthrough |
 | `test_api.py` | 19 | All API endpoints via async HTTP client |
 
 ## Directory Structure
