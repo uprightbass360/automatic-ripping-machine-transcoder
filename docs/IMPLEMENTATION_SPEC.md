@@ -379,7 +379,57 @@ AUDIO_SUBDIR=audio  # default
 - ~~Source cleanup after audio passthrough~~
 - ~~Audio file discovery: FLAC, mixed formats, empty dirs, single files, sort order~~
 
-### 4.8 Completion Notifications
+### 4.8 TV Show Detection — COMPLETE
+
+**Implementation:**
+- ~~Detect TV shows via ARM naming patterns (`S01`, `S01E01`, etc.) in title or source path~~
+- ~~Route TV shows to `TV_SUBDIR` (default `tv/`) and movies to `MOVIES_SUBDIR` (default `movies/`)~~
+- ~~Case-insensitive matching, supports underscore separators~~
+
+**Configuration:**
+```
+MOVIES_SUBDIR=movies  # default
+TV_SUBDIR=tv          # default
+```
+
+**Files Modified:**
+- `src/transcoder.py` — `_detect_video_type()`, `_determine_output_path()` uses video type for subdirectory routing
+- `src/config.py` — `tv_subdir` setting
+
+**Test Cases (all covered in `tests/test_transcoder.py`):**
+- ~~Movie titles (plain, with year)~~
+- ~~TV season+episode, season-only, detected from source path~~
+- ~~Case insensitive, underscore separators~~
+- ~~Movie with 'S' in title not falsely detected~~
+
+### 4.9 Resolution-Based Preset Selection — COMPLETE
+
+**Implementation:**
+- ~~Detect source video resolution via ffprobe before transcoding~~
+- ~~Three-tier encoding: 4K (>1080p), Blu-ray (720p–1080p), DVD (<720p)~~
+- ~~HandBrake: 4K uses `HANDBRAKE_PRESET_4K`, DVD adds `--width 1280` upscale~~
+- ~~FFmpeg: DVD upscale via GPU-native filters (`scale_cuda`, `scale_vaapi`, `vpp_qsv`, `scale`)~~
+- ~~Graceful fallback to standard preset when ffprobe fails~~
+
+**Configuration:**
+```
+HANDBRAKE_PRESET=NVENC H.265 1080p        # standard/DVD content
+HANDBRAKE_PRESET_4K=H.265 NVENC 2160p 4K  # 4K content
+```
+
+**Files Modified:**
+- `src/config.py` — `handbrake_preset_4k` setting
+- `src/transcoder.py` — `_get_video_resolution()`, resolution logic in `_transcode_file_handbrake()` and `_build_ffmpeg_command()`
+- All `docker-compose*.yml` — `HANDBRAKE_PRESET_4K` env var with GPU-appropriate defaults
+- `.env.example` — `HANDBRAKE_PRESET_4K` documented
+
+**Test Cases (all covered):**
+- ~~Resolution parsing: valid, 4K, DVD, malformed, empty, ffprobe failure~~
+- ~~HandBrake: 4K preset, 1080p standard, 480p upscale, 720p boundary, ffprobe fallback~~
+- ~~FFmpeg: upscale per GPU family (NVENC, VAAPI, QSV, AMF, software), 1080p/4K no-op, PAL DVD~~
+- ~~Integration: 4K source triggers 4K preset through full pipeline~~
+
+### 4.10 Completion Notifications
 
 **Implementation:**
 - Support webhook callbacks on job completion
@@ -463,10 +513,10 @@ Required tests:
 - ~~Disk space calculations~~
 - ~~Retry logic with backoff~~
 
-**Files (254 tests total):**
+**Files (284 tests total):**
 - `tests/test_utils.py` — 48 tests (PathValidator, CommandValidator, disk space, title cleaning, log sanitization)
 - `tests/test_models.py` — 34 tests (WebhookPayload validation, JobStatus, TranscodeJob)
-- `tests/test_transcoder.py` — 53 tests (GPU detection, encoder routing, FFmpeg commands, file discovery, audio file discovery)
+- `tests/test_transcoder.py` — 73 tests (GPU detection, encoder routing, FFmpeg commands, file discovery, audio file discovery, resolution detection, preset selection, FFmpeg upscale per GPU)
 - `tests/test_auth.py` — 27 tests (API key auth, webhook secret, settings validation)
 
 ### 6.2 Integration Tests — COMPLETE
@@ -481,7 +531,7 @@ Required tests:
 **Note:** Job cancellation, graceful shutdown, and concurrent processing tests pending their respective feature implementations.
 
 **Files:**
-- `tests/test_integration.py` — 30 tests (job lifecycle, retry/delete, startup restore, worker run loop, multi-file transcode, work dir cleanup, audio CD passthrough)
+- `tests/test_integration.py` — 31 tests (job lifecycle, retry/delete, startup restore, worker run loop, multi-file transcode, work dir cleanup, audio CD passthrough, 4K preset selection)
 
 ### 6.3 Security Tests — COMPLETE
 
@@ -553,9 +603,10 @@ Required tests:
    - Notifications — not started
    - ~~Retry limits~~
    - ~~Audio CD passthrough~~
+   - ~~Resolution-based preset selection~~
 
 5. **Phase 5: Testing & Documentation** — Partial
-   - ~~Write tests (254 tests)~~
+   - ~~Write tests (284 tests)~~
    - ~~Update documentation~~
    - ~~Security audit~~
    - Performance testing — not started
@@ -595,7 +646,7 @@ After implementation:
 Implementation complete when:
 
 - [x] All critical/high security issues resolved
-- [x] All tests passing (254 tests)
+- [x] All tests passing (284 tests)
 - [x] Security audit passed
 - [x] Documentation updated
 - [ ] Performance targets met
