@@ -414,6 +414,81 @@ class TestDiscoverSourceFiles:
         assert files[0].suffix == ".mkv"
 
 
+# ─── TranscodeWorker._discover_audio_files ────────────────────────────────────
+
+
+class TestDiscoverAudioFiles:
+    """Tests for _discover_audio_files method."""
+
+    def _make_worker(self):
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+            from transcoder import TranscodeWorker
+            return TranscodeWorker()
+
+    def test_finds_flac_files(self, tmp_path):
+        (tmp_path / "track01.flac").write_bytes(b"\x00" * 100)
+        (tmp_path / "track02.flac").write_bytes(b"\x00" * 200)
+        worker = self._make_worker()
+        files = worker._discover_audio_files(str(tmp_path))
+        assert len(files) == 2
+        names = {f.name for f in files}
+        assert "track01.flac" in names
+        assert "track02.flac" in names
+
+    def test_finds_mixed_audio_formats(self, tmp_path):
+        (tmp_path / "track.flac").write_bytes(b"\x00" * 100)
+        (tmp_path / "track.mp3").write_bytes(b"\x00" * 100)
+        (tmp_path / "track.ogg").write_bytes(b"\x00" * 100)
+        (tmp_path / "track.wav").write_bytes(b"\x00" * 100)
+        (tmp_path / "track.m4a").write_bytes(b"\x00" * 100)
+        worker = self._make_worker()
+        files = worker._discover_audio_files(str(tmp_path))
+        assert len(files) == 5
+
+    def test_returns_empty_for_mkv_only(self, tmp_path):
+        (tmp_path / "movie.mkv").write_bytes(b"\x00" * 100)
+        worker = self._make_worker()
+        files = worker._discover_audio_files(str(tmp_path))
+        assert len(files) == 0
+
+    def test_returns_empty_for_empty_dir(self, tmp_path):
+        worker = self._make_worker()
+        files = worker._discover_audio_files(str(tmp_path))
+        assert len(files) == 0
+
+    def test_ignores_non_audio_files(self, tmp_path):
+        (tmp_path / "track.flac").write_bytes(b"\x00" * 100)
+        (tmp_path / "cover.jpg").write_bytes(b"\x00" * 50)
+        (tmp_path / "playlist.m3u").write_text("list")
+        worker = self._make_worker()
+        files = worker._discover_audio_files(str(tmp_path))
+        assert len(files) == 1
+        assert files[0].suffix == ".flac"
+
+    def test_single_audio_file(self, tmp_path):
+        flac = tmp_path / "track.flac"
+        flac.write_bytes(b"\x00" * 100)
+        worker = self._make_worker()
+        files = worker._discover_audio_files(str(flac))
+        assert len(files) == 1
+        assert files[0].name == "track.flac"
+
+    def test_single_non_audio_file(self, tmp_path):
+        txt = tmp_path / "readme.txt"
+        txt.write_text("not audio")
+        worker = self._make_worker()
+        files = worker._discover_audio_files(str(txt))
+        assert len(files) == 0
+
+    def test_sorted_by_name(self, tmp_path):
+        (tmp_path / "track03.flac").write_bytes(b"\x00" * 100)
+        (tmp_path / "track01.flac").write_bytes(b"\x00" * 100)
+        (tmp_path / "track02.flac").write_bytes(b"\x00" * 100)
+        worker = self._make_worker()
+        files = worker._discover_audio_files(str(tmp_path))
+        assert [f.name for f in files] == ["track01.flac", "track02.flac", "track03.flac"]
+
+
 # ─── TranscodeWorker._determine_output_path ──────────────────────────────────
 
 

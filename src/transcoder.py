@@ -15,6 +15,7 @@ from typing import Optional
 from sqlalchemy import select
 
 from config import settings
+from constants import AUDIO_FILE_EXTENSIONS
 from database import get_db
 from models import TranscodeJobDB, JobStatus, TranscodeJob
 
@@ -294,7 +295,12 @@ class TranscodeWorker:
                 # Discover source files on NFS
                 source_files = self._discover_source_files(job.source_path)
                 if not source_files:
-                    raise ValueError(f"No MKV files found in {job.source_path}")
+                    # Check for audio files (music CD rip)
+                    audio_files = self._discover_audio_files(job.source_path)
+                    if audio_files:
+                        await self._passthrough_audio(job, job_db, db)
+                        return
+                    raise ValueError(f"No video or audio files found in {job.source_path}")
 
                 job_db.total_tracks = len(source_files)
                 await db.commit()
@@ -424,6 +430,54 @@ class TranscodeWorker:
         mkv_files.sort(key=lambda f: f.stat().st_size, reverse=True)
 
         return mkv_files
+
+    def _discover_audio_files(self, source_path: str) -> list[Path]:
+        """Find all audio files in source directory."""
+        path = Path(source_path)
+
+        if path.is_file():
+            return [path] if path.suffix.lower() in AUDIO_FILE_EXTENSIONS else []
+
+        audio_files = [
+            f for f in path.iterdir()
+            if f.is_file() and f.suffix.lower() in AUDIO_FILE_EXTENSIONS
+        ]
+        audio_files.sort(key=lambda f: f.name)
+
+        return audio_files
+
+    async def _passthrough_audio(
+        self,
+        job: TranscodeJob,
+        job_db: TranscodeJobDB,
+        db,
+    ):
+        """Move audio files directly to music output folder (no transcoding)."""
+        clean_title = re.sub(r'[<>:"/\\|?*]', '', job.title)
+        output_dir = Path(settings.completed_path) / settings.music_subdir / clean_title
+        os.makedirs(output_dir, exist_ok=True)
+
+        source = Path(job.source_path)
+        audio_files = self._discover_audio_files(job.source_path)
+
+        logger.info(f"Music passthrough: moving {len(audio_files)} audio files to {output_dir}")
+
+        for f in audio_files:
+            shutil.move(str(f), str(output_dir / f.name))
+
+        job_db.output_path = str(output_dir)
+        job_db.total_tracks = len(audio_files)
+        job_db.status = JobStatus.COMPLETED
+        job_db.progress = 100.0
+        job_db.completed_at = datetime.utcnow()
+        await db.commit()
+
+        # Clean up empty source directory if delete_source is set
+        if settings.delete_source:
+            self._cleanup_source(job.source_path)
+            logger.info(f"Cleaned up source: {job.source_path}")
+
+        logger.info(f"Completed music passthrough for job {job.id}: {job.title}")
 
     def _determine_output_path(self, title: str, source_path: str) -> Path:
         """Determine the output directory path."""

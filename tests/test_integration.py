@@ -259,7 +259,7 @@ class TestProcessJobLifecycle:
 
     @pytest.mark.asyncio
     async def test_no_mkv_files_fails(self, test_db_setup, tmp_path):
-        """Job with no MKV files in source should fail."""
+        """Job with no MKV or audio files in source should fail."""
         _, session_factory, test_get_db = test_db_setup
 
         source_dir = tmp_path / "raw" / "Empty Movie"
@@ -286,7 +286,7 @@ class TestProcessJobLifecycle:
             result = await session.execute(select(TranscodeJobDB))
             job_db = result.scalar_one()
             assert job_db.status == JobStatus.FAILED
-            assert "No MKV files" in job_db.error
+            assert "No video or audio files" in job_db.error
 
     @pytest.mark.asyncio
     async def test_source_cleanup_on_success(self, test_db_setup, tmp_path):
@@ -996,6 +996,188 @@ class TestWebhookToJobsList:
         data = response.json()
         assert len(data["jobs"]) == 3
         assert data["total"] == 10
+
+
+# ─── 8b. Audio CD Passthrough ─────────────────────────────────────────────────
+
+
+class TestAudioPassthrough:
+    """Test audio CD rip passthrough (no transcoding, move to music/)."""
+
+    @pytest.mark.asyncio
+    async def test_audio_files_passthrough_to_music(self, test_db_setup, tmp_path):
+        """Source with FLAC files should be moved to music/ and marked COMPLETED."""
+        _, session_factory, test_get_db = test_db_setup
+
+        source_dir = tmp_path / "raw" / "Greatest Hits"
+        source_dir.mkdir(parents=True)
+        (source_dir / "track01.flac").write_bytes(b"\x00" * 1000)
+        (source_dir / "track02.flac").write_bytes(b"\x00" * 2000)
+        (source_dir / "track03.flac").write_bytes(b"\x00" * 1500)
+
+        completed_dir = tmp_path / "completed"
+        completed_dir.mkdir()
+
+        with patch("transcoder.get_db", test_get_db), \
+             patch("transcoder.check_gpu_support", return_value={
+                 "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
+             }):
+            from transcoder import TranscodeWorker
+            worker = TranscodeWorker()
+
+            await worker.queue_job(source_path=str(source_dir), title="Greatest Hits")
+            job = await worker._queue.get()
+
+            with patch.object(worker, "_wait_for_stable", AsyncMock()), \
+                 patch("transcoder.settings") as mock_settings:
+                mock_settings.completed_path = str(completed_dir)
+                mock_settings.music_subdir = "music"
+                mock_settings.movies_subdir = "movies"
+                mock_settings.delete_source = False
+                mock_settings.work_path = str(tmp_path / "work")
+
+                await worker._process_job(job)
+
+        # Verify files moved to music/Greatest Hits/
+        music_dir = completed_dir / "music" / "Greatest Hits"
+        assert music_dir.exists()
+        assert (music_dir / "track01.flac").exists()
+        assert (music_dir / "track02.flac").exists()
+        assert (music_dir / "track03.flac").exists()
+
+        # Verify DB state
+        async with session_factory() as session:
+            result = await session.execute(select(TranscodeJobDB))
+            job_db = result.scalar_one()
+            assert job_db.status == JobStatus.COMPLETED
+            assert job_db.total_tracks == 3
+            assert job_db.progress == 100.0
+            assert job_db.completed_at is not None
+            assert "music" in job_db.output_path
+
+    @pytest.mark.asyncio
+    async def test_mixed_mkv_and_audio_treated_as_video(self, test_db_setup, tmp_path):
+        """Source with MKV + audio files should follow the video transcode path."""
+        _, session_factory, test_get_db = test_db_setup
+
+        source_dir = tmp_path / "raw" / "Movie With Soundtrack"
+        source_dir.mkdir(parents=True)
+        (source_dir / "movie.mkv").write_bytes(b"\x00" * 5000)
+        (source_dir / "soundtrack.flac").write_bytes(b"\x00" * 1000)
+
+        completed_dir = tmp_path / "completed"
+        completed_dir.mkdir()
+
+        with patch("transcoder.get_db", test_get_db), \
+             patch("transcoder.check_gpu_support", return_value={
+                 "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
+             }):
+            from transcoder import TranscodeWorker
+            worker = TranscodeWorker()
+
+            await worker.queue_job(
+                source_path=str(source_dir), title="Movie With Soundtrack"
+            )
+            job = await worker._queue.get()
+
+            with patch.object(worker, "_wait_for_stable", AsyncMock()), \
+                 patch.object(worker, "_transcode_file_handbrake", AsyncMock()), \
+                 patch("transcoder.settings") as mock_settings:
+                mock_settings.completed_path = str(completed_dir)
+                mock_settings.movies_subdir = "movies"
+                mock_settings.output_extension = "mkv"
+                mock_settings.delete_source = False
+                mock_settings.video_encoder = "nvenc_h265"
+                mock_settings.work_path = str(tmp_path / "work")
+
+                await worker._process_job(job)
+
+        # Should be treated as video, not music
+        async with session_factory() as session:
+            result = await session.execute(select(TranscodeJobDB))
+            job_db = result.scalar_one()
+            assert job_db.status == JobStatus.COMPLETED
+            assert "movies" in job_db.output_path
+
+    @pytest.mark.asyncio
+    async def test_no_video_or_audio_fails_with_updated_message(self, test_db_setup, tmp_path):
+        """Source with no MKV and no audio files should fail with updated error."""
+        _, session_factory, test_get_db = test_db_setup
+
+        source_dir = tmp_path / "raw" / "Empty Disc"
+        source_dir.mkdir(parents=True)
+        (source_dir / "readme.txt").write_text("nothing useful")
+
+        with patch("transcoder.get_db", test_get_db), \
+             patch("transcoder.check_gpu_support", return_value={
+                 "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
+             }):
+            from transcoder import TranscodeWorker
+            worker = TranscodeWorker()
+
+            await worker.queue_job(source_path=str(source_dir), title="Empty Disc")
+            job = await worker._queue.get()
+
+            with patch.object(worker, "_wait_for_stable", AsyncMock()):
+                await worker._process_job(job)
+
+        async with session_factory() as session:
+            result = await session.execute(select(TranscodeJobDB))
+            job_db = result.scalar_one()
+            assert job_db.status == JobStatus.FAILED
+            assert "No video or audio files" in job_db.error
+
+    @pytest.mark.asyncio
+    async def test_audio_passthrough_cleans_source(self, test_db_setup, tmp_path):
+        """Source should be cleaned up when delete_source=True for audio passthrough."""
+        _, session_factory, test_get_db = test_db_setup
+
+        source_dir = tmp_path / "raw" / "Cleanup Album"
+        source_dir.mkdir(parents=True)
+        (source_dir / "track01.mp3").write_bytes(b"\x00" * 500)
+
+        completed_dir = tmp_path / "completed"
+        completed_dir.mkdir()
+
+        with patch("transcoder.get_db", test_get_db), \
+             patch("transcoder.check_gpu_support", return_value={
+                 "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
+             }):
+            from transcoder import TranscodeWorker
+            worker = TranscodeWorker()
+
+            await worker.queue_job(source_path=str(source_dir), title="Cleanup Album")
+            job = await worker._queue.get()
+
+            with patch.object(worker, "_wait_for_stable", AsyncMock()), \
+                 patch("transcoder.settings") as mock_settings:
+                mock_settings.completed_path = str(completed_dir)
+                mock_settings.music_subdir = "music"
+                mock_settings.movies_subdir = "movies"
+                mock_settings.delete_source = True
+                mock_settings.work_path = str(tmp_path / "work")
+
+                await worker._process_job(job)
+
+        # Source should be deleted
+        assert not source_dir.exists()
+
+        # Output should exist
+        music_dir = completed_dir / "music" / "Cleanup Album"
+        assert music_dir.exists()
+        assert (music_dir / "track01.mp3").exists()
 
 
 # ─── 9. Multi-file Transcode ────────────────────────────────────────────────
