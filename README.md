@@ -180,6 +180,21 @@ Insert a disc into your ARM ripper and let it rip. When the rip completes:
 5. Audio CD rips are copied to `completed/audio/` without transcoding
 6. Source files are cleaned up (if `DELETE_SOURCE=true`)
 
+### Optional: Drive auto-restart
+
+If your Blu-ray drive isn't powered on 24/7, install a watcher on the ARM host
+to automatically restart the container when the drive connects:
+
+```bash
+sudo ./scripts/setup-drive-watcher.sh --mode udev
+
+# Monitor restart events
+journalctl -t arm-drive-watcher -f
+```
+
+See `./scripts/setup-drive-watcher.sh --help` for all options including
+docker-compose support and device-bound mode.
+
 ## Configuration
 
 ### Docker Environment Variables (.env)
@@ -383,7 +398,6 @@ arm-transcoder/
 ├── docker-compose.amd.yml      # AMD Radeon (VAAPI)
 ├── docker-compose.intel.yml    # Intel Quick Sync
 ├── docker-compose.dev.yml      # Development / software encoding
-├── docker-compose.security.yml # Security-hardened compose
 ├── Dockerfile                  # NVIDIA container
 ├── Dockerfile.amd              # AMD VAAPI container
 ├── Dockerfile.intel            # Intel QSV container
@@ -413,7 +427,6 @@ arm-transcoder/
 ├── docs/
 │   ├── IMPLEMENTATION_SPEC.md      # Improvement roadmap
 │   ├── AUTHENTICATION.md           # Auth setup guide
-│   ├── SECURITY_FIXES_PROGRESS.md  # Security audit progress
 │   └── proxmox-lxc-setup.md       # Proxmox deployment
 ├── config/
 │   └── arm/
@@ -423,7 +436,8 @@ arm-transcoder/
 │   └── nvenc_presets.json      # HandBrake presets (NVIDIA)
 └── scripts/
     ├── create-proxmox-lxc.sh     # Proxmox LXC setup
-    └── setup-arm.sh              # ARM ripper configuration automation
+    ├── setup-arm.sh              # ARM ripper configuration automation
+    └── setup-drive-watcher.sh    # Optical drive watcher for container restart
 ```
 
 ## License
