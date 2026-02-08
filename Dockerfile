@@ -1,8 +1,6 @@
-FROM jlesage/handbrake:latest AS handbrake
-
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
-# Install system dependencies
+# Install system dependencies and HandBrake CLI from PPA
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -13,12 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libva2 \
     libva-drm2 \
     libdrm2 \
+    software-properties-common \
+    && add-apt-repository -y ppa:stebbins/handbrake-releases \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends handbrake-cli \
+    && apt-get remove -y software-properties-common \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
-
-# Copy HandBrake from the jlesage image
-COPY --from=handbrake /usr/bin/HandBrakeCLI /usr/bin/HandBrakeCLI
-COPY --from=handbrake /usr/lib/x86_64-linux-gnu/libhandbrake* /usr/lib/x86_64-linux-gnu/
-COPY --from=handbrake /usr/lib/x86_64-linux-gnu/libhb* /usr/lib/x86_64-linux-gnu/
 
 # Create app user
 RUN useradd -m -s /bin/bash transcoder
