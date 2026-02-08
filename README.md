@@ -62,6 +62,7 @@ flowchart TB
 
 - Webhook receiver for ARM job completion notifications
 - Hardware-accelerated transcoding via FFmpeg (with HandBrake fallback for NVIDIA)
+- Resolution-based encoding — 4K preserved, Blu-ray at 1080p, DVDs upscaled to 720p
 - Multi-GPU support: NVIDIA NVENC, AMD VAAPI/AMF, Intel Quick Sync, software fallback
 - Queue management with SQLite persistence
 - REST API for job monitoring and management
@@ -122,6 +123,8 @@ These variables are used across all `docker-compose*.yml` files:
 | `MINIMUM_FREE_SPACE_GB` | 10 | Minimum free disk space required (GB) |
 | `REQUIRE_API_AUTH` | false | Require API key for endpoints |
 | `API_KEYS` | *(empty)* | Comma-separated API keys (see [Authentication](docs/AUTHENTICATION.md)) |
+| `HANDBRAKE_PRESET` | NVENC H.265 1080p | HandBrake preset for standard content |
+| `HANDBRAKE_PRESET_4K` | H.265 NVENC 2160p 4K | HandBrake preset for 4K content (source > 1080p) |
 | `VAAPI_DEVICE` | /dev/dri/renderD128 | VAAPI/QSV render device path (AMD and Intel only) |
 
 See `.env.example` for the full template.
@@ -152,6 +155,18 @@ Pre-configured presets in `presets/nvenc_presets.json`:
 - **NVENC H.265 1080p** - Best compression, modern compatibility
 - **NVENC H.265 4K** - For 4K/UHD content
 - **NVENC H.264 1080p** - Broader device compatibility
+
+### Resolution-Based Encoding
+
+The transcoder automatically detects source resolution and adjusts encoding:
+
+| Source | HandBrake | FFmpeg |
+|--------|-----------|--------|
+| **4K UHD** (> 1080p) | Uses `HANDBRAKE_PRESET_4K` | Preserves native resolution |
+| **Blu-ray** (720p–1080p) | Uses `HANDBRAKE_PRESET` | Preserves native resolution |
+| **DVD** (< 720p) | Uses `HANDBRAKE_PRESET` + upscale to 720p | Upscales to 720p via GPU-native filter |
+
+FFmpeg upscaling uses the appropriate hardware filter per GPU: `scale_cuda` (NVIDIA), `scale_vaapi` (AMD), `vpp_qsv` (Intel), or software `scale` fallback.
 
 ## API Endpoints
 
@@ -193,7 +208,7 @@ The transcoder extracts the title and looks for files in `RAW_PATH/<directory na
 
 ## Testing
 
-The project includes 254 tests covering unit, integration, and security testing.
+The project includes 284 tests covering unit, integration, and security testing.
 
 ```bash
 # Install test dependencies
@@ -206,11 +221,11 @@ python -m pytest tests/ -v
 | Test File | Tests | Coverage |
 |-----------|-------|----------|
 | `test_utils.py` | 48 | PathValidator, CommandValidator, disk space, title cleaning |
-| `test_transcoder.py` | 53 | GPU detection, encoder family routing, FFmpeg commands, file/audio discovery |
+| `test_transcoder.py` | 73 | GPU detection, encoder family routing, FFmpeg commands, file/audio discovery, resolution detection, preset selection |
 | `test_security.py` | 43 | Path traversal, injection, payload attacks, auth bypass |
 | `test_models.py` | 34 | Pydantic validation, enums, data models |
 | `test_auth.py` | 27 | API key auth, webhook secret, config validation |
-| `test_integration.py` | 30 | Full pipeline: job lifecycle, retry/delete, startup restore, audio passthrough |
+| `test_integration.py` | 31 | Full pipeline: job lifecycle, retry/delete, startup restore, audio passthrough, 4K preset selection |
 | `test_api.py` | 19 | All API endpoints via async HTTP client |
 
 ## Directory Structure
