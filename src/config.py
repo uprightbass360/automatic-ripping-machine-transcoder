@@ -41,6 +41,10 @@ class Settings(BaseSettings):
         "NVENC H.265 1080p",
         description="HandBrake preset name to use"
     )
+    handbrake_preset_4k: str = Field(
+        "H.265 NVENC 2160p 4K",
+        description="HandBrake preset for 4K content"
+    )
     handbrake_preset_file: str = Field(
         "",
         description="Path to custom preset JSON file (overrides preset name)"

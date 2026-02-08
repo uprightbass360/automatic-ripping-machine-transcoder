@@ -23,6 +23,7 @@ services:
       - VIDEO_QUALITY=22
       - AUDIO_ENCODER=copy
       - SUBTITLE_MODE=all
+      - HANDBRAKE_PRESET_4K=H.265 MKV 2160p60
       # File handling
       - DELETE_SOURCE=false
       - OUTPUT_EXTENSION=mkv

@@ -358,6 +358,81 @@ class TestBuildFfmpegCommand:
         device_idx = cmd.index("-hwaccel_device")
         assert cmd[device_idx + 1] == "/dev/dri/renderD128"
 
+    def test_nvenc_480p_upscale(self):
+        """NVENC FFmpeg should use scale_cuda for DVD upscale."""
+        worker, settings = self._make_worker("nvenc_h265")
+        with patch("transcoder.settings", settings):
+            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 480))
+        assert "-vf" in cmd
+        vf_idx = cmd.index("-vf")
+        assert "scale_cuda=1280:-2" in cmd[vf_idx + 1]
+
+    def test_vaapi_480p_upscale(self):
+        """VAAPI FFmpeg should use scale_vaapi for DVD upscale."""
+        worker, settings = self._make_worker("vaapi_h265")
+        with patch("transcoder.settings", settings):
+            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 480))
+        assert "-vf" in cmd
+        vf_idx = cmd.index("-vf")
+        assert "scale_vaapi=w=1280:h=-2" in cmd[vf_idx + 1]
+
+    def test_qsv_480p_upscale(self):
+        """QSV FFmpeg should use vpp_qsv for DVD upscale."""
+        worker, settings = self._make_worker("qsv_h265")
+        with patch("transcoder.settings", settings):
+            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 480))
+        assert "-vf" in cmd
+        vf_idx = cmd.index("-vf")
+        assert "vpp_qsv=w=1280:h=-2" in cmd[vf_idx + 1]
+
+    def test_amf_480p_upscale(self):
+        """AMF FFmpeg should use software scale for DVD upscale."""
+        worker, settings = self._make_worker("amf_h265")
+        with patch("transcoder.settings", settings):
+            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 480))
+        assert "-vf" in cmd
+        vf_idx = cmd.index("-vf")
+        assert "scale=1280:-2" in cmd[vf_idx + 1]
+
+    def test_software_480p_upscale(self):
+        """Software FFmpeg should use software scale for DVD upscale."""
+        worker, settings = self._make_worker("x265")
+        with patch("transcoder.settings", settings):
+            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 480))
+        assert "-vf" in cmd
+        vf_idx = cmd.index("-vf")
+        assert "scale=1280:-2" in cmd[vf_idx + 1]
+
+    def test_1080p_no_scale(self):
+        """1080p source should not add any scale filter."""
+        worker, settings = self._make_worker("nvenc_h265")
+        with patch("transcoder.settings", settings):
+            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(1920, 1080))
+        assert "-vf" not in cmd
+
+    def test_4k_no_scale(self):
+        """4K source should not add any scale filter."""
+        worker, settings = self._make_worker("nvenc_h265")
+        with patch("transcoder.settings", settings):
+            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(3840, 2160))
+        assert "-vf" not in cmd
+
+    def test_no_resolution_no_scale(self):
+        """No resolution info should not add any scale filter."""
+        worker, settings = self._make_worker("nvenc_h265")
+        with patch("transcoder.settings", settings):
+            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=None)
+        assert "-vf" not in cmd
+
+    def test_576p_pal_dvd_upscale(self):
+        """PAL DVD (576p) should also be upscaled."""
+        worker, settings = self._make_worker("nvenc_h265")
+        with patch("transcoder.settings", settings):
+            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 576))
+        assert "-vf" in cmd
+        vf_idx = cmd.index("-vf")
+        assert "scale_cuda=1280:-2" in cmd[vf_idx + 1]
+
 
 # ─── TranscodeWorker._discover_source_files ──────────────────────────────────
 
@@ -623,6 +698,310 @@ class TestWorkerProperties:
         assert not worker._shutdown_event.is_set()
         worker.shutdown()
         assert worker._shutdown_event.is_set()
+
+
+# ─── TranscodeWorker._get_video_resolution ────────────────────────────────
+
+
+class TestGetVideoResolution:
+    """Tests for _get_video_resolution method."""
+
+    def _make_worker(self):
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+            from transcoder import TranscodeWorker
+            return TranscodeWorker()
+
+    @pytest.mark.asyncio
+    async def test_valid_output_parsed(self):
+        """Should parse ffprobe output into (width, height) tuple."""
+        worker = self._make_worker()
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"1920x1080\n", b""))
+
+        with patch("transcoder.asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
+            result = await worker._get_video_resolution(Path("/fake/video.mkv"))
+
+        assert result == (1920, 1080)
+
+    @pytest.mark.asyncio
+    async def test_4k_resolution(self):
+        """Should parse 4K resolution correctly."""
+        worker = self._make_worker()
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"3840x2160\n", b""))
+
+        with patch("transcoder.asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
+            result = await worker._get_video_resolution(Path("/fake/video.mkv"))
+
+        assert result == (3840, 2160)
+
+    @pytest.mark.asyncio
+    async def test_dvd_resolution(self):
+        """Should parse DVD resolution correctly."""
+        worker = self._make_worker()
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"720x480\n", b""))
+
+        with patch("transcoder.asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
+            result = await worker._get_video_resolution(Path("/fake/video.mkv"))
+
+        assert result == (720, 480)
+
+    @pytest.mark.asyncio
+    async def test_ffprobe_failure_returns_none(self):
+        """Should return None when ffprobe fails."""
+        worker = self._make_worker()
+
+        with patch("transcoder.asyncio.create_subprocess_exec", AsyncMock(side_effect=FileNotFoundError)):
+            result = await worker._get_video_resolution(Path("/fake/video.mkv"))
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_malformed_output_returns_none(self):
+        """Should return None when ffprobe output is malformed."""
+        worker = self._make_worker()
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"garbage\n", b""))
+
+        with patch("transcoder.asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
+            result = await worker._get_video_resolution(Path("/fake/video.mkv"))
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_empty_output_returns_none(self):
+        """Should return None when ffprobe returns empty output."""
+        worker = self._make_worker()
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+
+        with patch("transcoder.asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
+            result = await worker._get_video_resolution(Path("/fake/video.mkv"))
+
+        assert result is None
+
+
+# ─── HandBrake preset selection by resolution ─────────────────────────────
+
+
+class TestHandBrakePresetSelection:
+    """Tests for resolution-based preset selection in _transcode_file_handbrake."""
+
+    def _make_worker(self):
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+            from transcoder import TranscodeWorker
+            return TranscodeWorker()
+
+    def _run_handbrake_test(self, resolution, tmp_path):
+        """Helper: run _transcode_file_handbrake with mocked resolution, return captured cmd."""
+        worker = self._make_worker()
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = AsyncMock()
+        mock_proc.stdout.__aiter__ = lambda self: self
+        mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+        mock_proc.wait = AsyncMock(return_value=0)
+
+        output = tmp_path / "test_out.mkv"
+
+        async def fake_exec(*args, **kwargs):
+            output.touch()
+            return mock_proc
+
+        return worker, resolution, fake_exec, output
+
+    @pytest.mark.asyncio
+    async def test_4k_source_uses_4k_preset(self, tmp_path):
+        """4K source (>1080p) should use handbrake_preset_4k."""
+        worker, resolution, fake_exec, output = self._run_handbrake_test((3840, 2160), tmp_path)
+
+        captured = []
+
+        async def capturing_exec(*args, **kwargs):
+            captured.append(args)
+            output.touch()
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = AsyncMock()
+            mock_proc.stdout.__aiter__ = lambda self: self
+            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+            mock_proc.wait = AsyncMock(return_value=0)
+            return mock_proc
+
+        with patch.object(worker, "_get_video_resolution", AsyncMock(return_value=resolution)), \
+             patch("transcoder.asyncio.create_subprocess_exec", capturing_exec), \
+             patch("transcoder.settings") as mock_settings:
+            mock_settings.handbrake_preset = "NVENC H.265 1080p"
+            mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
+            mock_settings.handbrake_preset_file = ""
+            mock_settings.video_encoder = "nvenc_h265"
+            mock_settings.video_quality = 22
+            mock_settings.audio_encoder = "copy"
+            mock_settings.subtitle_mode = "all"
+
+            await worker._transcode_file_handbrake(
+                Path("/fake/video.mkv"), output, MagicMock(), AsyncMock()
+            )
+
+        cmd = captured[0]
+        preset_idx = cmd.index("--preset")
+        assert cmd[preset_idx + 1] == "H.265 NVENC 2160p 4K"
+        assert "--width" not in cmd
+
+    @pytest.mark.asyncio
+    async def test_1080p_source_uses_standard_preset(self, tmp_path):
+        """1080p source should use standard handbrake_preset."""
+        worker = self._make_worker()
+        output = tmp_path / "test_out.mkv"
+        captured = []
+
+        async def capturing_exec(*args, **kwargs):
+            captured.append(args)
+            output.touch()
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = AsyncMock()
+            mock_proc.stdout.__aiter__ = lambda self: self
+            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+            mock_proc.wait = AsyncMock(return_value=0)
+            return mock_proc
+
+        with patch.object(worker, "_get_video_resolution", AsyncMock(return_value=(1920, 1080))), \
+             patch("transcoder.asyncio.create_subprocess_exec", capturing_exec), \
+             patch("transcoder.settings") as mock_settings:
+            mock_settings.handbrake_preset = "NVENC H.265 1080p"
+            mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
+            mock_settings.handbrake_preset_file = ""
+            mock_settings.video_encoder = "nvenc_h265"
+            mock_settings.video_quality = 22
+            mock_settings.audio_encoder = "copy"
+            mock_settings.subtitle_mode = "all"
+
+            await worker._transcode_file_handbrake(
+                Path("/fake/video.mkv"), output, MagicMock(), AsyncMock()
+            )
+
+        cmd = captured[0]
+        preset_idx = cmd.index("--preset")
+        assert cmd[preset_idx + 1] == "NVENC H.265 1080p"
+        assert "--width" not in cmd
+
+    @pytest.mark.asyncio
+    async def test_480p_source_adds_upscale(self, tmp_path):
+        """DVD source (<720p) should use standard preset with --width 1280."""
+        worker = self._make_worker()
+        output = tmp_path / "test_out.mkv"
+        captured = []
+
+        async def capturing_exec(*args, **kwargs):
+            captured.append(args)
+            output.touch()
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = AsyncMock()
+            mock_proc.stdout.__aiter__ = lambda self: self
+            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+            mock_proc.wait = AsyncMock(return_value=0)
+            return mock_proc
+
+        with patch.object(worker, "_get_video_resolution", AsyncMock(return_value=(720, 480))), \
+             patch("transcoder.asyncio.create_subprocess_exec", capturing_exec), \
+             patch("transcoder.settings") as mock_settings:
+            mock_settings.handbrake_preset = "NVENC H.265 1080p"
+            mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
+            mock_settings.handbrake_preset_file = ""
+            mock_settings.video_encoder = "nvenc_h265"
+            mock_settings.video_quality = 22
+            mock_settings.audio_encoder = "copy"
+            mock_settings.subtitle_mode = "all"
+
+            await worker._transcode_file_handbrake(
+                Path("/fake/video.mkv"), output, MagicMock(), AsyncMock()
+            )
+
+        cmd = captured[0]
+        preset_idx = cmd.index("--preset")
+        assert cmd[preset_idx + 1] == "NVENC H.265 1080p"
+        assert "--width" in cmd
+        width_idx = cmd.index("--width")
+        assert cmd[width_idx + 1] == "1280"
+
+    @pytest.mark.asyncio
+    async def test_ffprobe_failure_uses_standard_preset(self, tmp_path):
+        """When resolution detection fails, should fall back to standard preset."""
+        worker = self._make_worker()
+        output = tmp_path / "test_out.mkv"
+        captured = []
+
+        async def capturing_exec(*args, **kwargs):
+            captured.append(args)
+            output.touch()
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = AsyncMock()
+            mock_proc.stdout.__aiter__ = lambda self: self
+            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+            mock_proc.wait = AsyncMock(return_value=0)
+            return mock_proc
+
+        with patch.object(worker, "_get_video_resolution", AsyncMock(return_value=None)), \
+             patch("transcoder.asyncio.create_subprocess_exec", capturing_exec), \
+             patch("transcoder.settings") as mock_settings:
+            mock_settings.handbrake_preset = "NVENC H.265 1080p"
+            mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
+            mock_settings.handbrake_preset_file = ""
+            mock_settings.video_encoder = "nvenc_h265"
+            mock_settings.video_quality = 22
+            mock_settings.audio_encoder = "copy"
+            mock_settings.subtitle_mode = "all"
+
+            await worker._transcode_file_handbrake(
+                Path("/fake/video.mkv"), output, MagicMock(), AsyncMock()
+            )
+
+        cmd = captured[0]
+        preset_idx = cmd.index("--preset")
+        assert cmd[preset_idx + 1] == "NVENC H.265 1080p"
+        assert "--width" not in cmd
+
+    @pytest.mark.asyncio
+    async def test_720p_source_uses_standard_preset(self, tmp_path):
+        """720p source (boundary) should use standard preset without upscale."""
+        worker = self._make_worker()
+        output = tmp_path / "test_out.mkv"
+        captured = []
+
+        async def capturing_exec(*args, **kwargs):
+            captured.append(args)
+            output.touch()
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = AsyncMock()
+            mock_proc.stdout.__aiter__ = lambda self: self
+            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+            mock_proc.wait = AsyncMock(return_value=0)
+            return mock_proc
+
+        with patch.object(worker, "_get_video_resolution", AsyncMock(return_value=(1280, 720))), \
+             patch("transcoder.asyncio.create_subprocess_exec", capturing_exec), \
+             patch("transcoder.settings") as mock_settings:
+            mock_settings.handbrake_preset = "NVENC H.265 1080p"
+            mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
+            mock_settings.handbrake_preset_file = ""
+            mock_settings.video_encoder = "nvenc_h265"
+            mock_settings.video_quality = 22
+            mock_settings.audio_encoder = "copy"
+            mock_settings.subtitle_mode = "all"
+
+            await worker._transcode_file_handbrake(
+                Path("/fake/video.mkv"), output, MagicMock(), AsyncMock()
+            )
+
+        cmd = captured[0]
+        preset_idx = cmd.index("--preset")
+        assert cmd[preset_idx + 1] == "NVENC H.265 1080p"
+        assert "--width" not in cmd
 
 
 # Import settings for use in output path tests

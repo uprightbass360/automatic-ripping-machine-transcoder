@@ -517,6 +517,19 @@ class TranscodeWorker:
         db,
     ):
         """Transcode a single file using HandBrake."""
+        # Resolution-based preset selection
+        resolution = await self._get_video_resolution(source)
+        extra_args = []
+        if resolution and resolution[1] > 1080:
+            preset = settings.handbrake_preset_4k
+            logger.info(f"4K source ({resolution[0]}x{resolution[1]}), using preset: {preset}")
+        elif resolution and resolution[1] < 720:
+            preset = settings.handbrake_preset
+            extra_args = ["--width", "1280"]
+            logger.info(f"Low-res source ({resolution[0]}x{resolution[1]}), upscaling to 720p")
+        else:
+            preset = settings.handbrake_preset
+
         cmd = [
             "HandBrakeCLI",
             "-i", str(source),
@@ -533,8 +546,11 @@ class TranscodeWorker:
         # Add preset if specified
         if settings.handbrake_preset_file:
             cmd.extend(["--preset-import-file", settings.handbrake_preset_file])
-        if settings.handbrake_preset:
-            cmd.extend(["--preset", settings.handbrake_preset])
+        if preset:
+            cmd.extend(["--preset", preset])
+
+        # Add resolution-based extra args (e.g. upscale for DVD)
+        cmd.extend(extra_args)
 
         # Audio handling
         if settings.audio_encoder == "copy":
@@ -581,7 +597,7 @@ class TranscodeWorker:
 
         logger.info(f"Transcoded: {source.name} -> {output.name}")
 
-    def _build_ffmpeg_command(self, source: Path, output: Path) -> list[str]:
+    def _build_ffmpeg_command(self, source: Path, output: Path, resolution: Optional[tuple[int, int]] = None) -> list[str]:
         """Build FFmpeg command based on encoder family."""
         encoder_name = settings.video_encoder
         family = self._encoder_family
@@ -649,6 +665,18 @@ class TranscodeWorker:
         elif family == "software":
             cmd.extend(["-crf", str(quality), "-preset", "medium"])
 
+        # Upscale low-res sources (DVD) to 720p
+        if resolution and resolution[1] < 720:
+            if family == "nvenc":
+                cmd.extend(["-vf", "scale_cuda=1280:-2"])
+            elif family == "vaapi":
+                cmd.extend(["-vf", "scale_vaapi=w=1280:h=-2"])
+            elif family == "qsv":
+                cmd.extend(["-vf", "vpp_qsv=w=1280:h=-2"])
+            else:
+                cmd.extend(["-vf", "scale=1280:-2"])
+            logger.info(f"Low-res source ({resolution[0]}x{resolution[1]}), upscaling to 720p")
+
         # Audio handling
         if settings.audio_encoder == "copy":
             cmd.extend(["-c:a", "copy"])
@@ -676,7 +704,8 @@ class TranscodeWorker:
         db,
     ):
         """Transcode a single file using FFmpeg."""
-        cmd = self._build_ffmpeg_command(source, output)
+        resolution = await self._get_video_resolution(source)
+        cmd = self._build_ffmpeg_command(source, output, resolution)
 
         logger.debug(f"FFmpeg command: {' '.join(cmd)}")
 
@@ -712,6 +741,24 @@ class TranscodeWorker:
             raise RuntimeError(f"Output file was not created: {output}")
 
         logger.info(f"Transcoded: {source.name} -> {output.name}")
+
+    async def _get_video_resolution(self, path: Path) -> Optional[tuple[int, int]]:
+        """Get video resolution (width, height) using ffprobe."""
+        try:
+            result = await asyncio.create_subprocess_exec(
+                "ffprobe", "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=p=0:s=x",
+                str(path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await result.communicate()
+            parts = stdout.decode().strip().split("x")
+            return (int(parts[0]), int(parts[1]))
+        except Exception:
+            return None
 
     async def _get_video_duration(self, path: Path) -> Optional[float]:
         """Get video duration in seconds using ffprobe."""

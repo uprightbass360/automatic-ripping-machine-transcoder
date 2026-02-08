@@ -1180,6 +1180,90 @@ class TestAudioPassthrough:
         assert (audio_dir / "track01.mp3").exists()
 
 
+# ─── 8c. 4K Preset Selection ───────────────────────────────────────────────
+
+
+class TestResolutionPresetSelection:
+    """Test resolution-based HandBrake preset selection in full pipeline."""
+
+    @pytest.mark.asyncio
+    async def test_4k_source_uses_4k_preset(self, test_db_setup, tmp_path):
+        """4K source should trigger the 4K HandBrake preset in transcoded command."""
+        _, session_factory, test_get_db = test_db_setup
+
+        source_dir = tmp_path / "raw" / "4K Movie"
+        source_dir.mkdir(parents=True)
+        (source_dir / "main.mkv").write_bytes(b"\x00" * 5000)
+
+        completed_dir = tmp_path / "completed"
+        completed_dir.mkdir()
+
+        handbrake_cmds = []
+
+        async def capture_handbrake(source, output, job_db, db):
+            """Mock that records the HandBrake call context."""
+            # We need to call the real method to capture the command,
+            # but instead we'll check the preset selection via the resolution mock
+            pass
+
+        with patch("transcoder.get_db", test_get_db), \
+             patch("transcoder.check_gpu_support", return_value={
+                 "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
+             }):
+            from transcoder import TranscodeWorker
+            worker = TranscodeWorker()
+
+            await worker.queue_job(source_path=str(source_dir), title="4K Movie")
+            job = await worker._queue.get()
+
+            # Mock _get_video_resolution to return 4K, capture the HandBrake command
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = AsyncMock()
+            mock_proc.stdout.__aiter__ = lambda self: self
+            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+            mock_proc.wait = AsyncMock(return_value=0)
+
+            with patch.object(worker, "_wait_for_stable", AsyncMock()), \
+                 patch.object(worker, "_get_video_resolution", AsyncMock(return_value=(3840, 2160))), \
+                 patch("transcoder.asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)) as mock_exec, \
+                 patch("transcoder.settings") as mock_settings:
+                mock_settings.completed_path = str(completed_dir)
+                mock_settings.movies_subdir = "movies"
+                mock_settings.output_extension = "mkv"
+                mock_settings.delete_source = False
+                mock_settings.video_encoder = "nvenc_h265"
+                mock_settings.video_quality = 22
+                mock_settings.audio_encoder = "copy"
+                mock_settings.subtitle_mode = "all"
+                mock_settings.handbrake_preset = "NVENC H.265 1080p"
+                mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
+                mock_settings.handbrake_preset_file = ""
+                mock_settings.work_path = str(tmp_path / "work")
+
+                # Create fake output file so the check passes
+                async def fake_exec(*args, **kwargs):
+                    handbrake_cmds.append(args)
+                    # Create the output file that _transcode_file_handbrake expects
+                    for i, arg in enumerate(args):
+                        if arg == "-o" and i + 1 < len(args):
+                            Path(args[i + 1]).touch()
+                    return mock_proc
+
+                with patch("transcoder.asyncio.create_subprocess_exec", fake_exec):
+                    await worker._process_job(job)
+
+        # Verify the HandBrake command used the 4K preset
+        assert len(handbrake_cmds) > 0
+        cmd = handbrake_cmds[0]
+        assert "--preset" in cmd
+        preset_idx = cmd.index("--preset")
+        assert cmd[preset_idx + 1] == "H.265 NVENC 2160p 4K"
+
+
 # ─── 9. Multi-file Transcode ────────────────────────────────────────────────
 
 
