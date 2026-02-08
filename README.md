@@ -9,7 +9,7 @@ Offloads transcoding from your ARM ripper to a dedicated transcode server. Suppo
 ```bash
 # 1. Clone and configure
 git clone https://github.com/uprightbass360/automatic-ripping-machine-transcoder.git
-cd arm-transcoder
+cd automatic-ripping-machine-transcoder
 cp .env.example .env
 nano .env  # Set NFS_RAW_PATH, NFS_COMPLETED_PATH, and VIDEO_ENCODER
 
