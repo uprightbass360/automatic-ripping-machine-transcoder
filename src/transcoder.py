@@ -295,7 +295,7 @@ class TranscodeWorker:
                 # Discover source files on NFS
                 source_files = self._discover_source_files(job.source_path)
                 if not source_files:
-                    # Check for audio files (music CD rip)
+                    # Check for audio files (audio CD rip)
                     audio_files = self._discover_audio_files(job.source_path)
                     if audio_files:
                         await self._passthrough_audio(job, job_db, db)
@@ -326,6 +326,7 @@ class TranscodeWorker:
                 local_source_files = self._discover_source_files(str(work_source_dir))
 
                 # Determine final NFS output path
+                job_db.video_type = self._detect_video_type(job.title, job.source_path)
                 output_dir = self._determine_output_path(job.title, job.source_path)
                 os.makedirs(output_dir, exist_ok=True)
                 job_db.output_path = str(output_dir)
@@ -452,15 +453,15 @@ class TranscodeWorker:
         job_db: TranscodeJobDB,
         db,
     ):
-        """Move audio files directly to music output folder (no transcoding)."""
+        """Copy audio files directly to audio output folder (no transcoding)."""
         clean_title = re.sub(r'[<>:"/\\|?*]', '', job.title)
-        output_dir = Path(settings.completed_path) / settings.music_subdir / clean_title
+        output_dir = Path(settings.completed_path) / settings.audio_subdir / clean_title
         os.makedirs(output_dir, exist_ok=True)
 
         source = Path(job.source_path)
         audio_files = self._discover_audio_files(job.source_path)
 
-        logger.info(f"Music passthrough: copying {len(audio_files)} audio files to {output_dir}")
+        logger.info(f"Audio passthrough: copying {len(audio_files)} audio files to {output_dir}")
 
         for f in audio_files:
             shutil.copy2(str(f), str(output_dir / f.name))
@@ -472,7 +473,7 @@ class TranscodeWorker:
         job_db.completed_at = datetime.utcnow()
         await db.commit()
 
-        logger.info(f"Completed music passthrough for job {job.id}: {job.title}")
+        logger.info(f"Completed audio passthrough for job {job.id}: {job.title}")
 
         # Clean up source directory if delete_source is set (non-fatal)
         if settings.delete_source:
@@ -482,10 +483,26 @@ class TranscodeWorker:
             except OSError as e:
                 logger.warning(f"Could not clean up source {job.source_path}: {e}")
 
+    def _detect_video_type(self, title: str, source_path: str) -> str:
+        """Detect whether content is a TV show or movie based on naming patterns.
+
+        ARM uses patterns like 'Show S01', 'Show S01E01', 'Show_S02E03'
+        for TV rips. Returns 'tv' or 'movie'.
+        """
+        # Check both title and source directory name
+        dir_name = Path(source_path).name
+        for text in [title, dir_name]:
+            if re.search(r'S\d{1,2}(E\d{1,2})?', text, re.IGNORECASE):
+                return "tv"
+        return "movie"
+
     def _determine_output_path(self, title: str, source_path: str) -> Path:
         """Determine the output directory path."""
-        # For now, assume movies - could be enhanced with metadata lookup
-        base = Path(settings.completed_path) / settings.movies_subdir
+        video_type = self._detect_video_type(title, source_path)
+        if video_type == "tv":
+            base = Path(settings.completed_path) / settings.tv_subdir
+        else:
+            base = Path(settings.completed_path) / settings.movies_subdir
 
         # Clean title for filesystem
         clean_title = re.sub(r'[<>:"/\\|?*]', '', title)

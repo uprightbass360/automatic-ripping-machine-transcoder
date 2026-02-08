@@ -67,7 +67,7 @@ VALID_AUDIO_ENCODERS = [
     "mp3",
 ]
 
-# Audio file extensions (music CD rips)
+# Audio file extensions (audio CD rips)
 AUDIO_FILE_EXTENSIONS = {".flac", ".mp3", ".ogg", ".wav", ".m4a", ".wma", ".aac", ".alac"}
 
 # Valid subtitle modes

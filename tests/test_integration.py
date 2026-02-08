@@ -1002,11 +1002,11 @@ class TestWebhookToJobsList:
 
 
 class TestAudioPassthrough:
-    """Test audio CD rip passthrough (no transcoding, move to music/)."""
+    """Test audio CD rip passthrough (no transcoding, copy to audio/)."""
 
     @pytest.mark.asyncio
-    async def test_audio_files_passthrough_to_music(self, test_db_setup, tmp_path):
-        """Source with FLAC files should be moved to music/ and marked COMPLETED."""
+    async def test_audio_files_passthrough_to_audio(self, test_db_setup, tmp_path):
+        """Source with FLAC files should be copied to audio/ and marked COMPLETED."""
         _, session_factory, test_get_db = test_db_setup
 
         source_dir = tmp_path / "raw" / "Greatest Hits"
@@ -1034,19 +1034,19 @@ class TestAudioPassthrough:
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
-                mock_settings.music_subdir = "music"
+                mock_settings.audio_subdir = "audio"
                 mock_settings.movies_subdir = "movies"
                 mock_settings.delete_source = False
                 mock_settings.work_path = str(tmp_path / "work")
 
                 await worker._process_job(job)
 
-        # Verify files moved to music/Greatest Hits/
-        music_dir = completed_dir / "music" / "Greatest Hits"
-        assert music_dir.exists()
-        assert (music_dir / "track01.flac").exists()
-        assert (music_dir / "track02.flac").exists()
-        assert (music_dir / "track03.flac").exists()
+        # Verify files copied to audio/Greatest Hits/
+        audio_dir = completed_dir / "audio" / "Greatest Hits"
+        assert audio_dir.exists()
+        assert (audio_dir / "track01.flac").exists()
+        assert (audio_dir / "track02.flac").exists()
+        assert (audio_dir / "track03.flac").exists()
 
         # Verify DB state
         async with session_factory() as session:
@@ -1056,7 +1056,7 @@ class TestAudioPassthrough:
             assert job_db.total_tracks == 3
             assert job_db.progress == 100.0
             assert job_db.completed_at is not None
-            assert "music" in job_db.output_path
+            assert "audio" in job_db.output_path
 
     @pytest.mark.asyncio
     async def test_mixed_mkv_and_audio_treated_as_video(self, test_db_setup, tmp_path):
@@ -1098,7 +1098,7 @@ class TestAudioPassthrough:
 
                 await worker._process_job(job)
 
-        # Should be treated as video, not music
+        # Should be treated as video, not audio
         async with session_factory() as session:
             result = await session.execute(select(TranscodeJobDB))
             job_db = result.scalar_one()
@@ -1164,7 +1164,7 @@ class TestAudioPassthrough:
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
-                mock_settings.music_subdir = "music"
+                mock_settings.audio_subdir = "audio"
                 mock_settings.movies_subdir = "movies"
                 mock_settings.delete_source = True
                 mock_settings.work_path = str(tmp_path / "work")
@@ -1175,9 +1175,9 @@ class TestAudioPassthrough:
         assert not source_dir.exists()
 
         # Output should exist
-        music_dir = completed_dir / "music" / "Cleanup Album"
-        assert music_dir.exists()
-        assert (music_dir / "track01.mp3").exists()
+        audio_dir = completed_dir / "audio" / "Cleanup Album"
+        assert audio_dir.exists()
+        assert (audio_dir / "track01.mp3").exists()
 
 
 # ─── 9. Multi-file Transcode ────────────────────────────────────────────────

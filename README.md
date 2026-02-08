@@ -48,14 +48,14 @@ flowchart TB
     subgraph nfs["NFS Shared Storage"]
         RAW["/raw/ — MakeMKV output"]
         DONE["/completed/movies/ — Transcoded video"]
-        MUSIC["/completed/music/ — Audio CD rips"]
+        AUDIO["/completed/audio/ — Audio CD rips"]
     end
 
     ARM -- "webhook" --> TC
     ARM -- "writes" --> RAW
     RAW -- "reads" --> TC
     TC -- "transcodes" --> DONE
-    TC -- "moves" --> MUSIC
+    TC -- "copies" --> AUDIO
 ```
 
 ## Features
@@ -67,7 +67,7 @@ flowchart TB
 - REST API for job monitoring and management
 - API key authentication with role-based access (admin/readonly)
 - Input validation and path traversal protection
-- Audio CD passthrough — detects music rips (FLAC/MP3/etc.) and moves them to a music folder without transcoding
+- Audio CD passthrough — detects audio rips (FLAC/MP3/etc.) and copies them to an audio folder without transcoding
 - Local scratch storage to avoid heavy I/O on NFS (copy→transcode→move)
 - Automatic source cleanup after successful transcode
 - Pagination support on job listings
@@ -114,7 +114,7 @@ These variables are used across all `docker-compose*.yml` files:
 | `AUDIO_ENCODER` | copy | Audio handling (`copy`, `aac`, `ac3`, `eac3`, `flac`, `mp3`) |
 | `SUBTITLE_MODE` | all | Subtitle handling (`all`, `none`, `first`) |
 | `MOVIES_SUBDIR` | movies | Subdirectory under COMPLETED_PATH for movies |
-| `MUSIC_SUBDIR` | music | Subdirectory under COMPLETED_PATH for music CD rips |
+| `AUDIO_SUBDIR` | audio | Subdirectory under COMPLETED_PATH for audio CD rips |
 | `DELETE_SOURCE` | true | Remove source after successful transcode |
 | `MAX_CONCURRENT` | 1 | Max concurrent transcodes (1 recommended for single GPU) |
 | `STABILIZE_SECONDS` | 60 | Seconds to wait for source files to stop changing |

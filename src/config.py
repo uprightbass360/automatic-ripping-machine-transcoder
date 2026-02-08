@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     # Organization
     movies_subdir: str = Field("movies", description="Subdirectory for movies")
     tv_subdir: str = Field("tv", description="Subdirectory for TV shows")
-    music_subdir: str = Field("music", description="Subdirectory for music")
+    audio_subdir: str = Field("audio", description="Subdirectory for audio")
 
     # Concurrency
     max_concurrent: int = Field(

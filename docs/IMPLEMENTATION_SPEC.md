@@ -356,7 +356,7 @@ WEBHOOK_SECRET=mySecret
 
 **Implementation:**
 - ~~Detect audio-only source directories (FLAC/MP3/OGG/WAV/M4A/WMA/AAC/ALAC)~~
-- ~~Move audio files directly to `completed_path/music/Title/` without transcoding~~
+- ~~Copy audio files directly to `completed_path/audio/Title/` without transcoding~~
 - ~~Mark job as COMPLETED with track count~~
 - ~~Clean up source directory when `delete_source` is set~~
 - ~~Mixed MKV + audio directories treated as video (MKV path takes priority)~~
@@ -364,16 +364,16 @@ WEBHOOK_SECRET=mySecret
 
 **Configuration:**
 ```
-MUSIC_SUBDIR=music  # default
+AUDIO_SUBDIR=audio  # default
 ```
 
 **Files Modified:**
 - `src/constants.py` — `AUDIO_FILE_EXTENSIONS` set (8 formats)
-- `src/config.py` — `music_subdir` setting (default "music")
+- `src/config.py` — `audio_subdir` setting (default "audio")
 - `src/transcoder.py` — `_discover_audio_files()`, `_passthrough_audio()`, updated `_process_job()` fallback logic
 
 **Test Cases (all covered):**
-- ~~Audio files moved to music/ and job marked COMPLETED~~
+- ~~Audio files copied to audio/ and job marked COMPLETED~~
 - ~~Mixed MKV + audio treated as video~~
 - ~~No video or audio files fails with updated error message~~
 - ~~Source cleanup after audio passthrough~~

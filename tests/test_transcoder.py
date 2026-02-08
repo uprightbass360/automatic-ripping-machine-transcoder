@@ -489,6 +489,51 @@ class TestDiscoverAudioFiles:
         assert [f.name for f in files] == ["track01.flac", "track02.flac", "track03.flac"]
 
 
+# ─── TranscodeWorker._detect_video_type ───────────────────────────────────────
+
+
+class TestDetectVideoType:
+    """Tests for _detect_video_type method."""
+
+    def _make_worker(self):
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+            from transcoder import TranscodeWorker
+            return TranscodeWorker()
+
+    def test_movie_title_with_year(self):
+        worker = self._make_worker()
+        assert worker._detect_video_type("The Matrix (1999)", "/data/raw/The Matrix (1999)") == "movie"
+
+    def test_movie_plain_title(self):
+        worker = self._make_worker()
+        assert worker._detect_video_type("Inception", "/data/raw/Inception") == "movie"
+
+    def test_tv_season_and_episode(self):
+        worker = self._make_worker()
+        assert worker._detect_video_type("Breaking Bad S01E01", "/data/raw/Breaking Bad S01E01") == "tv"
+
+    def test_tv_season_only(self):
+        worker = self._make_worker()
+        assert worker._detect_video_type("The Office S02", "/data/raw/The Office S02") == "tv"
+
+    def test_tv_detected_from_source_path(self):
+        worker = self._make_worker()
+        assert worker._detect_video_type("ARM notification", "/data/raw/Seinfeld S05E03") == "tv"
+
+    def test_tv_case_insensitive(self):
+        worker = self._make_worker()
+        assert worker._detect_video_type("show s01e01", "/data/raw/show") == "tv"
+
+    def test_tv_underscore_separator(self):
+        worker = self._make_worker()
+        assert worker._detect_video_type("Show_S03E12", "/data/raw/Show_S03E12") == "tv"
+
+    def test_movie_with_s_in_title(self):
+        """Title containing 'S' followed by non-season digits should be movie."""
+        worker = self._make_worker()
+        assert worker._detect_video_type("Spider-Man", "/data/raw/Spider-Man") == "movie"
+
+
 # ─── TranscodeWorker._determine_output_path ──────────────────────────────────
 
 
@@ -513,10 +558,15 @@ class TestDetermineOutputPath:
         assert ":" not in Path(path_str).name
         assert '"' not in Path(path_str).name
 
-    def test_uses_movies_subdir(self):
+    def test_movie_uses_movies_subdir(self):
         worker = self._make_worker()
-        result = worker._determine_output_path("Test", "/data/raw/test")
+        result = worker._determine_output_path("Test Movie (2024)", "/data/raw/test")
         assert settings.movies_subdir in str(result)
+
+    def test_tv_uses_tv_subdir(self):
+        worker = self._make_worker()
+        result = worker._determine_output_path("Show S01E05", "/data/raw/Show S01E05")
+        assert settings.tv_subdir in str(result)
 
 
 # ─── TranscodeWorker._cleanup_source ─────────────────────────────────────────
