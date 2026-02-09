@@ -413,7 +413,7 @@ TV_SUBDIR=tv          # default
 
 **Configuration:**
 ```
-HANDBRAKE_PRESET=NVENC H.265 1080p        # standard/DVD content
+HANDBRAKE_PRESET=H.265 NVENC 1080p        # standard/DVD content
 HANDBRAKE_PRESET_4K=H.265 NVENC 2160p 4K  # 4K content
 ```
 
@@ -513,10 +513,10 @@ Required tests:
 - ~~Disk space calculations~~
 - ~~Retry logic with backoff~~
 
-**Files (284 tests total):**
+**Files (293 tests total):**
 - `tests/test_utils.py` — 48 tests (PathValidator, CommandValidator, disk space, title cleaning, log sanitization)
 - `tests/test_models.py` — 34 tests (WebhookPayload validation, JobStatus, TranscodeJob)
-- `tests/test_transcoder.py` — 82 tests (GPU detection, encoder routing, FFmpeg commands, file discovery, audio file discovery, resolution detection, preset selection, FFmpeg upscale per GPU)
+- `tests/test_transcoder.py` — 90 tests (GPU detection, encoder routing, FFmpeg commands, file discovery, audio file discovery, resolution detection, preset selection, FFmpeg upscale per GPU, source path resolution)
 - `tests/test_auth.py` — 27 tests (API key auth, webhook secret, settings validation)
 
 ### 6.2 Integration Tests — COMPLETE
@@ -546,7 +546,7 @@ Required tests:
 
 **Files:**
 - `tests/test_security.py` — 43 tests (path traversal, oversized payloads, command injection, auth bypass, webhook sanitization)
-- `tests/test_api.py` — 19 tests (all API endpoints)
+- `tests/test_api.py` — 21 tests (all API endpoints)
 
 ---
 
@@ -605,7 +605,7 @@ Required tests:
    - ~~Resolution-based preset selection~~
 
 5. **Phase 5: Testing & Documentation** — Partial
-   - ~~Write tests (284 tests)~~
+   - ~~Write tests (293 tests)~~
    - ~~Update documentation~~
    - ~~Security audit~~
    - Performance testing — not started
@@ -645,7 +645,7 @@ After implementation:
 Implementation complete when:
 
 - [x] All critical/high security issues resolved
-- [x] All tests passing (284 tests)
+- [x] All tests passing (293 tests)
 - [x] Security audit passed
 - [x] Documentation updated
 - [ ] Performance targets met

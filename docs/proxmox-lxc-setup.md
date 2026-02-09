@@ -116,7 +116,7 @@ WORK_PATH=/var/lib/arm-transcoder/work
 DB_PATH=/var/lib/arm-transcoder/transcoder.db
 
 # Transcoding
-HANDBRAKE_PRESET=NVENC H.265 1080p
+HANDBRAKE_PRESET=H.265 NVENC 1080p
 VIDEO_ENCODER=nvenc_h265
 VIDEO_QUALITY=22
 ```

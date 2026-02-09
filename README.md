@@ -230,7 +230,7 @@ These variables are used across all `docker-compose*.yml` files:
 | `MINIMUM_FREE_SPACE_GB` | 10 | Minimum free disk space required (GB) |
 | `REQUIRE_API_AUTH` | false | Require API key for endpoints |
 | `API_KEYS` | *(empty)* | Comma-separated API keys (see [Authentication](docs/AUTHENTICATION.md)) |
-| `HANDBRAKE_PRESET` | NVENC H.265 1080p | HandBrake preset for standard content |
+| `HANDBRAKE_PRESET` | H.265 NVENC 1080p | HandBrake preset for standard content |
 | `HANDBRAKE_PRESET_4K` | H.265 NVENC 2160p 4K | HandBrake preset for 4K content (source > 1080p) |
 | `VAAPI_DEVICE` | /dev/dri/renderD128 | VAAPI/QSV render device path (AMD and Intel only) |
 
@@ -257,9 +257,9 @@ Each compose file sets a sensible default encoder for its GPU type. Override wit
 
 HandBrake is used as the transcoding backend when NVIDIA NVENC is selected and HandBrake is available. For all other encoder families, FFmpeg is used directly.
 
-Pre-configured presets in `presets/nvenc_presets.json`:
+The default preset is HandBrake's built-in **H.265 NVENC 1080p**. Custom presets are available in `presets/nvenc_presets.json` — to use them, set `HANDBRAKE_PRESET_FILE=/config/presets/nvenc_presets.json`:
 
-- **NVENC H.265 1080p** - Best compression, modern compatibility
+- **NVENC H.265 1080p** - Best compression, decomb deinterlacing, all audio/subtitle tracks
 - **NVENC H.265 4K** - For 4K/UHD content
 - **NVENC H.264 1080p** - Broader device compatibility
 
@@ -370,7 +370,7 @@ See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for setup and troubleshooti
 
 ## Testing
 
-The project includes 284 tests covering unit, integration, and security testing.
+The project includes 293 tests covering unit, integration, and security testing.
 
 ```bash
 # Install test dependencies
@@ -383,12 +383,12 @@ python -m pytest tests/ -v
 | Test File | Tests | Coverage |
 |-----------|-------|----------|
 | `test_utils.py` | 48 | PathValidator, CommandValidator, disk space, title cleaning |
-| `test_transcoder.py` | 82 | GPU detection, encoder family routing, FFmpeg commands, file/audio discovery, resolution detection, preset selection |
+| `test_transcoder.py` | 90 | GPU detection, encoder family routing, FFmpeg commands, file/audio discovery, resolution detection, preset selection, source path resolution |
 | `test_security.py` | 43 | Path traversal, injection, payload attacks, auth bypass |
 | `test_models.py` | 34 | Pydantic validation, enums, data models |
 | `test_auth.py` | 27 | API key auth, webhook secret, config validation |
 | `test_integration.py` | 31 | Full pipeline: job lifecycle, retry/delete, startup restore, audio passthrough, 4K preset selection |
-| `test_api.py` | 19 | All API endpoints via async HTTP client |
+| `test_api.py` | 21 | All API endpoints via async HTTP client |
 
 ## Directory Structure
 

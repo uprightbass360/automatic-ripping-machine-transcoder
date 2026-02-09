@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # Transcoding
     handbrake_preset: str = Field(
-        "NVENC H.265 1080p",
+        "H.265 NVENC 1080p",
         description="HandBrake preset name to use"
     )
     handbrake_preset_4k: str = Field(
