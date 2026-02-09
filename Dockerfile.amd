@@ -12,9 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user with video/render group access
-RUN useradd -m -s /bin/bash transcoder \
+RUN groupadd -f render \
+    && useradd -m -s /bin/bash transcoder \
     && usermod -aG video transcoder \
-    && usermod -aG render transcoder 2>/dev/null || true
+    && usermod -aG render transcoder
 
 WORKDIR /app
 COPY requirements.txt .
