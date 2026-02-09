@@ -109,7 +109,7 @@ This specification addresses critical security vulnerabilities, high-priority bu
 - Return 503 Service Unavailable if worker not ready
 - Add mutex lock for worker state transitions
 
-**Current state:** Partial — has null check on worker before accepting webhooks, but no WorkerState enum or 503 response.
+**Current state:** Not started — webhook handler has no null check on worker (health/stats endpoints do check). No WorkerState enum or 503 response.
 
 **Files Modified:**
 - `src/main.py` (readiness check)
