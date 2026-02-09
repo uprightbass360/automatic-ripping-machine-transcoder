@@ -8,16 +8,21 @@ import os
 import re
 import shutil
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import select
 
 from config import settings
-from constants import AUDIO_FILE_EXTENSIONS
+from constants import (
+    AUDIO_FILE_EXTENSIONS,
+    PROGRESS_UPDATE_MIN_INTERVAL,
+    PROGRESS_UPDATE_THRESHOLD,
+)
 from database import get_db
 from models import TranscodeJobDB, JobStatus, TranscodeJob
+from utils import check_sufficient_disk_space, clean_title_for_filesystem, estimate_transcode_size
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +104,8 @@ class TranscodeWorker:
         self._current_job: Optional[str] = None
         self._shutdown_event = asyncio.Event()
         self._gpu_support = check_gpu_support()
+        self._last_progress: dict[int, float] = {}
+        self._last_progress_time: dict[int, float] = {}
 
         logger.info(f"GPU support: {self._gpu_support}")
 
@@ -206,6 +213,31 @@ class TranscodeWorker:
         await self._queue.put(job)
         logger.info(f"Queued job {job.id}: {title}")
 
+    async def _update_job(self, job_id: int, **kwargs):
+        """Update job fields using a short-lived DB session."""
+        async with get_db() as db:
+            result = await db.execute(
+                select(TranscodeJobDB).where(TranscodeJobDB.id == job_id)
+            )
+            job_db = result.scalar_one()
+            for key, value in kwargs.items():
+                setattr(job_db, key, value)
+            await db.commit()
+
+    async def _update_progress(self, job_id: int, progress: float):
+        """Update job progress with delta and time-based rate limiting."""
+        now = asyncio.get_event_loop().time()
+        last_progress = self._last_progress.get(job_id, -PROGRESS_UPDATE_THRESHOLD)
+        last_time = self._last_progress_time.get(job_id, 0.0)
+
+        delta = progress - last_progress
+        elapsed = now - last_time
+
+        if delta >= PROGRESS_UPDATE_THRESHOLD and elapsed >= PROGRESS_UPDATE_MIN_INTERVAL:
+            await self._update_job(job_id, progress=progress)
+            self._last_progress[job_id] = progress
+            self._last_progress_time[job_id] = now
+
     async def run(self):
         """Main worker loop."""
         self._running = True
@@ -271,142 +303,155 @@ class TranscodeWorker:
           3. Move output from local → completed
           4. Clean up local work dir (always, even on failure)
           5. Clean up raw source (if delete_source is set)
+
+        Each DB update uses a short-lived session to avoid holding locks during
+        long-running I/O (file copies, transcoding).
         """
         logger.info(f"Processing job {job.id}: {job.title}")
 
-        async with get_db() as db:
-            result = await db.execute(
-                select(TranscodeJobDB).where(TranscodeJobDB.id == job.id)
+        work_job_dir = Path(settings.work_path) / f"job-{job.id}"
+
+        try:
+            # Update status to processing
+            await self._update_job(job.id,
+                status=JobStatus.PROCESSING,
+                started_at=datetime.now(timezone.utc),
             )
-            job_db = result.scalar_one()
 
-            # Local scratch directory for this job
-            work_job_dir = Path(settings.work_path) / f"job-{job.id}"
+            # Resolve actual source path (ARM may move files to subdirectories)
+            resolved_path = self._resolve_source_path(job.source_path)
+            if resolved_path != job.source_path:
+                await self._update_job(job.id, source_path=resolved_path)
+                job.source_path = resolved_path
 
-            try:
-                # Update status to processing
-                job_db.status = JobStatus.PROCESSING
-                job_db.started_at = datetime.utcnow()
-                await db.commit()
+            # Wait for source to stabilize (files still being written)
+            await self._wait_for_stable(job.source_path)
 
-                # Resolve actual source path (ARM may move files to subdirectories)
+            # Discover source files
+            source_files = self._discover_source_files(job.source_path)
+            if not source_files:
+                # ARM may have moved files during stabilization (race condition)
                 resolved_path = self._resolve_source_path(job.source_path)
                 if resolved_path != job.source_path:
-                    job_db.source_path = resolved_path
+                    await self._update_job(job.id, source_path=resolved_path)
                     job.source_path = resolved_path
-                    await db.commit()
+                    await self._wait_for_stable(job.source_path)
+                    source_files = self._discover_source_files(job.source_path)
 
-                # Wait for source to stabilize (files still being written)
-                await self._wait_for_stable(job.source_path)
+            if not source_files:
+                # Check for audio files (audio CD rip)
+                audio_files = self._discover_audio_files(job.source_path)
+                if audio_files:
+                    await self._passthrough_audio(job)
+                    return
+                raise ValueError(f"No video or audio files found in {job.source_path}")
 
-                # Discover source files
-                source_files = self._discover_source_files(job.source_path)
-                if not source_files:
-                    # ARM may have moved files during stabilization (race condition)
-                    resolved_path = self._resolve_source_path(job.source_path)
-                    if resolved_path != job.source_path:
-                        job_db.source_path = resolved_path
-                        job.source_path = resolved_path
-                        await db.commit()
-                        await self._wait_for_stable(job.source_path)
-                        source_files = self._discover_source_files(job.source_path)
+            await self._update_job(job.id, total_tracks=len(source_files))
 
-                if not source_files:
-                    # Check for audio files (audio CD rip)
-                    audio_files = self._discover_audio_files(job.source_path)
-                    if audio_files:
-                        await self._passthrough_audio(job, job_db, db)
-                        return
-                    raise ValueError(f"No video or audio files found in {job.source_path}")
+            logger.info(f"Found {len(source_files)} MKV files to transcode")
 
-                job_db.total_tracks = len(source_files)
-                await db.commit()
+            # Ensure work directory exists for disk space check and copy
+            work_job_dir.mkdir(parents=True, exist_ok=True)
 
-                logger.info(f"Found {len(source_files)} MKV files to transcode")
+            # Check disk space before copying
+            source_size = sum(f.stat().st_size for f in source_files)
+            estimated_output = estimate_transcode_size(source_size)
+            total_needed = source_size + estimated_output  # copy + transcode output
+            sufficient, msg = check_sufficient_disk_space(
+                settings.work_path, total_needed, settings.minimum_free_space_gb
+            )
+            if not sufficient:
+                raise ValueError(msg)
 
-                # Copy source to local scratch
-                work_source_dir = work_job_dir / "source"
-                work_output_dir = work_job_dir / "output"
-                source = Path(job.source_path)
+            # Copy source to local scratch
+            work_source_dir = work_job_dir / "source"
+            work_output_dir = work_job_dir / "output"
+            source = Path(job.source_path)
+            work_output_dir.mkdir()
 
-                work_job_dir.mkdir(parents=True, exist_ok=True)
-                work_output_dir.mkdir()
+            logger.info(f"Copying source to local scratch: {work_source_dir}")
+            if source.is_file():
+                work_source_dir.mkdir()
+                shutil.copy2(str(source), str(work_source_dir / source.name))
+            else:
+                shutil.copytree(str(source), str(work_source_dir))
 
-                logger.info(f"Copying source to local scratch: {work_source_dir}")
-                if source.is_file():
-                    work_source_dir.mkdir()
-                    shutil.copy2(str(source), str(work_source_dir / source.name))
+            # Re-discover files from local copy
+            local_source_files = self._discover_source_files(str(work_source_dir))
+
+            # Determine final output path
+            video_type = self._detect_video_type(job.title, job.source_path)
+            output_dir = self._determine_output_path(job.title, job.source_path)
+            os.makedirs(output_dir, exist_ok=True)
+            await self._update_job(job.id,
+                video_type=video_type,
+                output_path=str(output_dir),
+            )
+
+            # Find main feature (largest file)
+            main_feature = max(local_source_files, key=lambda f: f.stat().st_size)
+            await self._update_job(job.id, main_feature_file=main_feature.name)
+
+            # Transcode each file locally
+            for i, source_file in enumerate(local_source_files):
+                progress = (i / len(local_source_files)) * 100
+                await self._update_progress(job.id, progress)
+
+                output_file = work_output_dir / f"{source_file.stem}.{settings.output_extension}"
+
+                # Determine if this is the main feature
+                is_main = source_file == main_feature
+
+                logger.info(
+                    f"Transcoding [{i+1}/{len(local_source_files)}]: {source_file.name}"
+                    f"{' (main feature)' if is_main else ''}"
+                )
+
+                if self._encoder_backend == "ffmpeg":
+                    await self._transcode_file_ffmpeg(source_file, output_file, job.id)
                 else:
-                    shutil.copytree(str(source), str(work_source_dir))
+                    await self._transcode_file_handbrake(source_file, output_file, job.id)
 
-                # Re-discover files from local copy
-                local_source_files = self._discover_source_files(str(work_source_dir))
+            # Move local output → completed
+            logger.info(f"Moving output to completed: {output_dir}")
+            for f in work_output_dir.iterdir():
+                shutil.move(str(f), str(output_dir / f.name))
 
-                # Determine final output path
-                job_db.video_type = self._detect_video_type(job.title, job.source_path)
-                output_dir = self._determine_output_path(job.title, job.source_path)
-                os.makedirs(output_dir, exist_ok=True)
-                job_db.output_path = str(output_dir)
-                await db.commit()
+            # Success
+            await self._update_job(job.id,
+                status=JobStatus.COMPLETED,
+                progress=100.0,
+                completed_at=datetime.now(timezone.utc),
+            )
 
-                # Find main feature (largest file)
-                main_feature = max(local_source_files, key=lambda f: f.stat().st_size)
-                job_db.main_feature_file = main_feature.name
-                await db.commit()
+            # Clean up raw source if configured
+            if settings.delete_source:
+                try:
+                    self._cleanup_source(job.source_path)
+                    logger.info(f"Cleaned up source: {job.source_path}")
+                except OSError as e:
+                    logger.warning(f"Could not clean up source: {e}")
 
-                # Transcode each file locally
-                for i, source_file in enumerate(local_source_files):
-                    progress = (i / len(local_source_files)) * 100
-                    job_db.progress = progress
-                    await db.commit()
+            logger.info(f"Completed job {job.id}: {job.title}")
 
-                    output_file = work_output_dir / f"{source_file.stem}.{settings.output_extension}"
+        except Exception as e:
+            logger.error(f"Job {job.id} failed: {e}", exc_info=True)
+            try:
+                await self._update_job(job.id,
+                    status=JobStatus.FAILED,
+                    error=str(e),
+                )
+            except Exception:
+                logger.error(f"Failed to update job {job.id} status to FAILED", exc_info=True)
 
-                    # Determine if this is the main feature
-                    is_main = source_file == main_feature
-
-                    logger.info(
-                        f"Transcoding [{i+1}/{len(local_source_files)}]: {source_file.name}"
-                        f"{' (main feature)' if is_main else ''}"
-                    )
-
-                    if self._encoder_backend == "ffmpeg":
-                        await self._transcode_file_ffmpeg(source_file, output_file, job_db, db)
-                    else:
-                        await self._transcode_file_handbrake(source_file, output_file, job_db, db)
-
-                # Move local output → completed
-                logger.info(f"Moving output to completed: {output_dir}")
-                for f in work_output_dir.iterdir():
-                    shutil.move(str(f), str(output_dir / f.name))
-
-                # Success
-                job_db.status = JobStatus.COMPLETED
-                job_db.progress = 100.0
-                job_db.completed_at = datetime.utcnow()
-                await db.commit()
-
-                # Clean up raw source if configured
-                if settings.delete_source:
-                    try:
-                        self._cleanup_source(job.source_path)
-                        logger.info(f"Cleaned up source: {job.source_path}")
-                    except OSError as e:
-                        logger.warning(f"Could not clean up source: {e}")
-
-                logger.info(f"Completed job {job.id}: {job.title}")
-
-            except Exception as e:
-                logger.error(f"Job {job.id} failed: {e}", exc_info=True)
-                job_db.status = JobStatus.FAILED
-                job_db.error = str(e)
-                await db.commit()
-
-            finally:
-                # Always clean up local scratch
-                if work_job_dir.exists():
-                    shutil.rmtree(work_job_dir)
-                    logger.info(f"Cleaned up work dir: {work_job_dir}")
+        finally:
+            # Always clean up local scratch
+            if work_job_dir.exists():
+                shutil.rmtree(work_job_dir)
+                logger.info(f"Cleaned up work dir: {work_job_dir}")
+            # Clean up progress tracking
+            self._last_progress.pop(job.id, None)
+            self._last_progress_time.pop(job.id, None)
 
     def _resolve_source_path(self, source_path: str) -> str:
         """Resolve the actual source path, searching subdirectories if needed.
@@ -528,18 +573,12 @@ class TranscodeWorker:
 
         return audio_files
 
-    async def _passthrough_audio(
-        self,
-        job: TranscodeJob,
-        job_db: TranscodeJobDB,
-        db,
-    ):
+    async def _passthrough_audio(self, job: TranscodeJob):
         """Copy audio files directly to audio output folder (no transcoding)."""
-        clean_title = re.sub(r'[<>:"/\\|?*]', '', job.title)
+        clean_title = clean_title_for_filesystem(job.title)
         output_dir = Path(settings.completed_path) / settings.audio_subdir / clean_title
         os.makedirs(output_dir, exist_ok=True)
 
-        source = Path(job.source_path)
         audio_files = self._discover_audio_files(job.source_path)
 
         logger.info(f"Audio passthrough: copying {len(audio_files)} audio files to {output_dir}")
@@ -547,12 +586,13 @@ class TranscodeWorker:
         for f in audio_files:
             shutil.copy2(str(f), str(output_dir / f.name))
 
-        job_db.output_path = str(output_dir)
-        job_db.total_tracks = len(audio_files)
-        job_db.status = JobStatus.COMPLETED
-        job_db.progress = 100.0
-        job_db.completed_at = datetime.utcnow()
-        await db.commit()
+        await self._update_job(job.id,
+            output_path=str(output_dir),
+            total_tracks=len(audio_files),
+            status=JobStatus.COMPLETED,
+            progress=100.0,
+            completed_at=datetime.now(timezone.utc),
+        )
 
         logger.info(f"Completed audio passthrough for job {job.id}: {job.title}")
 
@@ -585,8 +625,7 @@ class TranscodeWorker:
         else:
             base = Path(settings.completed_path) / settings.movies_subdir
 
-        # Clean title for filesystem
-        clean_title = re.sub(r'[<>:"/\\|?*]', '', title)
+        clean_title = clean_title_for_filesystem(title)
 
         return base / clean_title
 
@@ -594,8 +633,7 @@ class TranscodeWorker:
         self,
         source: Path,
         output: Path,
-        job_db: TranscodeJobDB,
-        db,
+        job_id: int,
     ):
         """Transcode a single file using HandBrake."""
         # Resolution-based preset selection
@@ -662,10 +700,7 @@ class TranscodeWorker:
             match = re.search(r'(\d+\.?\d*)\s*%', line)
             if match:
                 file_progress = float(match.group(1))
-                # Update database periodically (every 5%)
-                if int(file_progress) % 5 == 0:
-                    job_db.progress = file_progress
-                    await db.commit()
+                await self._update_progress(job_id, file_progress)
 
         await process.wait()
 
@@ -731,6 +766,14 @@ class TranscodeWorker:
         # Input file
         cmd.extend(["-i", str(source)])
 
+        # Explicit stream mapping to preserve multi-track audio/subtitles
+        cmd.extend(["-map", "0:v:0"])   # first video stream
+        cmd.extend(["-map", "0:a?"])    # all audio streams (optional)
+        if settings.subtitle_mode == "all":
+            cmd.extend(["-map", "0:s?"])    # all subtitles (optional)
+        elif settings.subtitle_mode == "first":
+            cmd.extend(["-map", "0:s:0?"])  # first subtitle only (optional)
+
         # Video encoder
         cmd.extend(["-c:v", ffmpeg_encoder])
 
@@ -764,13 +807,9 @@ class TranscodeWorker:
         else:
             cmd.extend(["-c:a", settings.audio_encoder])
 
-        # Subtitle handling
-        if settings.subtitle_mode == "all":
+        # Subtitle handling (stream selection handled by -map above)
+        if settings.subtitle_mode in ("all", "first"):
             cmd.extend(["-c:s", "copy"])
-        elif settings.subtitle_mode == "none":
-            cmd.extend(["-sn"])
-        else:
-            cmd.extend(["-map", "0:s:0?", "-c:s", "copy"])
 
         # Output
         cmd.append(str(output))
@@ -781,8 +820,7 @@ class TranscodeWorker:
         self,
         source: Path,
         output: Path,
-        job_db: TranscodeJobDB,
-        db,
+        job_id: int,
     ):
         """Transcode a single file using FFmpeg."""
         resolution = await self._get_video_resolution(source)
@@ -809,9 +847,7 @@ class TranscodeWorker:
                 hours, mins, secs = match.groups()
                 current_secs = int(hours) * 3600 + int(mins) * 60 + float(secs)
                 file_progress = min(100, (current_secs / duration) * 100)
-                if int(file_progress) % 5 == 0:
-                    job_db.progress = file_progress
-                    await db.commit()
+                await self._update_progress(job_id, file_progress)
 
         await process.wait()
 

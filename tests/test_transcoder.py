@@ -270,6 +270,10 @@ class TestBuildFfmpegCommand:
         assert "cuda" in cmd
         assert "hevc_nvenc" in cmd
         assert "-cq" in cmd
+        # Explicit stream mapping
+        assert "-map" in cmd
+        assert "0:v:0" in cmd
+        assert "0:a?" in cmd
 
     def test_nvenc_h264_command(self):
         worker, settings = self._make_worker("nvenc_h264")
@@ -346,6 +350,28 @@ class TestBuildFfmpegCommand:
         worker, settings = self._make_worker("nvenc_h265")
         with patch("transcoder.settings", settings):
             cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        # Should map all subtitles and copy them
+        assert "0:s?" in cmd
+        idx = cmd.index("-c:s")
+        assert cmd[idx + 1] == "copy"
+
+    def test_subtitle_none(self):
+        worker, settings = self._make_worker("nvenc_h265")
+        settings.subtitle_mode = "none"
+        with patch("transcoder.settings", settings):
+            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        # Should not map any subtitle streams
+        assert "0:s?" not in cmd
+        assert "0:s:0?" not in cmd
+        assert "-c:s" not in cmd
+
+    def test_subtitle_first(self):
+        worker, settings = self._make_worker("nvenc_h265")
+        settings.subtitle_mode = "first"
+        with patch("transcoder.settings", settings):
+            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        # Should map only first subtitle stream
+        assert "0:s:0?" in cmd
         idx = cmd.index("-c:s")
         assert cmd[idx + 1] == "copy"
 
@@ -972,7 +998,7 @@ class TestHandBrakePresetSelection:
             mock_settings.subtitle_mode = "all"
 
             await worker._transcode_file_handbrake(
-                Path("/fake/video.mkv"), output, MagicMock(), AsyncMock()
+                Path("/fake/video.mkv"), output, 1
             )
 
         cmd = captured[0]
@@ -1010,7 +1036,7 @@ class TestHandBrakePresetSelection:
             mock_settings.subtitle_mode = "all"
 
             await worker._transcode_file_handbrake(
-                Path("/fake/video.mkv"), output, MagicMock(), AsyncMock()
+                Path("/fake/video.mkv"), output, 1
             )
 
         cmd = captured[0]
@@ -1048,7 +1074,7 @@ class TestHandBrakePresetSelection:
             mock_settings.subtitle_mode = "all"
 
             await worker._transcode_file_handbrake(
-                Path("/fake/video.mkv"), output, MagicMock(), AsyncMock()
+                Path("/fake/video.mkv"), output, 1
             )
 
         cmd = captured[0]
@@ -1088,7 +1114,7 @@ class TestHandBrakePresetSelection:
             mock_settings.subtitle_mode = "all"
 
             await worker._transcode_file_handbrake(
-                Path("/fake/video.mkv"), output, MagicMock(), AsyncMock()
+                Path("/fake/video.mkv"), output, 1
             )
 
         cmd = captured[0]
@@ -1126,13 +1152,105 @@ class TestHandBrakePresetSelection:
             mock_settings.subtitle_mode = "all"
 
             await worker._transcode_file_handbrake(
-                Path("/fake/video.mkv"), output, MagicMock(), AsyncMock()
+                Path("/fake/video.mkv"), output, 1
             )
 
         cmd = captured[0]
         preset_idx = cmd.index("--preset")
         assert cmd[preset_idx + 1] == "NVENC H.265 1080p"
         assert "--width" not in cmd
+
+
+# ─── Disk space pre-check in _process_job ──────────────────────────────────
+
+
+class TestDiskSpacePreCheck:
+    """Tests for disk space pre-check in _process_job."""
+
+    def _make_worker(self):
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+            from transcoder import TranscodeWorker
+            return TranscodeWorker()
+
+    @pytest.mark.asyncio
+    async def test_insufficient_disk_space_fails_job(self, tmp_dirs):
+        """Job should fail with disk space error when space is insufficient."""
+        from contextlib import asynccontextmanager
+        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+        from models import Base, TranscodeJobDB
+
+        # Set up test DB
+        db_path = str(tmp_dirs["db_dir"] / "disktest.db")
+        engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
+        session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        @asynccontextmanager
+        async def test_get_db():
+            async with session_factory() as session:
+                try:
+                    yield session
+                except Exception:
+                    await session.rollback()
+                    raise
+
+        # Create source directory with MKV file
+        source_dir = tmp_dirs["raw"] / "TestMovie"
+        source_dir.mkdir()
+        (source_dir / "movie.mkv").write_bytes(b"\x00" * 10000)
+
+        # Create job in DB
+        async with session_factory() as session:
+            from models import JobStatus
+            job_db = TranscodeJobDB(
+                title="TestMovie",
+                source_path=str(source_dir),
+                status=JobStatus.PENDING,
+            )
+            session.add(job_db)
+            await session.commit()
+            await session.refresh(job_db)
+            job_id = job_db.id
+
+        job = TranscodeJob(
+            id=job_id,
+            title="TestMovie",
+            source_path=str(source_dir),
+        )
+
+        worker = self._make_worker()
+
+        # Mock disk_usage to return very low free space
+        mock_disk = MagicMock()
+        mock_disk.total = 20 * 1024**3
+        mock_disk.used = 19.5 * 1024**3
+        mock_disk.free = 0.5 * 1024**3  # Only 0.5GB free
+
+        with patch("transcoder.get_db", test_get_db), \
+             patch("transcoder.settings") as mock_settings, \
+             patch("utils.shutil.disk_usage", return_value=mock_disk):
+            mock_settings.work_path = str(tmp_dirs["work"])
+            mock_settings.raw_path = str(tmp_dirs["raw"])
+            mock_settings.completed_path = str(tmp_dirs["completed"])
+            mock_settings.delete_source = False
+            mock_settings.stabilize_seconds = 0
+            mock_settings.minimum_free_space_gb = 10.0
+
+            await worker._process_job(job)
+
+        # Verify job was marked as failed with disk space error
+        async with session_factory() as session:
+            from sqlalchemy import select
+            result = await session.execute(
+                select(TranscodeJobDB).where(TranscodeJobDB.id == job_id)
+            )
+            job_db = result.scalar_one()
+            assert job_db.status == JobStatus.FAILED
+            assert "disk space" in job_db.error.lower()
+
+        await engine.dispose()
 
 
 # Import settings for use in output path tests

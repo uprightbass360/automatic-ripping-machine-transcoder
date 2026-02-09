@@ -198,6 +198,7 @@ class TestProcessJobLifecycle:
                 mock_settings.delete_source = False
                 mock_settings.video_encoder = "nvenc_h265"
                 mock_settings.work_path = str(tmp_path / "work")
+                mock_settings.minimum_free_space_gb = 10.0
 
                 await worker._process_job(job)
 
@@ -248,6 +249,7 @@ class TestProcessJobLifecycle:
                 mock_settings.output_extension = "mkv"
                 mock_settings.video_encoder = "nvenc_h265"
                 mock_settings.work_path = str(tmp_path / "work")
+                mock_settings.minimum_free_space_gb = 10.0
 
                 await worker._process_job(job)
 
@@ -322,6 +324,7 @@ class TestProcessJobLifecycle:
                 mock_settings.delete_source = True
                 mock_settings.video_encoder = "nvenc_h265"
                 mock_settings.work_path = str(tmp_path / "work")
+                mock_settings.minimum_free_space_gb = 10.0
 
                 await worker._process_job(job)
 
@@ -363,6 +366,7 @@ class TestProcessJobLifecycle:
                 mock_settings.delete_source = True
                 mock_settings.video_encoder = "nvenc_h265"
                 mock_settings.work_path = str(tmp_path / "work")
+                mock_settings.minimum_free_space_gb = 10.0
 
                 await worker._process_job(job)
 
@@ -403,6 +407,7 @@ class TestProcessJobLifecycle:
                 mock_settings.delete_source = False
                 mock_settings.video_encoder = "nvenc_h265"
                 mock_settings.work_path = str(work_dir)
+                mock_settings.minimum_free_space_gb = 10.0
 
                 await worker._process_job(job)
 
@@ -445,6 +450,7 @@ class TestProcessJobLifecycle:
                 mock_settings.delete_source = False
                 mock_settings.video_encoder = "nvenc_h265"
                 mock_settings.work_path = str(work_dir)
+                mock_settings.minimum_free_space_gb = 10.0
 
                 await worker._process_job(job)
 
@@ -593,6 +599,7 @@ class TestWorkerRunLoop:
                 mock_settings.video_encoder = "nvenc_h265"
                 mock_settings.stabilize_seconds = 0
                 mock_settings.work_path = str(tmp_path / "work")
+                mock_settings.minimum_free_space_gb = 10.0
 
                 # Run worker briefly - it should process the job then we shut it down
                 async def run_and_stop():
@@ -1095,6 +1102,7 @@ class TestAudioPassthrough:
                 mock_settings.delete_source = False
                 mock_settings.video_encoder = "nvenc_h265"
                 mock_settings.work_path = str(tmp_path / "work")
+                mock_settings.minimum_free_space_gb = 10.0
 
                 await worker._process_job(job)
 
@@ -1243,6 +1251,7 @@ class TestResolutionPresetSelection:
                 mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
                 mock_settings.handbrake_preset_file = ""
                 mock_settings.work_path = str(tmp_path / "work")
+                mock_settings.minimum_free_space_gb = 10.0
 
                 # Create fake output file so the check passes
                 async def fake_exec(*args, **kwargs):
@@ -1285,7 +1294,7 @@ class TestMultiFileTranscode:
 
         transcode_calls = []
 
-        async def mock_transcode(source, output, job_db, db):
+        async def mock_transcode(source, output, job_id):
             transcode_calls.append(source.name)
 
         with patch("transcoder.get_db", test_get_db), \
@@ -1310,6 +1319,7 @@ class TestMultiFileTranscode:
                 mock_settings.delete_source = False
                 mock_settings.video_encoder = "nvenc_h265"
                 mock_settings.work_path = str(tmp_path / "work")
+                mock_settings.minimum_free_space_gb = 10.0
 
                 await worker._process_job(job)
 
@@ -1360,6 +1370,7 @@ class TestMultiFileTranscode:
                 mock_settings.delete_source = False
                 mock_settings.video_encoder = "nvenc_h265"
                 mock_settings.work_path = str(tmp_path / "work")
+                mock_settings.minimum_free_space_gb = 10.0
 
                 await worker._process_job(job)
 
