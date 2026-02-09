@@ -125,13 +125,13 @@ async def arm_webhook(
     # Determine source path
     source_path = payload.path
 
-    # Extract title from body if path not provided directly
-    if not source_path and body:
-        # ARM notification formats:
-        #   "{title} rip complete. Starting transcode."  (NOTIFY_RIP)
-        #   "{title} processing complete."               (NOTIFY_TRANSCODE)
-        #   "Rip of {title} complete"                    (legacy/custom)
-        title_from_body = None
+    # Extract media title from body
+    # ARM notification formats:
+    #   "{title} rip complete. Starting transcode."  (NOTIFY_RIP)
+    #   "{title} processing complete."               (NOTIFY_TRANSCODE)
+    #   "Rip of {title} complete"                    (legacy/custom)
+    title_from_body = None
+    if body:
         for pattern in [
             r"^(.+?)\s+rip complete",           # ARM rip notification
             r"^(.+?)\s+processing complete",     # ARM transcode notification
@@ -142,11 +142,11 @@ async def arm_webhook(
                 title_from_body = match.group(1).strip()
                 break
 
-        if title_from_body:
-            # Security: Only use the filename part, not full path
-            from pathlib import Path
-            safe_title = Path(title_from_body).name
-            source_path = safe_title
+    # Use extracted title as source path if no explicit path provided
+    if not source_path and title_from_body:
+        from pathlib import Path
+        safe_title = Path(title_from_body).name
+        source_path = safe_title
 
     if not source_path:
         logger.warning(f"Could not determine path from webhook: {payload.title}")
@@ -161,10 +161,11 @@ async def arm_webhook(
     # Construct full path within RAW_PATH
     full_path = str(Path(settings.raw_path) / source_path)
 
-    # Queue the transcode job
+    # Queue the transcode job — use extracted media title for output naming
+    job_title = title_from_body or payload.title
     await worker.queue_job(
         source_path=full_path,
-        title=payload.title,
+        title=job_title,
         arm_job_id=payload.job_id,
     )
 

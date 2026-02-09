@@ -127,6 +127,20 @@ class TestWebhookEndpoint:
         mock_worker.queue_job.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_webhook_title_fallback(self, client, mock_worker):
+        """When body has no parseable title, fall back to payload title."""
+        payload = {
+            "title": "Rip complete",
+            "path": "Movie Title (2024)",
+            "body": "some unrecognized format",
+            "status": "success",
+        }
+        response = await client.post("/webhook/arm", json=payload)
+        assert response.status_code == 200
+        call_kwargs = mock_worker.queue_job.call_args
+        assert call_kwargs.kwargs["title"] == "Rip complete"
+
+    @pytest.mark.asyncio
     async def test_apprise_message_field(self, client, mock_worker):
         """Apprise json:// sends 'message' instead of 'body' - should still work."""
         payload = {
@@ -155,6 +169,9 @@ class TestWebhookEndpoint:
         assert data["status"] == "queued"
         assert data["path"] == "Movie Title (2024)"
         mock_worker.queue_job.assert_called_once()
+        # Job title should be the extracted media title, not "ARM notification"
+        call_kwargs = mock_worker.queue_job.call_args
+        assert call_kwargs.kwargs["title"] == "Movie Title (2024)"
 
     @pytest.mark.asyncio
     async def test_arm_processing_complete_format(self, client, mock_worker):

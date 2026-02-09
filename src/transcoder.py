@@ -388,8 +388,11 @@ class TranscodeWorker:
 
                 # Clean up raw source if configured
                 if settings.delete_source:
-                    self._cleanup_source(job.source_path)
-                    logger.info(f"Cleaned up source: {job.source_path}")
+                    try:
+                        self._cleanup_source(job.source_path)
+                        logger.info(f"Cleaned up source: {job.source_path}")
+                    except OSError as e:
+                        logger.warning(f"Could not clean up source: {e}")
 
                 logger.info(f"Completed job {job.id}: {job.title}")
 
