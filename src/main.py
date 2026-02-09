@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
@@ -13,6 +14,7 @@ from sqlalchemy import select, delete, func
 
 from auth import get_current_user, require_admin, verify_webhook_secret
 from config import settings
+from constants import SHUTDOWN_TIMEOUT
 from database import init_db, get_db
 from models import WebhookPayload, JobStatus, TranscodeJob, TranscodeJobDB
 from transcoder import TranscodeWorker
@@ -43,10 +45,18 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
+    # Shutdown: signal worker to stop, then wait for current job to finish
     if worker:
         worker.shutdown()
-    worker_task.cancel()
+        try:
+            await asyncio.wait_for(worker_task, timeout=SHUTDOWN_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning(f"Worker did not finish within {SHUTDOWN_TIMEOUT}s, cancelling")
+            worker_task.cancel()
+        except asyncio.CancelledError:
+            pass
+    else:
+        worker_task.cancel()
 
     logger.info("ARM Transcoder stopped")
 
@@ -144,7 +154,6 @@ async def arm_webhook(
 
     # Use extracted title as source path if no explicit path provided
     if not source_path and title_from_body:
-        from pathlib import Path
         safe_title = Path(title_from_body).name
         source_path = safe_title
 
@@ -153,13 +162,16 @@ async def arm_webhook(
         return {"status": "error", "reason": "could not determine source path"}
 
     # Security: Validate path is just a directory name (no traversal)
-    from pathlib import Path
     if "/" in source_path or "\\" in source_path or ".." in source_path:
         logger.warning(f"Rejected path with traversal attempt: {source_path}")
         return {"status": "error", "reason": "invalid path"}
 
     # Construct full path within RAW_PATH
     full_path = str(Path(settings.raw_path) / source_path)
+
+    # Guard against worker not being ready
+    if worker is None or not worker.is_running:
+        raise HTTPException(status_code=503, detail="Transcoder not ready")
 
     # Queue the transcode job — use extracted media title for output naming
     job_title = title_from_body or payload.title
@@ -238,6 +250,9 @@ async def retry_job(
     _role: str = Depends(require_admin),
 ):
     """Retry a failed job (admin only)."""
+    if worker is None or not worker.is_running:
+        raise HTTPException(status_code=503, detail="Transcoder not ready")
+
     async with get_db() as db:
         result = await db.execute(
             select(TranscodeJobDB).where(TranscodeJobDB.id == job_id)

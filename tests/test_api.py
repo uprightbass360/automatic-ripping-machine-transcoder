@@ -188,6 +188,24 @@ class TestWebhookEndpoint:
         assert data["path"] == "Movie Title (2024)"
 
     @pytest.mark.asyncio
+    async def test_webhook_returns_503_when_worker_not_ready(self, client):
+        """Webhook should return 503 when worker is None or not running."""
+        import main as main_module
+        saved_worker = main_module.worker
+        main_module.worker = None
+        try:
+            payload = {
+                "title": "ARM notification",
+                "body": "Rip of Test Movie (2024) complete",
+                "type": "info",
+            }
+            response = await client.post("/webhook/arm", json=payload)
+            assert response.status_code == 503
+            assert "not ready" in response.json()["detail"].lower()
+        finally:
+            main_module.worker = saved_worker
+
+    @pytest.mark.asyncio
     async def test_non_completion_ignored(self, client):
         """Non-completion webhooks should be ignored."""
         payload = {
@@ -299,6 +317,20 @@ class TestJobsEndpoint:
 
 class TestRetryEndpoint:
     """Tests for POST /jobs/{id}/retry."""
+
+    @pytest.mark.asyncio
+    async def test_retry_returns_503_when_worker_not_ready(self, client):
+        """Retry should return 503 when worker is None."""
+        import main as main_module
+
+        saved_worker = main_module.worker
+        main_module.worker = None
+        try:
+            response = await client.post("/jobs/1/retry")
+            assert response.status_code == 503
+            assert "not ready" in response.json()["detail"].lower()
+        finally:
+            main_module.worker = saved_worker
 
     @pytest.mark.asyncio
     async def test_retry_nonexistent_job(self, client):
