@@ -195,6 +195,22 @@ journalctl -t arm-drive-watcher -f
 See `./scripts/setup-drive-watcher.sh --help` for all options including
 docker-compose support and device-bound mode.
 
+### Optional: Stable drive naming
+
+If your optical drive changes device names between reboots (e.g., `/dev/sr0`
+becomes `/dev/sr1`), create stable symlinks:
+
+```bash
+# List detected drives
+./scripts/setup-optical-symlinks.sh --list
+
+# Auto-create /dev/optical0, /dev/optical1, ...
+sudo ./scripts/setup-optical-symlinks.sh --auto
+```
+
+Then use `/dev/optical0` in your Docker device mapping instead of `/dev/sr0`.
+See `./scripts/setup-optical-symlinks.sh --help` for all options.
+
 ## Configuration
 
 ### Docker Environment Variables (.env)
@@ -437,7 +453,8 @@ arm-transcoder/
 └── scripts/
     ├── create-proxmox-lxc.sh     # Proxmox LXC setup
     ├── setup-arm.sh              # ARM ripper configuration automation
-    └── setup-drive-watcher.sh    # Optical drive watcher for container restart
+    ├── setup-drive-watcher.sh    # Optical drive watcher for container restart
+    └── setup-optical-symlinks.sh # Stable /dev/ symlinks for optical drives
 ```
 
 ## License
