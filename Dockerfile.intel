@@ -5,11 +5,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     vainfo \
-    intel-media-va-driver-non-free \
+    intel-media-va-driver \
     libva2 \
     libva-drm2 \
     libdrm2 \
-    libmfx1 \
+    libvpl2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user with video/render group access
