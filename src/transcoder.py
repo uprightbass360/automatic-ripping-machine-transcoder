@@ -302,6 +302,16 @@ class TranscodeWorker:
                 # Discover source files
                 source_files = self._discover_source_files(job.source_path)
                 if not source_files:
+                    # ARM may have moved files during stabilization (race condition)
+                    resolved_path = self._resolve_source_path(job.source_path)
+                    if resolved_path != job.source_path:
+                        job_db.source_path = resolved_path
+                        job.source_path = resolved_path
+                        await db.commit()
+                        await self._wait_for_stable(job.source_path)
+                        source_files = self._discover_source_files(job.source_path)
+
+                if not source_files:
                     # Check for audio files (audio CD rip)
                     audio_files = self._discover_audio_files(job.source_path)
                     if audio_files:
