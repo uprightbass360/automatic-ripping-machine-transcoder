@@ -434,6 +434,137 @@ class TestBuildFfmpegCommand:
         assert "scale_cuda=1280:-2" in cmd[vf_idx + 1]
 
 
+# ─── TranscodeWorker._resolve_source_path ─────────────────────────────────────
+
+
+class TestResolveSourcePath:
+    """Tests for _resolve_source_path method."""
+
+    def _make_worker(self):
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+            from transcoder import TranscodeWorker
+            return TranscodeWorker()
+
+    def test_direct_path_with_files(self, tmp_dirs):
+        """When direct path exists and has MKV files, return it as-is."""
+        movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
+        movie_dir.mkdir()
+        (movie_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
+
+        worker = self._make_worker()
+        with patch("transcoder.settings") as mock_settings:
+            mock_settings.raw_path = str(tmp_dirs["raw"])
+            result = worker._resolve_source_path(str(movie_dir))
+        assert result == str(movie_dir)
+
+    def test_empty_direct_path_finds_subdirectory(self, tmp_dirs):
+        """When direct path is empty, find files in subdirectory matching title."""
+        # Direct path exists but is empty
+        movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
+        movie_dir.mkdir()
+
+        # ARM moved files here
+        actual_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_177059407232"
+        actual_dir.mkdir(parents=True)
+        (actual_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
+
+        worker = self._make_worker()
+        with patch("transcoder.settings") as mock_settings:
+            mock_settings.raw_path = str(tmp_dirs["raw"])
+            result = worker._resolve_source_path(str(movie_dir))
+        assert result == str(actual_dir)
+
+    def test_missing_direct_path_finds_subdirectory(self, tmp_dirs):
+        """When direct path doesn't exist, find files in subdirectory."""
+        movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
+        # Don't create the direct path
+
+        actual_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_177059407232"
+        actual_dir.mkdir(parents=True)
+        (actual_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
+
+        worker = self._make_worker()
+        with patch("transcoder.settings") as mock_settings:
+            mock_settings.raw_path = str(tmp_dirs["raw"])
+            result = worker._resolve_source_path(str(movie_dir))
+        assert result == str(actual_dir)
+
+    def test_finds_in_movies_subfolder(self, tmp_dirs):
+        """ARM may put identified movies in a 'movies' subfolder."""
+        movie_dir = tmp_dirs["raw"] / "THE_MATRIX"
+        # No direct path
+
+        actual_dir = tmp_dirs["raw"] / "movies" / "THE_MATRIX"
+        actual_dir.mkdir(parents=True)
+        (actual_dir / "THE_MATRIX.mkv").write_bytes(b"\x00" * 100)
+
+        worker = self._make_worker()
+        with patch("transcoder.settings") as mock_settings:
+            mock_settings.raw_path = str(tmp_dirs["raw"])
+            result = worker._resolve_source_path(str(movie_dir))
+        assert result == str(actual_dir)
+
+    def test_picks_most_recent_candidate(self, tmp_dirs):
+        """When multiple matches exist, pick the most recently modified."""
+        import time
+        movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
+
+        old_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_100"
+        old_dir.mkdir(parents=True)
+        (old_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
+
+        time.sleep(0.05)  # Ensure different mtime
+
+        new_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_200"
+        new_dir.mkdir(parents=True)
+        (new_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
+
+        worker = self._make_worker()
+        with patch("transcoder.settings") as mock_settings:
+            mock_settings.raw_path = str(tmp_dirs["raw"])
+            result = worker._resolve_source_path(str(movie_dir))
+        assert result == str(new_dir)
+
+    def test_no_match_returns_original(self, tmp_dirs):
+        """When no matching subdirectory found, return original path."""
+        movie_dir = tmp_dirs["raw"] / "NONEXISTENT"
+
+        worker = self._make_worker()
+        with patch("transcoder.settings") as mock_settings:
+            mock_settings.raw_path = str(tmp_dirs["raw"])
+            result = worker._resolve_source_path(str(movie_dir))
+        assert result == str(movie_dir)
+
+    def test_audio_files_in_subdirectory(self, tmp_dirs):
+        """Resolves when subdirectory contains audio files (CD rip)."""
+        cd_dir = tmp_dirs["raw"] / "ALBUM_TITLE"
+
+        actual_dir = tmp_dirs["raw"] / "unidentified" / "ALBUM_TITLE_12345"
+        actual_dir.mkdir(parents=True)
+        (actual_dir / "track01.flac").write_bytes(b"\x00" * 100)
+
+        worker = self._make_worker()
+        with patch("transcoder.settings") as mock_settings:
+            mock_settings.raw_path = str(tmp_dirs["raw"])
+            result = worker._resolve_source_path(str(cd_dir))
+        assert result == str(actual_dir)
+
+    def test_skips_subdirectory_without_media(self, tmp_dirs):
+        """Ignores subdirectories that don't contain media files."""
+        movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
+
+        # Directory matches title but has no media files
+        no_media_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_100"
+        no_media_dir.mkdir(parents=True)
+        (no_media_dir / "readme.txt").write_text("no media here")
+
+        worker = self._make_worker()
+        with patch("transcoder.settings") as mock_settings:
+            mock_settings.raw_path = str(tmp_dirs["raw"])
+            result = worker._resolve_source_path(str(movie_dir))
+        assert result == str(movie_dir)  # Falls back to original
+
+
 # ─── TranscodeWorker._discover_source_files ──────────────────────────────────
 
 

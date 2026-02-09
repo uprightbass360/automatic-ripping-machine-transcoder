@@ -289,6 +289,13 @@ class TranscodeWorker:
                 job_db.started_at = datetime.utcnow()
                 await db.commit()
 
+                # Resolve actual source path (ARM may move files to subdirectories)
+                resolved_path = self._resolve_source_path(job.source_path)
+                if resolved_path != job.source_path:
+                    job_db.source_path = resolved_path
+                    job.source_path = resolved_path
+                    await db.commit()
+
                 # Wait for source to stabilize (files still being written)
                 await self._wait_for_stable(job.source_path)
 
@@ -387,6 +394,67 @@ class TranscodeWorker:
                 if work_job_dir.exists():
                     shutil.rmtree(work_job_dir)
                     logger.info(f"Cleaned up work dir: {work_job_dir}")
+
+    def _resolve_source_path(self, source_path: str) -> str:
+        """Resolve the actual source path, searching subdirectories if needed.
+
+        ARM may move ripped files from raw/<TITLE>/ to raw/<type>/<TITLE_timestamp>/
+        where type is 'unidentified', 'movies', or 'tv'. This method finds the
+        actual location when the direct path doesn't exist or is empty.
+        """
+        path = Path(source_path)
+
+        # If path exists and has media files, use it directly
+        if path.exists() and path.is_dir():
+            has_files = (
+                any(path.glob("*.mkv"))
+                or any(
+                    f for f in path.iterdir()
+                    if f.is_file() and f.suffix.lower() in AUDIO_FILE_EXTENSIONS
+                )
+            )
+            if has_files:
+                return source_path
+
+        # Search subdirectories of raw_path for a matching title
+        raw_path = Path(settings.raw_path)
+        title = path.name  # e.g., "SERIAL_MOM"
+
+        if not raw_path.exists():
+            return source_path
+
+        candidates = []
+        for subdir in raw_path.iterdir():
+            if not subdir.is_dir() or subdir == path:
+                continue
+            for candidate in subdir.iterdir():
+                if not candidate.is_dir():
+                    continue
+                if not candidate.name.startswith(title):
+                    continue
+                # Verify it has actual media files
+                has_media = (
+                    any(candidate.glob("*.mkv"))
+                    or any(
+                        f for f in candidate.iterdir()
+                        if f.is_file() and f.suffix.lower() in AUDIO_FILE_EXTENSIONS
+                    )
+                )
+                if has_media:
+                    # Security: ensure resolved path is still within raw_path
+                    try:
+                        candidate.resolve().relative_to(raw_path.resolve())
+                        candidates.append(candidate)
+                    except ValueError:
+                        logger.warning(f"Skipping candidate outside raw_path: {candidate}")
+
+        if not candidates:
+            return source_path
+
+        # Pick the most recently modified candidate
+        best = max(candidates, key=lambda d: d.stat().st_mtime)
+        logger.info(f"Resolved source path: {source_path} -> {best}")
+        return str(best)
 
     async def _wait_for_stable(self, path: str, timeout: int = 3600):
         """Wait for directory to stop receiving new files."""
