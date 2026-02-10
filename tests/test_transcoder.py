@@ -801,6 +801,242 @@ class TestDetermineOutputPath:
         assert settings.tv_subdir in str(result)
 
 
+# ─── TranscodeWorker._classify_media_type ─────────────────────────────────────
+
+
+class TestClassifyMediaType:
+    """Tests for _classify_media_type static method."""
+
+    def test_dvd_480p(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._classify_media_type(480) == "DVD"
+
+    def test_dvd_576p_pal(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._classify_media_type(576) == "DVD"
+
+    def test_bluray_720p(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._classify_media_type(720) == "Blu-ray"
+
+    def test_bluray_1080p(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._classify_media_type(1080) == "Blu-ray"
+
+    def test_uhd_2160p(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._classify_media_type(2160) == "UHD Blu-ray"
+
+    def test_uhd_4320p(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._classify_media_type(4320) == "UHD Blu-ray"
+
+
+# ─── TranscodeWorker._format_resolution ──────────────────────────────────────
+
+
+class TestFormatResolution:
+    """Tests for _format_resolution static method."""
+
+    def test_480p(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._format_resolution(480) == "480p"
+
+    def test_576p_still_480p_label(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._format_resolution(576) == "480p"
+
+    def test_720p(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._format_resolution(720) == "720p"
+
+    def test_1080p(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._format_resolution(1080) == "1080p"
+
+    def test_2160p(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._format_resolution(2160) == "2160p"
+
+    def test_unusual_resolution(self):
+        from transcoder import TranscodeWorker
+        assert TranscodeWorker._format_resolution(900) == "900p"
+
+
+# ─── TranscodeWorker._get_codec_name ─────────────────────────────────────────
+
+
+class TestGetCodecName:
+    """Tests for _get_codec_name method."""
+
+    def _make_worker(self, video_encoder="nvenc_h265"):
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("transcoder.settings") as mock_settings:
+            mock_settings.video_encoder = video_encoder
+            from transcoder import TranscodeWorker
+            return TranscodeWorker()
+
+    def test_nvenc_h265(self):
+        worker = self._make_worker("nvenc_h265")
+        with patch("transcoder.settings") as s:
+            s.video_encoder = "nvenc_h265"
+            assert worker._get_codec_name() == "HEVC"
+
+    def test_hevc_nvenc(self):
+        worker = self._make_worker("nvenc_h265")
+        with patch("transcoder.settings") as s:
+            s.video_encoder = "hevc_nvenc"
+            assert worker._get_codec_name() == "HEVC"
+
+    def test_x265(self):
+        worker = self._make_worker("x265")
+        with patch("transcoder.settings") as s:
+            s.video_encoder = "x265"
+            assert worker._get_codec_name() == "HEVC"
+
+    def test_nvenc_h264(self):
+        worker = self._make_worker("nvenc_h264")
+        with patch("transcoder.settings") as s:
+            s.video_encoder = "nvenc_h264"
+            assert worker._get_codec_name() == "H264"
+
+    def test_x264(self):
+        worker = self._make_worker("x264")
+        with patch("transcoder.settings") as s:
+            s.video_encoder = "x264"
+            assert worker._get_codec_name() == "H264"
+
+    def test_vaapi_h265(self):
+        worker = self._make_worker("vaapi_h265")
+        with patch("transcoder.settings") as s:
+            s.video_encoder = "vaapi_h265"
+            assert worker._get_codec_name() == "HEVC"
+
+    def test_qsv_h264(self):
+        worker = self._make_worker("qsv_h264")
+        with patch("transcoder.settings") as s:
+            s.video_encoder = "qsv_h264"
+            assert worker._get_codec_name() == "H264"
+
+    def test_amf_h265(self):
+        worker = self._make_worker("amf_h265")
+        with patch("transcoder.settings") as s:
+            s.video_encoder = "amf_h265"
+            assert worker._get_codec_name() == "HEVC"
+
+
+# ─── TranscodeWorker._determine_output_path with resolution ──────────────────
+
+
+class TestDetermineOutputPathWithMetadata:
+    """Tests for _determine_output_path with resolution metadata."""
+
+    def _make_worker(self):
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+            from transcoder import TranscodeWorker
+            return TranscodeWorker()
+
+    def test_dvd_with_year(self):
+        worker = self._make_worker()
+        with patch("transcoder.settings") as s:
+            s.completed_path = "/data/completed"
+            s.movies_subdir = "movies"
+            s.video_encoder = "nvenc_h265"
+            result = worker._determine_output_path(
+                "Serial-Mom", "/data/raw/Serial-Mom (1994)", resolution=(720, 480)
+            )
+        assert result.name == "Serial-Mom (1994) 480p DVD HEVC"
+
+    def test_bluray_1080p_with_year(self):
+        worker = self._make_worker()
+        with patch("transcoder.settings") as s:
+            s.completed_path = "/data/completed"
+            s.movies_subdir = "movies"
+            s.video_encoder = "nvenc_h265"
+            result = worker._determine_output_path(
+                "Some Movie", "/data/raw/Some Movie (2020)", resolution=(1920, 1080)
+            )
+        assert result.name == "Some Movie (2020) 1080p Blu-ray HEVC"
+
+    def test_uhd_2160p_with_year(self):
+        worker = self._make_worker()
+        with patch("transcoder.settings") as s:
+            s.completed_path = "/data/completed"
+            s.movies_subdir = "movies"
+            s.video_encoder = "nvenc_h265"
+            result = worker._determine_output_path(
+                "Big Film", "/data/raw/Big Film (2023)", resolution=(3840, 2160)
+            )
+        assert result.name == "Big Film (2023) 2160p UHD Blu-ray HEVC"
+
+    def test_no_year_in_source(self):
+        worker = self._make_worker()
+        with patch("transcoder.settings") as s:
+            s.completed_path = "/data/completed"
+            s.movies_subdir = "movies"
+            s.video_encoder = "nvenc_h265"
+            result = worker._determine_output_path(
+                "Unknown Movie", "/data/raw/Unknown Movie", resolution=(1920, 1080)
+            )
+        assert result.name == "Unknown Movie 1080p Blu-ray HEVC"
+
+    def test_no_resolution_with_year(self):
+        worker = self._make_worker()
+        with patch("transcoder.settings") as s:
+            s.completed_path = "/data/completed"
+            s.movies_subdir = "movies"
+            s.video_encoder = "nvenc_h265"
+            result = worker._determine_output_path(
+                "Fallback Movie", "/data/raw/Fallback Movie (2021)", resolution=None
+            )
+        assert result.name == "Fallback Movie (2021)"
+
+    def test_no_resolution_no_year(self):
+        worker = self._make_worker()
+        with patch("transcoder.settings") as s:
+            s.completed_path = "/data/completed"
+            s.movies_subdir = "movies"
+            s.video_encoder = "nvenc_h265"
+            result = worker._determine_output_path(
+                "Plain Movie", "/data/raw/Plain Movie", resolution=None
+            )
+        assert result.name == "Plain Movie"
+
+    def test_h264_codec(self):
+        worker = self._make_worker()
+        with patch("transcoder.settings") as s:
+            s.completed_path = "/data/completed"
+            s.movies_subdir = "movies"
+            s.video_encoder = "nvenc_h264"
+            result = worker._determine_output_path(
+                "H264 Movie", "/data/raw/H264 Movie (2022)", resolution=(1920, 1080)
+            )
+        assert result.name == "H264 Movie (2022) 1080p Blu-ray H264"
+
+    def test_tv_show_with_resolution(self):
+        worker = self._make_worker()
+        with patch("transcoder.settings") as s:
+            s.completed_path = "/data/completed"
+            s.tv_subdir = "tv"
+            s.video_encoder = "nvenc_h265"
+            result = worker._determine_output_path(
+                "Show S01E05", "/data/raw/Show S01E05 (2023)", resolution=(1920, 1080)
+            )
+        assert "tv" in str(result)
+        assert result.name == "Show S01E05 (2023) 1080p Blu-ray HEVC"
+
+    def test_720p_resolution(self):
+        worker = self._make_worker()
+        with patch("transcoder.settings") as s:
+            s.completed_path = "/data/completed"
+            s.movies_subdir = "movies"
+            s.video_encoder = "x265"
+            result = worker._determine_output_path(
+                "HD Movie", "/data/raw/HD Movie (2019)", resolution=(1280, 720)
+            )
+        assert result.name == "HD Movie (2019) 720p Blu-ray HEVC"
+
+
 # ─── TranscodeWorker._cleanup_source ─────────────────────────────────────────
 
 

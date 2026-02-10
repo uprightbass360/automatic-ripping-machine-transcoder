@@ -379,28 +379,32 @@ class TranscodeWorker:
             # Re-discover files from local copy
             local_source_files = self._discover_source_files(str(work_source_dir))
 
-            # Determine final output path
+            # Find main feature (largest file) and probe resolution
+            main_feature = max(local_source_files, key=lambda f: f.stat().st_size)
+            resolution = await self._get_video_resolution(main_feature)
+            await self._update_job(job.id, main_feature_file=main_feature.name)
+
+            # Determine final output path (with metadata from resolution)
             video_type = self._detect_video_type(job.title, job.source_path)
-            output_dir = self._determine_output_path(job.title, job.source_path)
+            output_dir = self._determine_output_path(job.title, job.source_path, resolution)
+            folder_name = output_dir.name
             os.makedirs(output_dir, exist_ok=True)
             await self._update_job(job.id,
                 video_type=video_type,
                 output_path=str(output_dir),
             )
 
-            # Find main feature (largest file)
-            main_feature = max(local_source_files, key=lambda f: f.stat().st_size)
-            await self._update_job(job.id, main_feature_file=main_feature.name)
-
             # Transcode each file locally
             for i, source_file in enumerate(local_source_files):
                 progress = (i / len(local_source_files)) * 100
                 await self._update_progress(job.id, progress)
 
-                output_file = work_output_dir / f"{source_file.stem}.{settings.output_extension}"
-
-                # Determine if this is the main feature
+                # Name output files using the metadata-enriched folder name
                 is_main = source_file == main_feature
+                if is_main or len(local_source_files) == 1:
+                    output_file = work_output_dir / f"{folder_name}.{settings.output_extension}"
+                else:
+                    output_file = work_output_dir / f"{folder_name} - {source_file.stem}.{settings.output_extension}"
 
                 logger.info(
                     f"Transcoding [{i+1}/{len(local_source_files)}]: {source_file.name}"
@@ -617,8 +621,51 @@ class TranscodeWorker:
                 return "tv"
         return "movie"
 
-    def _determine_output_path(self, title: str, source_path: str) -> Path:
-        """Determine the output directory path."""
+    @staticmethod
+    def _classify_media_type(height: int) -> str:
+        """Return media type label from resolution height."""
+        if height < 720:
+            return "DVD"
+        if height <= 1080:
+            return "Blu-ray"
+        return "UHD Blu-ray"
+
+    @staticmethod
+    def _format_resolution(height: int) -> str:
+        """Return resolution string from height."""
+        if height < 720:
+            return "480p"
+        if height == 720:
+            return "720p"
+        if height == 1080:
+            return "1080p"
+        if height == 2160:
+            return "2160p"
+        return f"{height}p"
+
+    def _get_codec_name(self) -> str:
+        """Map settings.video_encoder to a display name."""
+        encoder = settings.video_encoder.lower()
+        h265_names = {
+            "nvenc_h265", "hevc_nvenc", "vaapi_h265", "hevc_vaapi",
+            "amf_h265", "hevc_amf", "qsv_h265", "hevc_qsv", "x265",
+        }
+        h264_names = {
+            "nvenc_h264", "h264_nvenc", "vaapi_h264", "h264_vaapi",
+            "amf_h264", "h264_amf", "qsv_h264", "h264_qsv", "x264",
+        }
+        if encoder in h265_names:
+            return "HEVC"
+        if encoder in h264_names:
+            return "H264"
+        return encoder.upper()
+
+    def _determine_output_path(self, title: str, source_path: str, resolution: tuple[int, int] | None = None) -> Path:
+        """Determine the output directory path.
+
+        Builds a metadata-enriched folder name like:
+          Serial Mom (1994) 480p DVD HEVC
+        """
         video_type = self._detect_video_type(title, source_path)
         if video_type == "tv":
             base = Path(settings.completed_path) / settings.tv_subdir
@@ -627,7 +674,29 @@ class TranscodeWorker:
 
         clean_title = clean_title_for_filesystem(title)
 
-        return base / clean_title
+        # Extract year from source directory name, e.g. "Serial-Mom (1994)"
+        dir_name = Path(source_path).name
+        year_match = re.search(r'\((\d{4})\)', dir_name)
+        year = year_match.group(1) if year_match else None
+
+        # Build metadata suffix if resolution is available
+        if resolution:
+            height = resolution[1]
+            res_str = self._format_resolution(height)
+            media_type = self._classify_media_type(height)
+            codec = self._get_codec_name()
+            if year:
+                folder_name = f"{clean_title} ({year}) {res_str} {media_type} {codec}"
+            else:
+                folder_name = f"{clean_title} {res_str} {media_type} {codec}"
+        else:
+            if year:
+                folder_name = f"{clean_title} ({year})"
+            else:
+                folder_name = clean_title
+
+        folder_name = clean_title_for_filesystem(folder_name)
+        return base / folder_name
 
     async def _transcode_file_handbrake(
         self,
