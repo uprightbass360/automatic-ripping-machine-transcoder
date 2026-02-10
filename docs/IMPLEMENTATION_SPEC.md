@@ -639,3 +639,29 @@ Implementation complete when:
 - [ ] Performance targets met
 - [x] No regressions in functionality
 - [x] Backward compatibility maintained (with migration path)
+
+---
+
+## 12. Known Bugs
+
+### 12.1 Source path resolution fails when ARM title differs from directory name
+
+**Status:** Open
+**Severity:** High
+**Discovered:** 2026-02-10
+
+**Problem:** When ARM's manually-corrected title differs from the auto-detected title used for the rip directory name, `_resolve_source_path()` cannot find the ripped files.
+
+**Example:**
+- ARM auto-detects title as `LOTR--the-Pronouns-of-Power` and creates rip directory: `raw/movies/LOTR--the-Pronouns-of-Power (2022)_177071496972/`
+- User manually corrects title to `The Lord of the Rings- The Fellowship of the Ring`
+- Webhook body sends: `"The Lord of the Rings- The Fellowship of the Ring rip complete. Starting transcode."`
+- Transcoder extracts title and looks for directories starting with `The Lord of the Rings- The Fellowship of the Ring`
+- No match found because directory starts with `LOTR--the-Pronouns-of-Power`
+
+**Root cause:** The webhook notification uses `job.title` (the corrected title) but the filesystem directory uses the original auto-detected title. `_resolve_source_path()` only matches directories whose names start with the webhook title.
+
+**Possible fixes:**
+1. Modify `notify_transcoder.sh` to include the actual rip path (from `job.path`) as an explicit `path` field in the JSON payload
+2. Add fuzzy matching or disc label matching in `_resolve_source_path()`
+3. Have ARM pass both the title and the raw path in the webhook payload

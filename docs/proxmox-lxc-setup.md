@@ -94,8 +94,8 @@ git clone https://github.com/yourusername/arm-transcoder.git
 cd arm-transcoder
 
 # Run installer
-chmod +x install-lxc.sh
-./install-lxc.sh
+chmod +x scripts/lxc-guest-install.sh
+./scripts/lxc-guest-install.sh
 ```
 
 ## Step 6: Configure

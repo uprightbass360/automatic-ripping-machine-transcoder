@@ -451,7 +451,8 @@ arm-transcoder/
 ├── presets/
 │   └── nvenc_presets.json      # HandBrake presets (NVIDIA)
 └── scripts/
-    ├── create-proxmox-lxc.sh     # Proxmox LXC setup
+    ├── lxc-host-create.sh         # Create LXC container (run on Proxmox host)
+    ├── lxc-guest-install.sh       # Install transcoder (run inside LXC)
     ├── setup-arm.sh              # ARM ripper configuration automation
     ├── setup-drive-watcher.sh    # Optical drive watcher for container restart
     └── setup-optical-symlinks.sh # Stable /dev/ symlinks for optical drives

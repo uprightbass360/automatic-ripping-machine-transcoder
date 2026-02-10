@@ -2,8 +2,8 @@
 # ARM Transcoder - Proxmox LXC Creation Script
 # Run this on the Proxmox host to create and configure the container
 #
-# Usage: ./create-proxmox-lxc.sh [VMID] [IP_ADDRESS]
-# Example: ./create-proxmox-lxc.sh 108 192.168.1.100
+# Usage: ./lxc-host-create.sh [VMID] [IP_ADDRESS]
+# Example: ./lxc-host-create.sh 108 192.168.1.100
 
 set -e
 
@@ -93,7 +93,7 @@ echo "     wget https://us.download.nvidia.com/XFree86/Linux-x86_64/580.119.02/N
 echo "     chmod +x NVIDIA-Linux-x86_64-580.119.02.run"
 echo "     ./NVIDIA-Linux-x86_64-580.119.02.run --no-kernel-module"
 echo "  3. Verify: nvidia-smi"
-echo "  4. Clone arm-transcoder and run install-lxc.sh"
+echo "  4. Clone arm-transcoder and run scripts/lxc-guest-install.sh"
 echo ""
 echo "Container IP:"
 pct exec ${VMID} -- hostname -I
