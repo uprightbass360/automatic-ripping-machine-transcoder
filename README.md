@@ -1,8 +1,8 @@
 # ARM Transcoder
 
-Hardware-accelerated transcoding service for [Automatic Ripping Machine](https://github.com/automatic-ripping-machine/automatic-ripping-machine).
+Part of the [Automatic Ripping Machine ecosystem](#related-projects). Originally built as a companion service for the upstream [Automatic Ripping Machine](https://github.com/automatic-ripping-machine/automatic-ripping-machine) project.
 
-Offloads transcoding from your ARM ripper to a dedicated transcode server. Supports NVIDIA, AMD, and Intel GPUs, or CPU-only software encoding.
+Hardware-accelerated transcoding service that offloads encoding from your ARM ripper to a dedicated transcode server. Supports NVIDIA, AMD, and Intel GPUs, or CPU-only software encoding.
 
 ## Architecture
 
@@ -409,7 +409,7 @@ python -m pytest tests/ -v
 ## Directory Structure
 
 ```
-arm-transcoder/
+automatic-ripping-machine-transcoder/
 ├── docker-compose.yml          # NVIDIA GPU
 ├── docker-compose.amd.yml      # AMD Radeon (VAAPI)
 ├── docker-compose.intel.yml    # Intel Quick Sync
@@ -457,6 +457,18 @@ arm-transcoder/
     ├── setup-drive-watcher.sh    # Optical drive watcher for container restart
     └── setup-optical-symlinks.sh # Stable /dev/ symlinks for optical drives
 ```
+
+## Related Projects
+
+This transcoder is part of a suite of projects that extend and improve the Automatic Ripping Machine:
+
+| Project | Description |
+|---------|-------------|
+| [automatic-ripping-machine-neu](https://github.com/uprightbass360/automatic-ripping-machine-neu) | Fork of the original ARM with bug fixes and improvements |
+| [automatic-ripping-machine-ui](https://github.com/uprightbass360/automatic-ripping-machine-ui) | Modern replacement dashboard (SvelteKit + FastAPI) |
+| **automatic-ripping-machine-transcoder** | GPU-accelerated transcoding service (this project) |
+
+The original upstream project: [automatic-ripping-machine/automatic-ripping-machine](https://github.com/automatic-ripping-machine/automatic-ripping-machine)
 
 ## License
 
