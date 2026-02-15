@@ -1,0 +1,47 @@
+name: "PR - Test Docker Build"
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-pr-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (NVIDIA)
+        uses: docker/build-push-action@v6
+        with:
+          push: false
+          context: .
+          platforms: linux/amd64
+          tags: arm-transcoder:pr${{ github.event.number }}
+
+      - name: Build Docker image (AMD)
+        uses: docker/build-push-action@v6
+        with:
+          push: false
+          context: .
+          file: Dockerfile.amd
+          platforms: linux/amd64
+          tags: arm-transcoder:pr${{ github.event.number }}-amd
+
+      - name: Build Docker image (Intel)
+        uses: docker/build-push-action@v6
+        with:
+          push: false
+          context: .
+          file: Dockerfile.intel
+          platforms: linux/amd64
+          tags: arm-transcoder:pr${{ github.event.number }}-intel

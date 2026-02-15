@@ -1,5 +1,9 @@
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
+LABEL org.opencontainers.image.source="https://github.com/uprightbass360/automatic-ripping-machine-transcoder"
+LABEL org.opencontainers.image.license="MIT"
+LABEL org.opencontainers.image.description="GPU-accelerated transcoding service for ARM (NVIDIA)"
+
 # Install system dependencies and HandBrake CLI from Ubuntu universe repo
 RUN echo "deb http://archive.ubuntu.com/ubuntu jammy universe" >> /etc/apt/sources.list \
     && echo "deb http://archive.ubuntu.com/ubuntu jammy-updates universe" >> /etc/apt/sources.list \

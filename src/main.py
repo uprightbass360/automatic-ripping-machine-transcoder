@@ -116,6 +116,8 @@ async def health_check():
             "max_concurrent": settings.max_concurrent,
             "stabilize_seconds": settings.stabilize_seconds,
         },
+        "require_api_auth": settings.require_api_auth,
+        "webhook_secret_configured": bool(settings.webhook_secret),
     }
 
 

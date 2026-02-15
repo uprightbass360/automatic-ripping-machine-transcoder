@@ -1,5 +1,9 @@
 FROM python:3.12-slim
 
+LABEL org.opencontainers.image.source="https://github.com/uprightbass360/automatic-ripping-machine-transcoder"
+LABEL org.opencontainers.image.license="MIT"
+LABEL org.opencontainers.image.description="GPU-accelerated transcoding service for ARM (Intel QSV)"
+
 # Install system dependencies including Intel media drivers for QSV
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
