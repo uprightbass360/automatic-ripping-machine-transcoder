@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # notify_transcoder.sh - Send ARM notifications to arm-transcoder with authentication
 #
-# ARM calls this script with two arguments:
+# ARM calls this script with two positional arguments:
 #   $1 = title (e.g. "ARM notification")
 #   $2 = body  (e.g. "Movie Title (2024) rip complete. Starting transcode.")
+#
+# ARM (neu) also sets environment variables:
+#   ARM_RAW_PATH     - Actual raw MKV output directory (e.g. /home/arm/media/raw/SERIAL_MOM)
+#   ARM_JOB_ID       - ARM database job ID
+#   ARM_TITLE        - User-corrected title (or auto-detected if not corrected)
+#   ARM_TITLE_AUTO   - Auto-detected title from disc label
 #
 # Install:
 #   1. Copy this script to /home/arm/scripts/ on the ARM machine
@@ -31,14 +37,23 @@ if [ -z "$BODY" ]; then
     exit 1
 fi
 
+# ARM (neu) passes the actual raw path via environment variable.
+# This is more reliable than extracting the title directory from body text.
+RAW_PATH="${ARM_RAW_PATH:-}"
+
 # Move ripped files from local scratch → shared storage (if configured)
 if [ -n "$LOCAL_RAW_PATH" ] && [ -n "$SHARED_RAW_PATH" ]; then
-    # Extract title directory from body: "Title Name (2024) rip complete. ..."
-    TITLE_DIR=""
-    if [[ "$BODY" =~ ^(.+)[[:space:]]rip\ complete ]]; then
-        TITLE_DIR="${BASH_REMATCH[1]}"
-    elif [[ "$BODY" =~ ^(.+)[[:space:]]processing\ complete ]]; then
-        TITLE_DIR="${BASH_REMATCH[1]}"
+    if [ -n "$RAW_PATH" ]; then
+        # Use the directory basename from ARM_RAW_PATH
+        TITLE_DIR="$(basename "$RAW_PATH")"
+    else
+        # Fallback: extract title directory from body text
+        TITLE_DIR=""
+        if [[ "$BODY" =~ ^(.+)[[:space:]]rip\ complete ]]; then
+            TITLE_DIR="${BASH_REMATCH[1]}"
+        elif [[ "$BODY" =~ ^(.+)[[:space:]]processing\ complete ]]; then
+            TITLE_DIR="${BASH_REMATCH[1]}"
+        fi
     fi
 
     if [ -n "$TITLE_DIR" ]; then
@@ -48,6 +63,8 @@ if [ -n "$LOCAL_RAW_PATH" ] && [ -n "$SHARED_RAW_PATH" ]; then
             mkdir -p "$SHARED_RAW_PATH"
             mv "$SRC" "$DST"
             echo "Moved $SRC → $DST"
+            # Update RAW_PATH to reflect the new location
+            RAW_PATH="$DST"
         else
             echo "WARNING: Local source not found: $SRC" >&2
         fi
@@ -59,7 +76,14 @@ json_escape() {
     printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()), end="")'
 }
 
-JSON_PAYLOAD="{\"title\": $(json_escape "$TITLE"), \"body\": $(json_escape "$BODY"), \"type\": \"info\"}"
+# Build JSON payload — include path basename if available from ARM_RAW_PATH.
+# The transcoder expects a directory name only (no slashes) and prepends its own RAW_PATH.
+if [ -n "$RAW_PATH" ]; then
+    PATH_BASENAME="$(basename "$RAW_PATH")"
+    JSON_PAYLOAD="{\"title\": $(json_escape "$TITLE"), \"body\": $(json_escape "$BODY"), \"path\": $(json_escape "$PATH_BASENAME"), \"type\": \"info\"}"
+else
+    JSON_PAYLOAD="{\"title\": $(json_escape "$TITLE"), \"body\": $(json_escape "$BODY"), \"type\": \"info\"}"
+fi
 
 # Build curl command
 CURL_ARGS=(
