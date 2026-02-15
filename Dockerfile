@@ -29,7 +29,7 @@ COPY src/ /app/
 COPY presets/ /config/presets/
 
 # Create data directories
-RUN mkdir -p /data/raw /data/completed /data/work /data/db \
+RUN mkdir -p /data/raw /data/completed /data/work /data/db /data/logs \
     && chown -R transcoder:transcoder /data /app /config
 
 USER transcoder
