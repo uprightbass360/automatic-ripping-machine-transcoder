@@ -29,6 +29,15 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ConfigOverrideDB(Base):
+    """Persisted runtime config overrides (key-value)."""
+    __tablename__ = "config_overrides"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(String(1000), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class TranscodeJobDB(Base):
     """Database model for transcode jobs."""
     __tablename__ = "transcode_jobs"
