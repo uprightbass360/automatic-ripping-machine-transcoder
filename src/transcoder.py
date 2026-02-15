@@ -98,18 +98,18 @@ check_nvenc_support = check_gpu_support
 class TranscodeWorker:
     """Background worker that processes transcode jobs."""
 
-    def __init__(self):
+    def __init__(self, gpu_support: dict | None = None):
         self._queue: asyncio.Queue[TranscodeJob] = asyncio.Queue()
         self._running = False
         self._current_job: Optional[str] = None
         self._shutdown_event = asyncio.Event()
-        self._gpu_support = check_gpu_support()
+        self._gpu_support = gpu_support if gpu_support is not None else check_gpu_support()
         self._last_progress: dict[int, float] = {}
         self._last_progress_time: dict[int, float] = {}
 
         logger.info(f"GPU support: {self._gpu_support}")
 
-        # Determine encoder family from settings
+        # Determine encoder family from settings (read after auto-resolve has run)
         encoder = settings.video_encoder
         self._encoder_family = self._detect_encoder_family(encoder)
         self._encoder_backend = self._select_backend(encoder, self._encoder_family)
@@ -171,6 +171,10 @@ class TranscodeWorker:
     @property
     def current_job(self) -> Optional[str]:
         return self._current_job
+
+    @property
+    def gpu_support(self) -> dict:
+        return self._gpu_support
 
     def shutdown(self):
         """Signal worker to shutdown."""
@@ -712,9 +716,9 @@ class TranscodeWorker:
             preset = settings.handbrake_preset_4k
             logger.info(f"4K source ({resolution[0]}x{resolution[1]}), using preset: {preset}")
         elif resolution and resolution[1] < 720:
-            preset = settings.handbrake_preset
+            preset = settings.handbrake_preset_dvd or settings.handbrake_preset
             extra_args = ["--width", "1280"]
-            logger.info(f"Low-res source ({resolution[0]}x{resolution[1]}), upscaling to 720p")
+            logger.info(f"Low-res source ({resolution[0]}x{resolution[1]}), using preset: {preset}, upscaling to 720p")
         else:
             preset = settings.handbrake_preset
 

@@ -4,25 +4,46 @@ ARM Transcoder - Webhook receiver and transcode orchestrator
 
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
+import platform
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, HTTPException, Header, Request
+import psutil
+
+from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, delete, func
 
 from auth import get_current_user, require_admin, verify_webhook_secret
-from config import settings
-from constants import SHUTDOWN_TIMEOUT
+from config import settings, UPDATABLE_KEYS, VALID_LOG_LEVELS, get_available_presets, get_preset_files, get_presets_by_file, load_config_overrides, auto_resolve_gpu_defaults
+from constants import SHUTDOWN_TIMEOUT, VALID_VIDEO_ENCODERS, VALID_AUDIO_ENCODERS, VALID_SUBTITLE_MODES
 from database import init_db, get_db
-from models import WebhookPayload, JobStatus, TranscodeJob, TranscodeJobDB
+from models import WebhookPayload, JobStatus, TranscodeJob, TranscodeJobDB, ConfigOverrideDB
 from transcoder import TranscodeWorker
 
-logging.basicConfig(
-    level=getattr(logging, settings.log_level),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+
+def _configure_logging():
+    log_level = getattr(logging, settings.log_level)
+    fmt = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    root = logging.getLogger()
+    root.setLevel(log_level)
+
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    root.addHandler(console)
+
+    log_dir = Path(settings.log_path)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    fh = RotatingFileHandler(
+        log_dir / "transcoder.log", maxBytes=10_485_760, backupCount=5
+    )
+    fh.setFormatter(fmt)
+    root.addHandler(fh)
+
+
+_configure_logging()
 logger = logging.getLogger(__name__)
 
 # Global worker instance
@@ -37,8 +58,15 @@ async def lifespan(app: FastAPI):
     # Initialize database
     await init_db()
 
-    # Start the transcode worker
-    worker = TranscodeWorker()
+    # Apply any persisted config overrides
+    await load_config_overrides()
+
+    # Probe GPU, auto-resolve defaults, then start worker with resolved settings
+    from transcoder import check_gpu_support
+    gpu_support = check_gpu_support()
+    await auto_resolve_gpu_defaults(gpu_support)
+
+    worker = TranscodeWorker(gpu_support=gpu_support)
     worker_task = asyncio.create_task(worker.run())
 
     logger.info("ARM Transcoder started")
@@ -71,11 +99,115 @@ app = FastAPI(
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint with GPU support and active configuration."""
+    gpu_support = worker.gpu_support if worker else {}
     return {
         "status": "healthy",
         "worker_running": worker is not None and worker.is_running,
         "queue_size": worker.queue_size if worker else 0,
+        "gpu_support": gpu_support,
+        "config": {
+            "video_encoder": settings.video_encoder,
+            "video_quality": settings.video_quality,
+            "audio_encoder": settings.audio_encoder,
+            "subtitle_mode": settings.subtitle_mode,
+            "delete_source": settings.delete_source,
+            "output_extension": settings.output_extension,
+            "max_concurrent": settings.max_concurrent,
+            "stabilize_seconds": settings.stabilize_seconds,
+        },
+    }
+
+
+def _detect_cpu() -> str:
+    """Detect CPU model name from /proc/cpuinfo (Linux) or platform fallback."""
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return platform.processor() or "Unknown"
+
+
+@app.get("/system/info")
+async def get_system_info():
+    """Return static hardware identity (CPU, RAM, GPU). No auth required."""
+    mem = psutil.virtual_memory()
+    return {
+        "cpu": _detect_cpu(),
+        "memory_total_gb": round(mem.total / 1073741824, 1),
+        "gpu_support": worker.gpu_support if worker else {},
+    }
+
+
+@app.get("/config")
+async def get_config(_role: str = Depends(get_current_user)):
+    """Return current updatable settings and valid option lists."""
+    config = {key: getattr(settings, key) for key in UPDATABLE_KEYS}
+    return {
+        "config": config,
+        "updatable_keys": sorted(UPDATABLE_KEYS),
+        "paths": {
+            "raw_path": settings.raw_path,
+            "completed_path": settings.completed_path,
+            "work_path": settings.work_path,
+        },
+        "valid_video_encoders": VALID_VIDEO_ENCODERS,
+        "valid_audio_encoders": VALID_AUDIO_ENCODERS,
+        "valid_subtitle_modes": VALID_SUBTITLE_MODES,
+        "valid_log_levels": VALID_LOG_LEVELS,
+        "valid_handbrake_presets": get_available_presets(),
+        "valid_preset_files": get_preset_files(),
+        "presets_by_file": get_presets_by_file(),
+    }
+
+
+@app.patch("/config")
+async def update_config(
+    request: Request,
+    _role: str = Depends(require_admin),
+):
+    """Update runtime settings. Validates, persists to DB, patches singleton."""
+    data = await request.json()
+    if not isinstance(data, dict) or not data:
+        raise HTTPException(status_code=400, detail="Request body must be a non-empty JSON object")
+
+    # Reject unknown keys
+    invalid_keys = set(data.keys()) - UPDATABLE_KEYS
+    if invalid_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Non-updatable keys: {', '.join(sorted(invalid_keys))}",
+        )
+
+    # Validate values by building a partial Settings with overrides
+    current_vals = {key: getattr(settings, key) for key in UPDATABLE_KEYS}
+    current_vals.update(data)
+    try:
+        from config import Settings as SettingsClass
+        validated = SettingsClass.model_validate({**settings.model_dump(), **current_vals})
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    # Persist to DB and update in-memory singleton
+    from datetime import datetime, timezone
+    async with get_db() as db:
+        for key, value in data.items():
+            coerced = getattr(validated, key)
+            override = await db.get(ConfigOverrideDB, key)
+            if override:
+                override.value = str(coerced)
+                override.updated_at = datetime.now(timezone.utc)
+            else:
+                db.add(ConfigOverrideDB(key=key, value=str(coerced)))
+            setattr(settings, key, coerced)
+        await db.commit()
+
+    return {
+        "success": True,
+        "applied": {key: getattr(settings, key) for key in data},
     }
 
 
@@ -334,3 +466,25 @@ async def get_stats(_role: str = Depends(get_current_user)):
             "worker_running": worker is not None and worker.is_running,
             "current_job": worker.current_job if worker else None,
         }
+
+
+@app.get("/logs")
+async def list_logs(_role: str = Depends(get_current_user)):
+    """List available log files."""
+    from log_reader import list_logs as _list_logs
+    return _list_logs()
+
+
+@app.get("/logs/{filename}")
+async def get_log(
+    filename: str,
+    mode: str = Query("tail", pattern="^(tail|full)$"),
+    lines: int = Query(100, ge=1, le=10000),
+    _role: str = Depends(get_current_user),
+):
+    """Read a log file's content."""
+    from log_reader import read_log
+    result = read_log(filename, mode=mode, lines=lines)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Log file not found")
+    return result
