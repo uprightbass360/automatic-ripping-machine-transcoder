@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.4.0...v0.4.1) (2026-02-16)
+
+
+### Bug Fixes
+
+* configure release-please to update VERSION file ([61a132f](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/61a132f88fe3ef029fe4633f3042f2b0d14019d3))
+
 ## [0.4.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.3.0...v0.4.0) (2026-02-16)
 
 
