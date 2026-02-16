@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.2.0...v0.2.1) (2026-02-16)
+
+
+### Bug Fixes
+
+* add LOG_PATH env var to test conftest to prevent CI failure ([221ef88](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/221ef88130919237475a81e7f7a29c13d5db17d3))
+* resolve 9 pre-existing test failures in CI ([a061809](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/a0618099743ea8d282c6b9650828c5e86488ded6))
+* use DOCKERHUB_USERNAME secret for image name ([8f01c7c](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/8f01c7c5c11624596ea368dd15d1032305af4c43))
+
 ## [0.2.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.1.0...v0.2.0) (2026-02-15)
 
 
