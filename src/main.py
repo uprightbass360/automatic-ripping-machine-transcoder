@@ -164,7 +164,12 @@ async def get_system_stats():
     mem = psutil.virtual_memory()
 
     storage = []
-    for name, path in [("Raw", settings.raw_path), ("Completed", settings.completed_path), ("Work", settings.work_path)]:
+    media_paths = [
+        ("Raw", settings.raw_path),
+        ("Completed", settings.completed_path),
+        ("Work", settings.work_path),
+    ]
+    for name, path in media_paths:
         try:
             usage = psutil.disk_usage(path)
             storage.append({
