@@ -14,7 +14,7 @@ permissions:
   packages: write
 
 env:
-  DOCKERHUB_IMAGE: automaticrippingmachine/arm-transcoder
+  DOCKERHUB_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/arm-transcoder
   GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/automatic-ripping-machine-transcoder
 
 jobs:
