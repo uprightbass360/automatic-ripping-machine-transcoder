@@ -162,6 +162,22 @@ async def get_system_stats():
         pass
 
     mem = psutil.virtual_memory()
+
+    storage = []
+    for name, path in [("Raw", settings.raw_path), ("Completed", settings.completed_path), ("Work", settings.work_path)]:
+        try:
+            usage = psutil.disk_usage(path)
+            storage.append({
+                "name": name,
+                "path": path,
+                "total_gb": round(usage.total / 1073741824, 1),
+                "used_gb": round(usage.used / 1073741824, 1),
+                "free_gb": round(usage.free / 1073741824, 1),
+                "percent": usage.percent,
+            })
+        except (FileNotFoundError, OSError):
+            continue
+
     return {
         "cpu_percent": cpu_percent,
         "cpu_temp": cpu_temp,
@@ -171,6 +187,7 @@ async def get_system_stats():
             "free_gb": round(mem.available / 1073741824, 1),
             "percent": mem.percent,
         },
+        "storage": storage,
     }
 
 
