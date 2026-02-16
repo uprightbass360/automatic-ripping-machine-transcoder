@@ -147,6 +147,33 @@ async def get_system_info():
     }
 
 
+@app.get("/system/stats")
+async def get_system_stats():
+    """Return live system metrics: CPU, memory, temperature. No auth required."""
+    cpu_percent = psutil.cpu_percent()
+    cpu_temp = 0.0
+    try:
+        temps = psutil.sensors_temperatures()
+        for key in ('coretemp', 'cpu_thermal', 'k10temp', 'zenpower'):
+            if temps.get(key):
+                cpu_temp = temps[key][0].current
+                break
+    except (AttributeError, OSError):
+        pass
+
+    mem = psutil.virtual_memory()
+    return {
+        "cpu_percent": cpu_percent,
+        "cpu_temp": cpu_temp,
+        "memory": {
+            "total_gb": round(mem.total / 1073741824, 1),
+            "used_gb": round(mem.used / 1073741824, 1),
+            "free_gb": round(mem.available / 1073741824, 1),
+            "percent": mem.percent,
+        },
+    }
+
+
 @app.get("/config")
 async def get_config(_role: str = Depends(get_current_user)):
     """Return current updatable settings and valid option lists."""
