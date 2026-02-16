@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.2.1...v0.3.0) (2026-02-16)
+
+
+### Features
+
+* add /system/stats endpoint for live CPU, temp, and memory metrics ([9f4326c](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/9f4326c5bf4cf0fa0276cd73a37acd82450b7645))
+* add storage disk usage to /system/stats endpoint ([0b50d57](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/0b50d57555a9650c55c96dc5bc5122f006dc7280))
+
+
+### Bug Fixes
+
+* line too long in /system/stats endpoint ([02423b3](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/02423b37a88065bd606cc6e8eb5613223df9cf8b))
+* resolve flake8 lint errors ([29489ae](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/29489aefa837ba4a5df2dacb156ddc507e065b4a))
+
 ## [0.2.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.2.0...v0.2.1) (2026-02-16)
 
 
