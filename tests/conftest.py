@@ -19,6 +19,7 @@ os.environ.setdefault("WORK_PATH", "/tmp/test_work")
 os.environ.setdefault("DB_PATH", "/tmp/test_transcoder.db")
 os.environ.setdefault("REQUIRE_API_AUTH", "false")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
+os.environ.setdefault("LOG_PATH", "/tmp/test_transcoder_logs")
 
 
 @pytest.fixture
