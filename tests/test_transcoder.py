@@ -1303,6 +1303,7 @@ class TestHandBrakePresetSelection:
              patch("transcoder.settings") as mock_settings:
             mock_settings.handbrake_preset = "NVENC H.265 1080p"
             mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
+            mock_settings.handbrake_preset_dvd = ""
             mock_settings.handbrake_preset_file = ""
             mock_settings.video_encoder = "nvenc_h265"
             mock_settings.video_quality = 22

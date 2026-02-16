@@ -168,7 +168,7 @@ class TestSettingsValidation:
     def test_default_settings(self):
         """Default settings should be valid."""
         s = self._make_settings(log_level="INFO")
-        assert s.video_encoder == "nvenc_h265"
+        assert s.video_encoder == "x265"
         assert s.audio_encoder == "copy"
         assert s.subtitle_mode == "all"
         assert s.log_level == "INFO"

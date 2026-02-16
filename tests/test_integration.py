@@ -188,8 +188,10 @@ class TestProcessJobLifecycle:
             job = await worker._queue.get()
 
             # Mock the transcode steps so they succeed
+            transcode_mock = AsyncMock()
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
-                 patch.object(worker, "_transcode_file_handbrake", AsyncMock()), \
+                 patch.object(worker, "_transcode_file_handbrake", transcode_mock), \
+                 patch.object(worker, "_transcode_file_ffmpeg", transcode_mock), \
                  patch.object(worker, "_cleanup_source", MagicMock()), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
@@ -240,9 +242,10 @@ class TestProcessJobLifecycle:
             job = await worker._queue.get()
 
             # Make transcoding fail
+            fail_mock = AsyncMock(side_effect=RuntimeError("HandBrake crashed"))
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
-                 patch.object(worker, "_transcode_file_handbrake",
-                              AsyncMock(side_effect=RuntimeError("HandBrake crashed"))), \
+                 patch.object(worker, "_transcode_file_handbrake", fail_mock), \
+                 patch.object(worker, "_transcode_file_ffmpeg", fail_mock), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
                 mock_settings.movies_subdir = "movies"
@@ -315,8 +318,10 @@ class TestProcessJobLifecycle:
             await worker.queue_job(source_path=str(source_dir), title="Cleanup Movie")
             job = await worker._queue.get()
 
+            transcode_mock = AsyncMock()
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
-                 patch.object(worker, "_transcode_file_handbrake", AsyncMock()), \
+                 patch.object(worker, "_transcode_file_handbrake", transcode_mock), \
+                 patch.object(worker, "_transcode_file_ffmpeg", transcode_mock), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
                 mock_settings.movies_subdir = "movies"
@@ -356,9 +361,10 @@ class TestProcessJobLifecycle:
             await worker.queue_job(source_path=str(source_dir), title="Keep Movie")
             job = await worker._queue.get()
 
+            fail_mock = AsyncMock(side_effect=RuntimeError("fail"))
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
-                 patch.object(worker, "_transcode_file_handbrake",
-                              AsyncMock(side_effect=RuntimeError("fail"))), \
+                 patch.object(worker, "_transcode_file_handbrake", fail_mock), \
+                 patch.object(worker, "_transcode_file_ffmpeg", fail_mock), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
                 mock_settings.movies_subdir = "movies"
@@ -398,8 +404,10 @@ class TestProcessJobLifecycle:
             await worker.queue_job(source_path=str(source_dir), title="Work Cleanup Movie")
             job = await worker._queue.get()
 
+            transcode_mock = AsyncMock()
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
-                 patch.object(worker, "_transcode_file_handbrake", AsyncMock()), \
+                 patch.object(worker, "_transcode_file_handbrake", transcode_mock), \
+                 patch.object(worker, "_transcode_file_ffmpeg", transcode_mock), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
                 mock_settings.movies_subdir = "movies"
@@ -440,9 +448,10 @@ class TestProcessJobLifecycle:
             await worker.queue_job(source_path=str(source_dir), title="Work Fail Movie")
             job = await worker._queue.get()
 
+            fail_mock = AsyncMock(side_effect=RuntimeError("encoder crash"))
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
-                 patch.object(worker, "_transcode_file_handbrake",
-                              AsyncMock(side_effect=RuntimeError("encoder crash"))), \
+                 patch.object(worker, "_transcode_file_handbrake", fail_mock), \
+                 patch.object(worker, "_transcode_file_ffmpeg", fail_mock), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
                 mock_settings.movies_subdir = "movies"
@@ -589,8 +598,10 @@ class TestWorkerRunLoop:
 
             await worker.queue_job(source_path=str(source_dir), title="Loop Movie")
 
+            transcode_mock = AsyncMock()
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
-                 patch.object(worker, "_transcode_file_handbrake", AsyncMock()), \
+                 patch.object(worker, "_transcode_file_handbrake", transcode_mock), \
+                 patch.object(worker, "_transcode_file_ffmpeg", transcode_mock), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
                 mock_settings.movies_subdir = "movies"
@@ -1093,8 +1104,10 @@ class TestAudioPassthrough:
             )
             job = await worker._queue.get()
 
+            transcode_mock = AsyncMock()
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
-                 patch.object(worker, "_transcode_file_handbrake", AsyncMock()), \
+                 patch.object(worker, "_transcode_file_handbrake", transcode_mock), \
+                 patch.object(worker, "_transcode_file_ffmpeg", transcode_mock), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
                 mock_settings.movies_subdir = "movies"
@@ -1224,6 +1237,9 @@ class TestResolutionPresetSelection:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
+            # Force HandBrake backend (default encoder "x265" selects ffmpeg)
+            worker._encoder_backend = "handbrake"
+
             await worker.queue_job(source_path=str(source_dir), title="4K Movie")
             job = await worker._queue.get()
 
@@ -1312,6 +1328,7 @@ class TestMultiFileTranscode:
 
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
                  patch.object(worker, "_transcode_file_handbrake", mock_transcode), \
+                 patch.object(worker, "_transcode_file_ffmpeg", mock_transcode), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
                 mock_settings.movies_subdir = "movies"
@@ -1361,8 +1378,10 @@ class TestMultiFileTranscode:
             await worker.queue_job(source_path=str(source_dir), title="Size Test")
             job = await worker._queue.get()
 
+            transcode_mock = AsyncMock()
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
-                 patch.object(worker, "_transcode_file_handbrake", AsyncMock()), \
+                 patch.object(worker, "_transcode_file_handbrake", transcode_mock), \
+                 patch.object(worker, "_transcode_file_ffmpeg", transcode_mock), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
                 mock_settings.movies_subdir = "movies"
