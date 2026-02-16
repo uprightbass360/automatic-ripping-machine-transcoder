@@ -2,10 +2,6 @@
 Tests for utils.py - PathValidator, CommandValidator, and utility functions.
 """
 
-import os
-from pathlib import Path
-from unittest.mock import patch
-
 import pytest
 
 from utils import (

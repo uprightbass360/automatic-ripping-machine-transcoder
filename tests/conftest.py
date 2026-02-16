@@ -2,11 +2,8 @@
 Shared fixtures for ARM Transcoder tests.
 """
 
-import asyncio
 import os
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio

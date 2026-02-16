@@ -12,15 +12,18 @@ from pathlib import Path
 
 import psutil
 
-from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from sqlalchemy import select, delete, func
 
 from auth import get_current_user, require_admin, verify_webhook_secret
-from config import settings, UPDATABLE_KEYS, VALID_LOG_LEVELS, get_available_presets, get_preset_files, get_presets_by_file, load_config_overrides, auto_resolve_gpu_defaults
+from config import (
+    settings, UPDATABLE_KEYS, VALID_LOG_LEVELS, get_available_presets,
+    get_preset_files, get_presets_by_file, load_config_overrides,
+    auto_resolve_gpu_defaults,
+)
 from constants import SHUTDOWN_TIMEOUT, VALID_VIDEO_ENCODERS, VALID_AUDIO_ENCODERS, VALID_SUBTITLE_MODES
 from database import init_db, get_db
-from models import WebhookPayload, JobStatus, TranscodeJob, TranscodeJobDB, ConfigOverrideDB
+from models import WebhookPayload, JobStatus, TranscodeJobDB, ConfigOverrideDB
 from transcoder import TranscodeWorker
 
 

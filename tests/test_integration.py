@@ -7,7 +7,6 @@ Tests the end-to-end flow:
 """
 
 import asyncio
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -18,7 +17,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from models import Base, JobStatus, TranscodeJobDB, TranscodeJob
+from models import Base, JobStatus, TranscodeJobDB
 
 
 # ─── Shared test DB infrastructure ──────────────────────────────────────────
@@ -1253,7 +1252,7 @@ class TestResolutionPresetSelection:
 
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
                  patch.object(worker, "_get_video_resolution", AsyncMock(return_value=(3840, 2160))), \
-                 patch("transcoder.asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)) as mock_exec, \
+                 patch("transcoder.asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
                 mock_settings.movies_subdir = "movies"

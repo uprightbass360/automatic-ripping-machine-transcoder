@@ -2,16 +2,12 @@
 Tests for main.py - FastAPI API endpoint integration tests.
 """
 
-import os
-import tempfile
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-
-from models import JobStatus, TranscodeJobDB
 
 
 # ─── App fixture with mocked worker and real DB ─────────────────────────────

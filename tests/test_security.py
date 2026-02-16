@@ -2,13 +2,13 @@
 Tests for security - path traversal, payload attacks, command injection, auth bypass.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
 
 from models import WebhookPayload
-from utils import PathValidator, CommandValidator
+from utils import CommandValidator
 
 
 # ─── Path Traversal Attack Vectors ───────────────────────────────────────────

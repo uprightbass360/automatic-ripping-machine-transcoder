@@ -2,7 +2,6 @@
 Tests for transcoder.py - TranscodeWorker unit tests.
 """
 
-import subprocess
 from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
 
@@ -1491,4 +1490,4 @@ class TestDiskSpacePreCheck:
 
 
 # Import settings for use in output path tests
-from config import settings
+from config import settings  # noqa: E402

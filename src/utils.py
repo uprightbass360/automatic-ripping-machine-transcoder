@@ -3,11 +3,9 @@ Utility functions and validators for ARM Transcoder
 """
 
 import logging
-import os
 import re
 import shutil
 from pathlib import Path
-from typing import Optional
 
 from constants import (
     MINIMUM_FREE_SPACE_GB,

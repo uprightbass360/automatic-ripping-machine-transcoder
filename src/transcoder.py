@@ -298,7 +298,7 @@ class TranscodeWorker:
                 await self._queue.put(job)
                 logger.info(f"Restored pending job {job.id}: {job.title}")
 
-    async def _process_job(self, job: TranscodeJob):
+    async def _process_job(self, job: TranscodeJob):  # noqa: C901
         """Process a single transcode job.
 
         Uses local scratch storage (work_path) to avoid doing heavy I/O on shared storage:
@@ -317,7 +317,8 @@ class TranscodeWorker:
 
         try:
             # Update status to processing
-            await self._update_job(job.id,
+            await self._update_job(
+                job.id,
                 status=JobStatus.PROCESSING,
                 started_at=datetime.now(timezone.utc),
             )
@@ -393,7 +394,8 @@ class TranscodeWorker:
             output_dir = self._determine_output_path(job.title, job.source_path, resolution)
             folder_name = output_dir.name
             os.makedirs(output_dir, exist_ok=True)
-            await self._update_job(job.id,
+            await self._update_job(
+                job.id,
                 video_type=video_type,
                 output_path=str(output_dir),
             )
@@ -426,7 +428,8 @@ class TranscodeWorker:
                 shutil.move(str(f), str(output_dir / f.name))
 
             # Success
-            await self._update_job(job.id,
+            await self._update_job(
+                job.id,
                 status=JobStatus.COMPLETED,
                 progress=100.0,
                 completed_at=datetime.now(timezone.utc),
@@ -445,7 +448,8 @@ class TranscodeWorker:
         except Exception as e:
             logger.error(f"Job {job.id} failed: {e}", exc_info=True)
             try:
-                await self._update_job(job.id,
+                await self._update_job(
+                    job.id,
                     status=JobStatus.FAILED,
                     error=str(e),
                 )
@@ -594,7 +598,8 @@ class TranscodeWorker:
         for f in audio_files:
             shutil.copy2(str(f), str(output_dir / f.name))
 
-        await self._update_job(job.id,
+        await self._update_job(
+            job.id,
             output_path=str(output_dir),
             total_tracks=len(audio_files),
             status=JobStatus.COMPLETED,
@@ -786,7 +791,10 @@ class TranscodeWorker:
 
         logger.info(f"Transcoded: {source.name} -> {output.name}")
 
-    def _build_ffmpeg_command(self, source: Path, output: Path, resolution: Optional[tuple[int, int]] = None) -> list[str]:
+    def _build_ffmpeg_command(  # noqa: C901
+        self, source: Path, output: Path,
+        resolution: Optional[tuple[int, int]] = None,
+    ) -> list[str]:
         """Build FFmpeg command based on encoder family."""
         encoder_name = settings.video_encoder
         family = self._encoder_family
