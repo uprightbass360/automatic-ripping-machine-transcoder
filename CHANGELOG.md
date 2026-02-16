@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.3.0...v0.4.0) (2026-02-16)
+
+
+### Features
+
+* notify ARM-neu to update submodule on release ([c63ae6c](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/c63ae6cd39924c9c9e51a7ed45135238dc61b1d6))
+
+
+### Bug Fixes
+
+* use PAT for release-please so releases trigger publish workflow ([fd72f4b](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/fd72f4b516c2a58c99d47d2932f6e93081fcf535))
+* use RELEASE_PAT for parent repo dispatch ([5d16cda](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/5d16cda1160f4c554a7f64459ebce9f89261936b))
+
 ## [0.3.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.2.1...v0.3.0) (2026-02-16)
 
 
