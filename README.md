@@ -46,6 +46,19 @@ flowchart TB
 - Retry limits with tracking
 - Disk space pre-checks
 
+## Docker Images
+
+Pre-built images are published to Docker Hub on every release:
+
+```bash
+docker pull uprightbass360/arm-transcoder:latest          # NVIDIA (default)
+docker pull uprightbass360/arm-transcoder:0.2.0-nvidia    # NVIDIA (pinned)
+docker pull uprightbass360/arm-transcoder:0.2.0-amd       # AMD Radeon
+docker pull uprightbass360/arm-transcoder:0.2.0-intel     # Intel QSV
+```
+
+For the full ecosystem quick start (ARM + UI + Transcoder), see the [ARM-neu README](https://github.com/uprightbass360/automatic-ripping-machine-neu#quick-start).
+
 ## Requirements
 
 - Docker
