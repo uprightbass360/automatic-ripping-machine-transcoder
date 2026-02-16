@@ -40,12 +40,14 @@ services:
       - STABILIZE_SECONDS=${STABILIZE_SECONDS:-60}
       - MINIMUM_FREE_SPACE_GB=${MINIMUM_FREE_SPACE_GB:-10}
       - MAX_RETRY_COUNT=${MAX_RETRY_COUNT:-3}
+      - LOG_PATH=/data/logs
     volumes:
       - ${HOST_RAW_PATH}:/data/raw:ro
       - ${HOST_COMPLETED_PATH}:/data/completed:rw
       - ${WORK_PATH:-./work}:/data/work:rw
       - ${DB_PATH:-./data}:/data/db:rw
       - ${PRESET_PATH:-./presets}:/config/presets:ro
+      - ${LOG_PATH:-./logs}:/data/logs:rw
     deploy:
       resources:
         reservations:
