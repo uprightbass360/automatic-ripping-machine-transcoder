@@ -56,8 +56,9 @@ class TranscodeJobDB(Base):
     completed_at = Column(DateTime, nullable=True)
 
     # Metadata from source
-    video_type = Column(String(50), nullable=True)  # movie, tv, unknown
+    video_type = Column(String(50), nullable=True)  # movie, series, unknown
     year = Column(String(10), nullable=True)
+    disctype = Column(String(50), nullable=True)  # dvd, bluray, bluray4k
     total_tracks = Column(Integer, default=0)
     main_feature_file = Column(String(500), nullable=True)
 
@@ -72,6 +73,9 @@ class WebhookPayload(BaseModel):
     job_id: Optional[str] = Field(None, max_length=MAX_JOB_ID_LENGTH)
     status: Optional[str] = Field(None, max_length=50)
     type: Optional[str] = Field(None, max_length=50)
+    video_type: Optional[str] = Field(None, max_length=50)
+    year: Optional[str] = Field(None, max_length=10)
+    disctype: Optional[str] = Field(None, max_length=50)
 
     @property
     def effective_body(self) -> Optional[str]:

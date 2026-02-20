@@ -365,6 +365,9 @@ async def arm_webhook(
         source_path=full_path,
         title=job_title,
         arm_job_id=payload.job_id,
+        video_type=payload.video_type,
+        year=payload.year,
+        disctype=payload.disctype,
     )
 
     return {

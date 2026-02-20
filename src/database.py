@@ -28,9 +28,29 @@ async_session = async_sessionmaker(
 
 
 async def init_db():
-    """Initialize database tables."""
+    """Initialize database tables and add any missing columns."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add columns that may be missing in existing databases.
+        # SQLite's CREATE_ALL won't alter existing tables.
+        await conn.run_sync(_add_missing_columns)
+
+
+def _add_missing_columns(conn):
+    """Add columns to existing tables if they don't exist yet."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(conn)
+    if "transcode_jobs" in inspector.get_table_names():
+        existing = {c["name"] for c in inspector.get_columns("transcode_jobs")}
+        migrations = [
+            ("disctype", "VARCHAR(50)"),
+        ]
+        for col_name, col_type in migrations:
+            if col_name not in existing:
+                conn.execute(text(
+                    f"ALTER TABLE transcode_jobs ADD COLUMN {col_name} {col_type}"
+                ))
 
 
 @asynccontextmanager

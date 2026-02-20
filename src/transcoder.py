@@ -186,6 +186,9 @@ class TranscodeWorker:
         title: str,
         arm_job_id: Optional[str] = None,
         existing_job_id: Optional[int] = None,
+        video_type: Optional[str] = None,
+        year: Optional[str] = None,
+        disctype: Optional[str] = None,
     ):
         """Add a job to the transcode queue."""
         async with get_db() as db:
@@ -201,6 +204,9 @@ class TranscodeWorker:
                     title=title,
                     source_path=source_path,
                     arm_job_id=arm_job_id,
+                    video_type=video_type,
+                    year=year,
+                    disctype=disctype,
                     status=JobStatus.PENDING,
                 )
                 db.add(job_db)

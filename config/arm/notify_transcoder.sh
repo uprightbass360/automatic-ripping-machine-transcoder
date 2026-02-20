@@ -78,12 +78,19 @@ json_escape() {
 
 # Build JSON payload — include path basename if available from ARM_RAW_PATH.
 # The transcoder expects a directory name only (no slashes) and prepends its own RAW_PATH.
+JSON_PAYLOAD="{\"title\": $(json_escape "$TITLE"), \"body\": $(json_escape "$BODY"), \"type\": \"info\""
+
 if [ -n "$RAW_PATH" ]; then
     PATH_BASENAME="$(basename "$RAW_PATH")"
-    JSON_PAYLOAD="{\"title\": $(json_escape "$TITLE"), \"body\": $(json_escape "$BODY"), \"path\": $(json_escape "$PATH_BASENAME"), \"type\": \"info\"}"
-else
-    JSON_PAYLOAD="{\"title\": $(json_escape "$TITLE"), \"body\": $(json_escape "$BODY"), \"type\": \"info\"}"
+    JSON_PAYLOAD="$JSON_PAYLOAD, \"path\": $(json_escape "$PATH_BASENAME")"
 fi
+[ -n "$ARM_JOB_ID" ]    && JSON_PAYLOAD="$JSON_PAYLOAD, \"job_id\": $(json_escape "$ARM_JOB_ID")"
+[ -n "$ARM_VIDEO_TYPE" ] && JSON_PAYLOAD="$JSON_PAYLOAD, \"video_type\": $(json_escape "$ARM_VIDEO_TYPE")"
+[ -n "$ARM_YEAR" ]       && JSON_PAYLOAD="$JSON_PAYLOAD, \"year\": $(json_escape "$ARM_YEAR")"
+[ -n "$ARM_DISCTYPE" ]   && JSON_PAYLOAD="$JSON_PAYLOAD, \"disctype\": $(json_escape "$ARM_DISCTYPE")"
+[ -n "$ARM_STATUS" ]     && JSON_PAYLOAD="$JSON_PAYLOAD, \"status\": $(json_escape "$ARM_STATUS")"
+
+JSON_PAYLOAD="$JSON_PAYLOAD}"
 
 # Build curl command
 CURL_ARGS=(
