@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.4.1...v0.5.0) (2026-02-20)
+
+
+### Features
+
+* forward ARM metadata through webhook to transcoder ([affa688](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/affa688e903400ea8564ce3133be58f7b5c80c0f))
+
 ## [0.4.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.4.0...v0.4.1) (2026-02-16)
 
 
