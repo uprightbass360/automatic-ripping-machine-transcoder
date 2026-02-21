@@ -1,3 +1,5 @@
+[![codecov](https://codecov.io/gh/uprightbass360/automatic-ripping-machine-transcoder/graph/badge.svg)](https://codecov.io/gh/uprightbass360/automatic-ripping-machine-transcoder)
+
 # ARM Transcoder
 
 Part of the [Automatic Ripping Machine ecosystem](#related-projects). Originally built as a companion service for the upstream [Automatic Ripping Machine](https://github.com/automatic-ripping-machine/automatic-ripping-machine) project.
