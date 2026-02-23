@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.5.0...v0.5.1) (2026-02-23)
+
+
+### Bug Fixes
+
+* add audio-copy-mask to preserve all audio codecs in passthrough ([cc21c29](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/cc21c29b546e61901fda55129c2d29e86a334c1d))
+* remove invalid opus from audio-copy-mask, add mp2 and aac fallback ([757f1ee](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/757f1eebc3e55a27c84560c74b79294f926b197a))
+* use final path from ARM webhook instead of parsing body text ([5b48982](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/5b489829ac4d0cc2d331cb4e8fe74ba0be1dc86d))
+
 ## [0.5.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v0.4.1...v0.5.0) (2026-02-20)
 
 
