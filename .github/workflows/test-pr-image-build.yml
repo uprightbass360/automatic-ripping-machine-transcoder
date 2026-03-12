@@ -39,7 +39,7 @@ jobs:
         id: hb_version
         run: echo "version=$(cat VERSION_HANDBRAKE)" >> "$GITHUB_OUTPUT"
       - name: Build HandBrake image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           push: false
           context: .
@@ -60,7 +60,7 @@ jobs:
         id: hb_version
         run: echo "version=$(cat VERSION_HANDBRAKE)" >> "$GITHUB_OUTPUT"
       - name: Build base image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           push: false
           context: .
@@ -92,7 +92,7 @@ jobs:
         id: hb_version
         run: echo "version=$(cat VERSION_HANDBRAKE)" >> "$GITHUB_OUTPUT"
       - name: Build base (for FROM reference)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           push: false
           context: .
@@ -102,7 +102,7 @@ jobs:
           tags: uprightbass360/arm-transcoder-base:latest
           load: true
       - name: Build GPU variant (${{ matrix.variant }})
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           push: false
           context: .
