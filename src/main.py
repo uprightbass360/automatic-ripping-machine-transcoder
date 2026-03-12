@@ -433,6 +433,7 @@ async def arm_webhook(
 @app.get("/jobs")
 async def list_jobs(
     status: JobStatus | None = None,
+    arm_job_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
     _role: str = Depends(get_current_user),
@@ -450,12 +451,16 @@ async def list_jobs(
         query = select(TranscodeJobDB)
         if status:
             query = query.where(TranscodeJobDB.status == status)
+        if arm_job_id is not None:
+            query = query.where(TranscodeJobDB.arm_job_id == str(arm_job_id))
         query = query.order_by(TranscodeJobDB.created_at.desc())
 
         # Get total count
         count_query = select(func.count()).select_from(TranscodeJobDB)
         if status:
             count_query = count_query.where(TranscodeJobDB.status == status)
+        if arm_job_id is not None:
+            count_query = count_query.where(TranscodeJobDB.arm_job_id == str(arm_job_id))
         total_result = await db.execute(count_query)
         total = total_result.scalar()
 
