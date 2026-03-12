@@ -34,7 +34,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Read HandBrake version
         id: hb_version
         run: echo "version=$(cat VERSION_HANDBRAKE)" >> "$GITHUB_OUTPUT"
@@ -55,7 +55,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Read HandBrake version
         id: hb_version
         run: echo "version=$(cat VERSION_HANDBRAKE)" >> "$GITHUB_OUTPUT"
@@ -87,7 +87,7 @@ jobs:
             suffix: "-intel"
     steps:
       - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Read HandBrake version
         id: hb_version
         run: echo "version=$(cat VERSION_HANDBRAKE)" >> "$GITHUB_OUTPUT"
