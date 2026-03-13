@@ -692,12 +692,16 @@ class TranscodeWorker:
                                 db_year=per_year, db_video_type=per_video_type,
                             )
                         os.makedirs(per_output_dir, exist_ok=True)
-                        # title_name = display filename, folder_name = directory path
-                        per_title_name = matched_meta.get("title_name") or matched_meta.get("folder_name") or per_output_dir.name
-                        # Disambiguate tracks without custom titles to prevent
-                        # filename collisions (all inherit the same job title)
-                        if not matched_meta.get("has_custom_title") and track_num:
-                            per_title_name = f"{per_title_name} - Track {track_num}"
+                        # title_name = display filename (from ARM naming engine),
+                        # folder_name = directory path.  ARM's naming includes
+                        # episode numbers per track so names are unique.
+                        per_title_name = matched_meta.get("title_name")
+                        if not per_title_name:
+                            # Fallback when ARM doesn't provide title_name:
+                            # use folder name + track number to avoid collisions
+                            per_title_name = per_output_dir.name
+                            if track_num:
+                                per_title_name = f"{per_title_name} - Track {track_num}"
                         new_name = f"{per_title_name}{f.suffix}"
                         logger.info(f"Moving {f.name} → {per_output_dir / new_name}")
                         shutil.move(str(f), str(per_output_dir / new_name))
