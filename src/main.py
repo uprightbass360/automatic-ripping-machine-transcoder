@@ -420,6 +420,8 @@ async def arm_webhook(
         config_overrides=payload.config_overrides,
         multi_title=bool(payload.multi_title),
         tracks=payload.tracks,
+        folder_name=payload.folder_name,
+        title_name=payload.title_name,
     )
 
     return {
