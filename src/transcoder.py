@@ -213,6 +213,8 @@ class TranscodeWorker:
         config_overrides: dict | None = None,
         multi_title: bool = False,
         tracks: list[dict] | None = None,
+        folder_name: str | None = None,
+        title_name: str | None = None,
     ) -> tuple[int, bool]:
         """Add a job to the transcode queue.
 
@@ -257,6 +259,8 @@ class TranscodeWorker:
                         config_overrides=overrides_json,
                         multi_title=1 if multi_title else 0,
                         track_metadata=track_meta_json,
+                        folder_name=folder_name,
+                        title_name=title_name,
                         status=JobStatus.PENDING,
                     )
                     db.add(job_db)
@@ -377,11 +381,17 @@ class TranscodeWorker:
             logger.warning(f"Could not create per-job log file: {logfile_name}")
             return None
 
-    async def _load_job_metadata(self, job_id: int) -> tuple[dict | None, str | None, str | None]:
-        """Load per-job config overrides and metadata from DB."""
+    async def _load_job_metadata(self, job_id: int) -> tuple[dict | None, str | None, str | None, str | None, str | None]:
+        """Load per-job config overrides and metadata from DB.
+
+        Returns (overrides, video_type, year, folder_name, title_name).
+        folder_name and title_name are pre-rendered by ARM's naming engine.
+        """
         overrides = None
         db_video_type = None
         db_year = None
+        arm_folder_name = None
+        arm_title_name = None
         async with get_db() as db_sess:
             result = await db_sess.execute(
                 select(TranscodeJobDB).where(TranscodeJobDB.id == job_id)
@@ -390,6 +400,8 @@ class TranscodeWorker:
             if job_db:
                 db_video_type = job_db.video_type
                 db_year = job_db.year
+                arm_folder_name = job_db.folder_name
+                arm_title_name = job_db.title_name
                 if job_db.config_overrides:
                     try:
                         overrides = json.loads(job_db.config_overrides)
@@ -397,7 +409,9 @@ class TranscodeWorker:
                         pass
         if overrides:
             logger.info(f"Per-job overrides: {overrides}")
-        return overrides, db_video_type, db_year
+        if arm_folder_name:
+            logger.info(f"ARM naming: folder={arm_folder_name}, title={arm_title_name}")
+        return overrides, db_video_type, db_year, arm_folder_name, arm_title_name
 
     async def _load_track_metadata(self, job_id: int) -> dict[str, dict] | None:
         """Load per-track metadata from DB. Returns {filename_stem: metadata} map or None."""
@@ -575,7 +589,7 @@ class TranscodeWorker:
             )
             await self._notify_arm_callback(job, "transcoding")
 
-            overrides, db_video_type, db_year = await self._load_job_metadata(job.id)
+            overrides, db_video_type, db_year, arm_folder_name, arm_title_name = await self._load_job_metadata(job.id)
             await self._resolve_and_stabilize(job)
 
             source_files = await self._discover_or_passthrough(job)
@@ -615,11 +629,21 @@ class TranscodeWorker:
             # Check for multi-title per-track metadata
             track_meta = await self._load_track_metadata(job.id)
 
-            output_dir = self._determine_output_path(
-                job.title, job.source_path, resolution, overrides,
-                db_year=db_year, db_video_type=db_video_type,
-            )
-            folder_name = output_dir.name
+            if arm_folder_name:
+                # Use ARM's pre-rendered folder name (from arm.yaml naming patterns)
+                video_type = db_video_type or self._detect_video_type(job.title, job.source_path)
+                if video_type in ("tv", "series"):
+                    base = Path(settings.completed_path) / settings.tv_subdir
+                else:
+                    base = Path(settings.completed_path) / settings.movies_subdir
+                output_dir = base / arm_folder_name
+            else:
+                # Fallback: transcoder builds its own folder name
+                output_dir = self._determine_output_path(
+                    job.title, job.source_path, resolution, overrides,
+                    db_year=db_year, db_video_type=db_video_type,
+                )
+            folder_name = arm_title_name or output_dir.name
             os.makedirs(output_dir, exist_ok=True)
             await self._update_job(
                 job.id,
@@ -650,17 +674,27 @@ class TranscodeWorker:
                     track_num = matched_meta.get("track_number", "")
                     try:
                         # Build per-track output path
-                        per_title = matched_meta.get("title", job.title)
-                        per_year = matched_meta.get("year", db_year)
                         per_video_type = matched_meta.get("video_type", db_video_type)
-                        per_output_dir = self._determine_output_path(
-                            per_title, job.source_path, resolution, overrides,
-                            db_year=per_year, db_video_type=per_video_type,
-                        )
+                        track_folder = matched_meta.get("folder_name", "")
+                        if track_folder:
+                            # Use ARM's pre-rendered folder name for this track
+                            if per_video_type in ("tv", "series"):
+                                per_base = Path(settings.completed_path) / settings.tv_subdir
+                            else:
+                                per_base = Path(settings.completed_path) / settings.movies_subdir
+                            per_output_dir = per_base / track_folder
+                        else:
+                            # Fallback: transcoder builds its own path
+                            per_title = matched_meta.get("title", job.title)
+                            per_year = matched_meta.get("year", db_year)
+                            per_output_dir = self._determine_output_path(
+                                per_title, job.source_path, resolution, overrides,
+                                db_year=per_year, db_video_type=per_video_type,
+                            )
                         os.makedirs(per_output_dir, exist_ok=True)
-                        # Rename the output file to match the per-track title
-                        per_folder_name = per_output_dir.name
-                        new_name = f"{per_folder_name}{f.suffix}"
+                        # title_name = display filename, folder_name = directory path
+                        per_title_name = matched_meta.get("title_name") or matched_meta.get("folder_name") or per_output_dir.name
+                        new_name = f"{per_title_name}{f.suffix}"
                         logger.info(f"Moving {f.name} → {per_output_dir / new_name}")
                         shutil.move(str(f), str(per_output_dir / new_name))
                         track_results.append({

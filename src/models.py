@@ -66,6 +66,8 @@ class TranscodeJobDB(Base):
     config_overrides = Column(Text, nullable=True)  # JSON dict of per-job transcode overrides
     multi_title = Column(Integer, default=0)  # Boolean: 1 if multi-title disc
     track_metadata = Column(Text, nullable=True)  # JSON list of per-track metadata dicts
+    folder_name = Column(String(500), nullable=True)  # Pre-rendered folder name from ARM naming engine
+    title_name = Column(String(500), nullable=True)  # Pre-rendered title name from ARM naming engine
 
 
 class WebhookPayload(BaseModel):
@@ -85,6 +87,8 @@ class WebhookPayload(BaseModel):
     config_overrides: Optional[dict] = Field(None)
     multi_title: Optional[bool] = Field(None)
     tracks: Optional[list[dict]] = Field(None)
+    folder_name: Optional[str] = Field(None, max_length=500)
+    title_name: Optional[str] = Field(None, max_length=500)
 
     @property
     def effective_body(self) -> Optional[str]:
