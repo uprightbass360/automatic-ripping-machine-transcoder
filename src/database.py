@@ -50,6 +50,8 @@ def _add_missing_columns(conn):
             ("config_overrides", "TEXT"),
             ("multi_title", "INTEGER DEFAULT 0"),
             ("track_metadata", "TEXT"),
+            ("folder_name", "VARCHAR(500)"),
+            ("title_name", "VARCHAR(500)"),
         ]
         for col_name, col_type in migrations:
             if col_name not in existing:
