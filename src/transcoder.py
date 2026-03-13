@@ -694,6 +694,10 @@ class TranscodeWorker:
                         os.makedirs(per_output_dir, exist_ok=True)
                         # title_name = display filename, folder_name = directory path
                         per_title_name = matched_meta.get("title_name") or matched_meta.get("folder_name") or per_output_dir.name
+                        # Disambiguate tracks without custom titles to prevent
+                        # filename collisions (all inherit the same job title)
+                        if not matched_meta.get("has_custom_title") and track_num:
+                            per_title_name = f"{per_title_name} - Track {track_num}"
                         new_name = f"{per_title_name}{f.suffix}"
                         logger.info(f"Moving {f.name} → {per_output_dir / new_name}")
                         shutil.move(str(f), str(per_output_dir / new_name))
