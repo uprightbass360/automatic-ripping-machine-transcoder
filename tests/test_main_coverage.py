@@ -67,7 +67,7 @@ async def client(mock_worker, tmp_path):
         main_module.worker = mock_worker
 
         transport = ASGITransport(app=main_module.app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with AsyncClient(transport=transport, base_url="https://test") as ac:
             yield ac, test_session_factory
 
         main_module.worker = None
@@ -245,7 +245,7 @@ class TestSystemInfoEndpoint:
             assert response.status_code == 200
             data = response.json()
             assert data["cpu"] == "Intel i7-10700K"
-            assert data["memory_total_gb"] == 16.0
+            assert data["memory_total_gb"] == pytest.approx(16.0)
             assert "gpu_support" in data
 
 
@@ -272,9 +272,9 @@ class TestSystemStatsEndpoint:
             response = await ac.get("/system/stats")
             assert response.status_code == 200
             data = response.json()
-            assert data["cpu_percent"] == 25.0
-            assert data["cpu_temp"] == 55.0
-            assert data["memory"]["percent"] == 50.0
+            assert data["cpu_percent"] == pytest.approx(25.0)
+            assert data["cpu_temp"] == pytest.approx(55.0)
+            assert data["memory"]["percent"] == pytest.approx(50.0)
             assert data["storage"] == []
 
     @pytest.mark.asyncio
@@ -294,7 +294,7 @@ class TestSystemStatsEndpoint:
             response = await ac.get("/system/stats")
             assert response.status_code == 200
             data = response.json()
-            assert data["cpu_temp"] == 0.0
+            assert data["cpu_temp"] == pytest.approx(0.0)
 
     @pytest.mark.asyncio
     async def test_system_stats_with_disk_usage(self, client):
@@ -320,7 +320,7 @@ class TestSystemStatsEndpoint:
             data = response.json()
             assert len(data["storage"]) == 3
             assert data["storage"][0]["name"] == "Raw"
-            assert data["storage"][0]["percent"] == 40.0
+            assert data["storage"][0]["percent"] == pytest.approx(40.0)
 
     @pytest.mark.asyncio
     async def test_system_stats_k10temp(self, client):
@@ -342,7 +342,7 @@ class TestSystemStatsEndpoint:
              patch("main.psutil.disk_usage", side_effect=FileNotFoundError):
             response = await ac.get("/system/stats")
             data = response.json()
-            assert data["cpu_temp"] == 42.0
+            assert data["cpu_temp"] == pytest.approx(42.0)
 
 
 # ─── Config Endpoints ───────────────────────────────────────────────────────

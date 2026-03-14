@@ -256,7 +256,7 @@ class TestNotifyArmCallback:
 
         with patch("transcoder.settings") as mock_settings, \
              patch("transcoder.httpx.AsyncClient") as mock_client_cls:
-            mock_settings.arm_callback_url = "http://arm:8080"
+            mock_settings.arm_callback_url = "https://arm:8080"
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -285,7 +285,7 @@ class TestNotifyArmCallback:
 
         with patch("transcoder.settings") as mock_settings, \
              patch("transcoder.httpx.AsyncClient") as mock_client_cls:
-            mock_settings.arm_callback_url = "http://arm:8080"
+            mock_settings.arm_callback_url = "https://arm:8080"
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -310,7 +310,7 @@ class TestNotifyArmCallback:
 
         with patch("transcoder.settings") as mock_settings, \
              patch("transcoder.httpx.AsyncClient") as mock_client_cls:
-            mock_settings.arm_callback_url = "http://arm:8080"
+            mock_settings.arm_callback_url = "https://arm:8080"
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -332,7 +332,7 @@ class TestNotifyArmCallback:
 
         with patch("transcoder.settings") as mock_settings, \
              patch("transcoder.httpx.AsyncClient") as mock_client_cls:
-            mock_settings.arm_callback_url = "http://arm:8080"
+            mock_settings.arm_callback_url = "https://arm:8080"
             mock_client = AsyncMock()
             mock_client_cls.return_value = mock_client
 

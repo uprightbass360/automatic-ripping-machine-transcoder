@@ -367,7 +367,7 @@ class TestLoadConfigOverrides:
         try:
             with patch("database.get_db", mock_get_db):
                 await load_config_overrides()
-            assert settings.minimum_free_space_gb == 25.5
+            assert settings.minimum_free_space_gb == pytest.approx(25.5)
         finally:
             settings.minimum_free_space_gb = original
 
