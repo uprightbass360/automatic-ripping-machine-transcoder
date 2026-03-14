@@ -115,7 +115,12 @@ async def lifespan(app: FastAPI):
 
 
 def _read_version() -> str:
-    for p in ("VERSION", os.path.join(os.path.dirname(__file__), "VERSION"), os.path.join(os.path.dirname(__file__), "..", "VERSION")):
+    for p in (
+        "VERSION",
+        os.path.join(os.path.dirname(__file__), "VERSION"),
+        os.path.join(os.path.dirname(__file__), "..", "VERSION"),
+        "/etc/arm-transcoder-version",
+    ):
         try:
             with open(p) as f:
                 return f.read().strip()
