@@ -401,8 +401,8 @@ TV_SUBDIR=tv          # default
 
 **Configuration:**
 ```
-HANDBRAKE_PRESET=H.265 NVENC 1080p        # standard/DVD content
-HANDBRAKE_PRESET_4K=H.265 NVENC 2160p 4K  # 4K content
+HANDBRAKE_PRESET=       # auto-detected from GPU (e.g. H.265 NVENC 1080p for NVIDIA)
+HANDBRAKE_PRESET_4K=    # auto-detected from GPU (e.g. H.265 NVENC 2160p 4K for NVIDIA)
 ```
 
 **Files Modified:**

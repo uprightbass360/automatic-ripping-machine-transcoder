@@ -8,11 +8,11 @@
 
 # ARM Transcoder
 
-Part of the [Automatic Ripping Machine ecosystem](#related-projects). Hardware-accelerated transcoding service that offloads encoding from your ARM ripper to a dedicated transcode server. Supports NVIDIA, AMD, and Intel GPUs, or CPU-only software encoding.
+Part of the [Automatic Ripping Machine (neu) ecosystem](#related-projects). Hardware-accelerated transcoding service that offloads encoding from your ARM ripper to a dedicated transcode server. Supports NVIDIA, AMD, and Intel GPUs, or CPU-only software encoding.
 
 ## Related Projects
 
-Part of the Automatic Ripping Machine ecosystem:
+Part of the Automatic Ripping Machine (neu) ecosystem:
 
 | Project | Description |
 |---------|-------------|
@@ -50,9 +50,11 @@ flowchart TB
 ## Features
 
 - Webhook receiver for ARM job completion notifications
+- **Auto-detected GPU encoding** — detects NVIDIA, AMD, or Intel at startup and selects the right encoder and preset automatically
 - Hardware-accelerated transcoding via FFmpeg (with HandBrake fallback for NVIDIA)
 - Resolution-based encoding — 4K preserved, Blu-ray at 1080p, DVDs upscaled to 720p
 - Multi-GPU support: NVIDIA NVENC, AMD VAAPI/AMF, Intel Quick Sync, software fallback
+- **ARM callback** — notifies ARM when jobs complete or fail (`ARM_CALLBACK_URL`)
 - Queue management with SQLite persistence
 - REST API for job monitoring and management
 - API key authentication with role-based access (admin/readonly)
@@ -252,7 +254,7 @@ These variables are used across all `docker-compose*.yml` files:
 |----------|---------|-------------|
 | `HOST_RAW_PATH` | *(required)* | Host path to ARM's raw output (shared storage mount) |
 | `HOST_COMPLETED_PATH` | *(required)* | Host path for completed transcodes |
-| `VIDEO_ENCODER` | *(per compose file)* | Video encoder (see [Encoder Options](#encoder-options)) |
+| `VIDEO_ENCODER` | x265 | Video encoder (see [Encoder Options](#encoder-options)) |
 | `WEBHOOK_PORT` | 5000 | Port exposed on host |
 | `WEBHOOK_SECRET` | *(empty)* | Secret for webhook authentication (see [Authentication](docs/AUTHENTICATION.md)) |
 | `LOG_LEVEL` | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
@@ -277,8 +279,9 @@ These variables are used across all `docker-compose*.yml` files:
 | `MINIMUM_FREE_SPACE_GB` | 10 | Minimum free disk space required (GB) |
 | `REQUIRE_API_AUTH` | false | Require API key for endpoints |
 | `API_KEYS` | *(empty)* | Comma-separated API keys (see [Authentication](docs/AUTHENTICATION.md)) |
-| `HANDBRAKE_PRESET` | H.265 NVENC 1080p | HandBrake preset for standard content |
-| `HANDBRAKE_PRESET_4K` | H.265 NVENC 2160p 4K | HandBrake preset for 4K content (source > 1080p) |
+| `HANDBRAKE_PRESET` | *(auto-detected)* | HandBrake preset for standard content |
+| `HANDBRAKE_PRESET_4K` | *(auto-detected)* | HandBrake preset for 4K content (source > 1080p) |
+| `ARM_CALLBACK_URL` | *(empty)* | ARM API base URL for status callbacks (e.g. `http://192.168.0.68:8080`) |
 | `VAAPI_DEVICE` | /dev/dri/renderD128 | VAAPI/QSV render device path (AMD and Intel only) |
 
 See `.env.example` for the full template.
@@ -298,13 +301,13 @@ See `.env.example` for the full template.
 | None | `x265` | Software H.265 (no GPU required, slower) |
 | None | `x264` | Software H.264 (no GPU required, slower) |
 
-Each compose file sets a sensible default encoder for its GPU type. Override with `VIDEO_ENCODER` in your `.env`.
+The compose files default to `x265` (software). At startup, `auto_resolve_gpu_defaults()` detects available GPU hardware and upgrades the encoder and presets automatically. Override with `VIDEO_ENCODER` in your `.env`.
 
 ### HandBrake Presets
 
 HandBrake is used as the transcoding backend when NVIDIA NVENC is selected and HandBrake is available. For all other encoder families, FFmpeg is used directly.
 
-The default preset is HandBrake's built-in **H.265 NVENC 1080p**. Custom presets are available in `presets/nvenc_presets.json` — to use them, set `HANDBRAKE_PRESET_FILE=/config/presets/nvenc_presets.json`:
+When `HANDBRAKE_PRESET` is empty, the transcoder auto-detects your GPU and selects the appropriate preset (e.g. **H.265 NVENC 1080p** for NVIDIA, **H.265 MKV 1080p30** for software). Custom presets are available in `presets/nvenc_presets.json` — to use them, set `HANDBRAKE_PRESET_FILE=/config/presets/nvenc_presets.json`:
 
 - **NVENC H.265 1080p** - Best compression, decomb deinterlacing, all audio/subtitle tracks
 - **NVENC H.265 4K** - For 4K/UHD content

@@ -115,9 +115,9 @@ COMPLETED_PATH=/mnt/completed
 WORK_PATH=/var/lib/arm-transcoder/work
 DB_PATH=/var/lib/arm-transcoder/transcoder.db
 
-# Transcoding
-HANDBRAKE_PRESET=H.265 NVENC 1080p
-VIDEO_ENCODER=nvenc_h265
+# Transcoding (auto-detected from GPU at startup if left empty/x265)
+HANDBRAKE_PRESET=
+VIDEO_ENCODER=x265
 VIDEO_QUALITY=22
 ```
 
