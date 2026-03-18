@@ -153,8 +153,8 @@ class TestUtilsGaps:
         base = tmp_dirs["raw"]
         outside = tmp_dirs["root"] / "outside_dir"
         outside.mkdir()
-        target_file = outside / "secret.txt"
-        target_file.write_text("secret data")
+        target_file = outside / "external.txt"
+        target_file.write_text("test content")
 
         link = base / "bad_link"
         try:
@@ -170,12 +170,17 @@ class TestUtilsGaps:
 # ── log_reader.py ────────────────────────────────────────────────────────────
 
 class TestLogReaderGaps:
-    def test_path_traversal_oserror(self, tmp_path):
-        """Cover log_reader.py lines 50-51."""
+    def test_path_traversal_outside_log_dir(self, tmp_path):
+        """Cover log_reader.py lines 50-51: path resolving outside log dir."""
         from log_reader import read_log
 
-        with patch("log_reader._log_dir", return_value=tmp_path):
-            result = read_log("../\x00bad", mode="tail", lines=10)
+        # Create a log dir that doesn't contain the target
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        with patch("log_reader._log_dir", return_value=log_dir):
+            # Attempt to traverse outside the log directory
+            result = read_log("../../etc/hosts", mode="tail", lines=10)
             assert result is None
 
 
