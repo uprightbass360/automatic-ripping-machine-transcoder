@@ -61,7 +61,7 @@ async def api_client(mock_worker_gaps, tmp_path):
         main_module.worker = mock_worker_gaps
 
         transport = ASGITransport(app=main_module.app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with AsyncClient(transport=transport, base_url="https://test") as ac:
             yield ac, test_session_factory
 
         main_module.worker = None
@@ -330,7 +330,7 @@ class TestTranscoderFFmpegGaps:
         worker = TranscodeWorker(gpu_support=_gpu_support_none())
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             result = await worker._get_video_duration(Path("/test/video.mkv"))
-            assert result == 3600.5
+            assert result == pytest.approx(3600.5)
 
     @pytest.mark.asyncio
     async def test_get_video_duration_exception(self):
