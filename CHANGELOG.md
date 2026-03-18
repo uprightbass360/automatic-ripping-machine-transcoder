@@ -1,5 +1,14 @@
 # Changelog
 
+## [13.0.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v13.0.0...v13.0.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* add missing config vars to .env.example and docker-compose ([26ac440](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/26ac4404a82aadc2d9e70a0828ab4f44b97ee3b1))
+* address SonarCloud security hotspot and reliability issues ([f6500a1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/f6500a177baab3477aa88b02969c438fe9090368))
+* resolve SonarCloud security hotspot and reliability bug ([249f7e9](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/249f7e99f4b8878a745edd28fa09a6a83d2a3d5e))
+
 ## [13.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v12.0.0...v13.0.0) (2026-03-14)
 
 
