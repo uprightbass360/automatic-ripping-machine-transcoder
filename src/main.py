@@ -15,7 +15,7 @@ from pathlib import Path
 import psutil
 import structlog
 
-from fastapi import FastAPI, Depends, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, Query, Request
 from sqlalchemy import select, delete, func
 
 from auth import get_current_user, require_admin, verify_webhook_secret
@@ -234,6 +234,21 @@ async def get_system_stats():
         },
         "storage": storage,
     }
+
+
+@app.post("/system/restart")
+async def restart_service(background_tasks: BackgroundTasks):
+    """Restart the transcoder service. Docker restart policy brings it back."""
+    import signal
+
+    def _shutdown():
+        logger.info("Restart requested via API — shutting down for Docker restart")
+        if worker:
+            worker.shutdown()
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    background_tasks.add_task(_shutdown)
+    return {"success": True, "message": "Transcoder is restarting"}
 
 
 @app.get("/config")
