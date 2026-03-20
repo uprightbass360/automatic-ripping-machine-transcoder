@@ -380,3 +380,17 @@ class TestStatsEndpoint:
         assert "failed" in data
         assert "cancelled" in data
         assert "worker_running" in data
+
+
+class TestRestartEndpoint:
+    """Tests for POST /system/restart."""
+
+    @pytest.mark.asyncio
+    async def test_restart_returns_success(self, client, mock_worker):
+        """Restart endpoint should return success and schedule shutdown."""
+        with patch("os.kill"):
+            response = await client.post("/system/restart")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert "restarting" in data["message"].lower()
