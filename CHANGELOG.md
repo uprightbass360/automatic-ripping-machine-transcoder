@@ -1,5 +1,17 @@
 # Changelog
 
+## [13.1.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v13.0.1...v13.1.0) (2026-03-20)
+
+
+### Features
+
+* add POST /system/restart endpoint ([f317b02](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/f317b02294262da02cc6ea69deab36224b1726a9))
+
+
+### Bug Fixes
+
+* use sys.exit instead of os.kill for SonarCloud hotspot ([6163832](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/616383293e6f09656bd20e71fbb4279ae88bb193))
+
 ## [13.0.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v13.0.0...v13.0.1) (2026-03-18)
 
 
