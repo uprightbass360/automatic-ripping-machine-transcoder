@@ -238,14 +238,27 @@ async def get_system_stats():
 
 @app.post("/system/restart")
 async def restart_service(background_tasks: BackgroundTasks):
-    """Restart the transcoder service. Docker restart policy brings it back."""
-    import sys
+    """Restart the transcoder service.
+
+    In reload mode (dev): kills the server child; the WatchFiles reloader
+    automatically spawns a new one.
+    In non-reload mode (prod): os._exit terminates PID 1 and Docker's
+    restart policy brings the container back.
+    """
+    import os
 
     def _shutdown():
+        import signal
+        import time
         logger.info("Restart requested via API — shutting down for Docker restart")
         if worker:
             worker.shutdown()
-        sys.exit(0)
+        time.sleep(0.5)
+        # Kill the entire process group (PGID 0 = our group).
+        # In reload mode this reaches the reloader (PID 1), which shuts
+        # down cleanly. Docker's restart policy then restarts the container.
+        # In non-reload mode, this kills the single uvicorn process.
+        os.killpg(0, signal.SIGTERM)
 
     background_tasks.add_task(_shutdown)
     return {"success": True, "message": "Transcoder is restarting"}
