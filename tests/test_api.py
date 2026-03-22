@@ -388,7 +388,7 @@ class TestRestartEndpoint:
     @pytest.mark.asyncio
     async def test_restart_returns_success(self, client, mock_worker):
         """Restart endpoint should return success and schedule shutdown."""
-        with patch("sys.exit"):
+        with patch("os.killpg"):
             response = await client.post("/system/restart")
         assert response.status_code == 200
         data = response.json()
