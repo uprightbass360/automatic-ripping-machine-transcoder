@@ -1,5 +1,13 @@
 # Changelog
 
+## [13.1.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v13.1.0...v13.1.1) (2026-03-22)
+
+
+### Bug Fixes
+
+* mock os.killpg instead of sys.exit in restart endpoint test ([b34b4b9](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/b34b4b970e76ed4d9df83e83f2645455f493a32e))
+* use os.killpg for restart endpoint to terminate entire process group ([31b28cc](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/31b28ccc6d5f0e0de51ed600ff805ee97e0f3ba0))
+
 ## [13.1.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v13.0.1...v13.1.0) (2026-03-20)
 
 
