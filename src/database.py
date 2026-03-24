@@ -37,12 +37,23 @@ async def init_db():
 
 
 def _add_missing_columns(conn):
-    """Add columns to existing tables if they don't exist yet."""
+    """Add columns to existing tables if they don't exist yet.
+
+    Also handles schema migration from old arm_job_id-based schema to
+    unified ID schema (drops and recreates table — historical data not important).
+    """
     from sqlalchemy import inspect, text
 
     inspector = inspect(conn)
     if "transcode_jobs" in inspector.get_table_names():
         existing = {c["name"] for c in inspector.get_columns("transcode_jobs")}
+
+        # Migrate from old schema: arm_job_id present means old layout
+        if "arm_job_id" in existing:
+            conn.execute(text("DROP TABLE transcode_jobs"))
+            Base.metadata.create_all(conn)
+            return
+
         migrations = [
             ("disctype", "VARCHAR(50)"),
             ("logfile", "VARCHAR(255)"),
