@@ -28,6 +28,11 @@ from log_format import json_formatter
 from models import TranscodeJobDB, JobStatus, TranscodeJob
 from utils import check_sufficient_disk_space, clean_title_for_filesystem, estimate_transcode_size
 
+
+def log_filename(job_id: int) -> str:
+    """Canonical log filename for a transcode job. Single source of truth."""
+    return f"JOB_{job_id}_Transcode.log"
+
 logger = logging.getLogger(__name__)
 
 _MKV_GLOB = "*.mkv"
@@ -364,7 +369,7 @@ class TranscodeWorker:
         try:
             log_dir = Path(settings.log_path)
             log_dir.mkdir(parents=True, exist_ok=True)
-            handler = logging.FileHandler(str(log_dir / logfile_name))
+            handler = logging.FileHandler(str(log_dir / logfile_name), mode='a')
             handler.setFormatter(json_formatter())
 
             _job_id = job_id  # capture for filter closure
@@ -573,7 +578,7 @@ class TranscodeWorker:
         )
 
         work_job_dir = Path(settings.work_path) / f"job-{job.id}"
-        logfile_name = f"job-{job.id}.log"
+        logfile_name = log_filename(job.id)
         job_handler = None
 
         try:
