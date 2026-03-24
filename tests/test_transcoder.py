@@ -8,6 +8,13 @@ from unittest.mock import patch, MagicMock, AsyncMock
 import pytest
 
 from models import TranscodeJob
+from transcoder import log_filename
+
+
+def test_log_filename_format():
+    """log_filename() returns JOB_{id}_Transcode.log"""
+    assert log_filename(42) == "JOB_42_Transcode.log"
+    assert log_filename(1) == "JOB_1_Transcode.log"
 
 
 # Default GPU support dict for mocking
