@@ -14,7 +14,6 @@ from constants import (
     MAX_TITLE_LENGTH,
     MAX_BODY_LENGTH,
     MAX_PATH_LENGTH,
-    MAX_JOB_ID_LENGTH,
 )
 
 Base = declarative_base()
@@ -42,13 +41,12 @@ class TranscodeJobDB(Base):
     """Database model for transcode jobs."""
     __tablename__ = "transcode_jobs"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=False)
     title = Column(String(500), nullable=False)
     source_path = Column(String(1000), nullable=False)
     output_path = Column(String(1000), nullable=True)
     status = Column(SQLEnum(JobStatus), default=JobStatus.PENDING, nullable=False)
     progress = Column(Float, default=0.0)
-    arm_job_id = Column(String(50), nullable=True)  # Reference to ARM job
     error = Column(Text, nullable=True)
     retry_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -77,7 +75,7 @@ class WebhookPayload(BaseModel):
     body: Optional[str] = Field(None, max_length=MAX_BODY_LENGTH)
     message: Optional[str] = Field(None, max_length=MAX_BODY_LENGTH)
     path: Optional[str] = Field(None, max_length=MAX_PATH_LENGTH)
-    job_id: Optional[str] = Field(None, max_length=MAX_JOB_ID_LENGTH)
+    job_id: int
     status: Optional[str] = Field(None, max_length=50)
     type: Optional[str] = Field(None, max_length=50)
     video_type: Optional[str] = Field(None, max_length=50)
@@ -139,26 +137,18 @@ class WebhookPayload(BaseModel):
     @field_validator("job_id", mode="before")
     @classmethod
     def coerce_job_id(cls, v):
-        """Coerce job_id to string (ARM sends int) and validate."""
-        if v is None:
-            return v
-
-        v = str(v)
-
-        # Allow only alphanumeric, hyphens, and underscores
-        import re
-        if not re.match(r'^[a-zA-Z0-9\-_]+$', v):
-            raise ValueError("Job ID contains invalid characters")
-
-        return v
+        """Coerce job_id to int. ARM always sends integer job IDs."""
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            raise ValueError("job_id must be a valid integer")
 
 
 class TranscodeJob(BaseModel):
     """Transcode job for queue."""
-    id: Optional[int] = None
+    id: int
     title: str
     source_path: str
-    arm_job_id: Optional[str] = None
 
     class Config:
         from_attributes = True
