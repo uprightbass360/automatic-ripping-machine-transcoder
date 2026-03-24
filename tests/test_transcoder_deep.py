@@ -68,51 +68,48 @@ class TestQueueJobPaths:
         """Cover queue_job new job creation path."""
         worker, session_factory = worker_with_db
         job_id, created = await worker.queue_job(
-            source_path="/test/movie", title="Test Movie", arm_job_id="1"
+            job_id=1, source_path="/test/movie", title="Test Movie"
         )
         assert created is True
-        assert job_id > 0
+        assert job_id == 1
 
     @pytest.mark.asyncio
     async def test_queue_job_dedup_returns_existing(self, worker_with_db):
-        """Cover queue_job lines 244-248: duplicate detection."""
+        """Cover queue_job: duplicate detection by ID."""
         worker, session_factory = worker_with_db
 
         # Queue first job
         job_id1, created1 = await worker.queue_job(
-            source_path="/test/movie", title="Movie", arm_job_id="1"
+            job_id=1, source_path="/test/movie", title="Movie"
         )
         assert created1 is True
 
-        # Queue same source — should dedup
+        # Queue same ID — should dedup (active job)
         job_id2, created2 = await worker.queue_job(
-            source_path="/test/movie", title="Movie Again", arm_job_id="2"
+            job_id=1, source_path="/test/movie", title="Movie Again"
         )
         assert created2 is False
         assert job_id2 == job_id1
 
     @pytest.mark.asyncio
-    async def test_queue_job_retry_existing(self, worker_with_db):
-        """Cover queue_job lines 230-233: retry existing job by ID."""
+    async def test_queue_job_requeue_failed(self, worker_with_db):
+        """Cover queue_job: re-queue a failed job by same ID."""
         worker, session_factory = worker_with_db
 
         # Create a failed job in DB
         async with session_factory() as session:
             job_db = TranscodeJobDB(
-                title="Failed Job", source_path="/test/fail",
-                arm_job_id="1", status=JobStatus.FAILED
+                id=50, title="Failed Job", source_path="/test/fail",
+                status=JobStatus.FAILED
             )
             session.add(job_db)
             await session.commit()
-            await session.refresh(job_db)
-            existing_id = job_db.id
 
         job_id, created = await worker.queue_job(
-            source_path="/test/fail", title="Failed Job",
-            existing_job_id=existing_id
+            job_id=50, source_path="/test/fail", title="Failed Job"
         )
         assert created is True
-        assert job_id == existing_id
+        assert job_id == 50
 
     @pytest.mark.asyncio
     async def test_queue_job_with_overrides_and_tracks(self, worker_with_db):
@@ -123,8 +120,8 @@ class TestQueueJobPaths:
         tracks = [{"track_number": "1", "title": "Episode 1"}]
 
         job_id, created = await worker.queue_job(
-            source_path="/test/series", title="Series",
-            arm_job_id="3", config_overrides=overrides,
+            job_id=3, source_path="/test/series", title="Series",
+            config_overrides=overrides,
             multi_title=True, tracks=tracks,
             folder_name="Series/Season 1", title_name="S01E01",
         )
@@ -194,8 +191,8 @@ class TestLoadJobMetadata:
         overrides = {"video_encoder": "hevc_nvenc"}
         async with session_factory() as session:
             job_db = TranscodeJobDB(
-                title="Test", source_path="/test",
-                arm_job_id="1", status=JobStatus.PENDING,
+                id=60, title="Test", source_path="/test",
+                status=JobStatus.PENDING,
                 config_overrides=json.dumps(overrides),
                 folder_name="Movies/Test (2024)",
                 title_name="Test (2024)",
@@ -221,8 +218,8 @@ class TestLoadJobMetadata:
 
         async with session_factory() as session:
             job_db = TranscodeJobDB(
-                title="Test", source_path="/test",
-                arm_job_id="1", status=JobStatus.PENDING,
+                id=61, title="Test", source_path="/test",
+                status=JobStatus.PENDING,
                 config_overrides="not valid json{{{",
             )
             session.add(job_db)

@@ -415,9 +415,9 @@ async def arm_webhook(
 
     job_title = media_title or payload.title
     job_id, created = await worker.queue_job(
+        job_id=payload.job_id,
         source_path=full_path,
         title=job_title,
-        arm_job_id=payload.job_id,
         video_type=payload.video_type,
         year=payload.year,
         disctype=payload.disctype,
@@ -440,7 +440,7 @@ async def arm_webhook(
 @app.get("/jobs")
 async def list_jobs(
     status: JobStatus | None = None,
-    arm_job_id: int | None = None,
+    job_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
     _role: str = Depends(get_current_user),
@@ -458,16 +458,16 @@ async def list_jobs(
         query = select(TranscodeJobDB)
         if status:
             query = query.where(TranscodeJobDB.status == status)
-        if arm_job_id is not None:
-            query = query.where(TranscodeJobDB.arm_job_id == str(arm_job_id))
+        if job_id is not None:
+            query = query.where(TranscodeJobDB.id == job_id)
         query = query.order_by(TranscodeJobDB.created_at.desc())
 
         # Get total count
         count_query = select(func.count()).select_from(TranscodeJobDB)
         if status:
             count_query = count_query.where(TranscodeJobDB.status == status)
-        if arm_job_id is not None:
-            count_query = count_query.where(TranscodeJobDB.arm_job_id == str(arm_job_id))
+        if job_id is not None:
+            count_query = count_query.where(TranscodeJobDB.id == job_id)
         total_result = await db.execute(count_query)
         total = total_result.scalar()
 
@@ -493,7 +493,6 @@ async def list_jobs(
                     "video_type": job.video_type,
                     "year": job.year,
                     "disctype": job.disctype,
-                    "arm_job_id": job.arm_job_id,
                     "output_path": job.output_path,
                     "total_tracks": job.total_tracks,
                     "poster_url": job.poster_url,
@@ -535,22 +534,14 @@ async def retry_job(
                 detail=f"Maximum retry limit reached ({settings.max_retry_count})"
             )
 
-        # Reset job status
-        job.status = JobStatus.PENDING
-        job.error = None
-        job.progress = 0
-        job.retry_count += 1
-        await db.commit()
-
-        # Re-queue
+        # Re-queue via queue_job (handles status reset internally)
         await worker.queue_job(
+            job_id=job.id,
             source_path=job.source_path,
             title=job.title,
-            arm_job_id=job.arm_job_id,
-            existing_job_id=job.id,
         )
 
-        return {"status": "queued", "job_id": job.id, "retry_count": job.retry_count}
+        return {"status": "queued", "job_id": job.id, "retry_count": job.retry_count + 1}
 
 
 @app.delete("/jobs/{job_id}", responses={400: {"description": "Cannot delete job in progress"}, 404: {"description": "Job not found"}})

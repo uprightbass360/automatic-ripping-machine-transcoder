@@ -79,9 +79,9 @@ class TestJobQueueCreation:
             worker = TranscodeWorker()
 
             await worker.queue_job(
+                job_id=42,
                 source_path="/data/raw/Test Movie (2024)",
                 title="Test Movie (2024)",
-                arm_job_id="job-42",
             )
 
         # Verify the DB record
@@ -90,7 +90,7 @@ class TestJobQueueCreation:
             job = result.scalar_one()
             assert job.title == "Test Movie (2024)"
             assert job.source_path == "/data/raw/Test Movie (2024)"
-            assert job.arm_job_id == "job-42"
+            assert job.id == 42
             assert job.status == JobStatus.PENDING
             assert job.retry_count == 0
 
@@ -111,6 +111,7 @@ class TestJobQueueCreation:
             assert worker.queue_size == 0
 
             await worker.queue_job(
+                job_id=100,
                 source_path="/data/raw/Movie",
                 title="Movie",
             )
@@ -133,9 +134,9 @@ class TestJobQueueCreation:
 
             for i in range(3):
                 await worker.queue_job(
+                    job_id=200 + i,
                     source_path=f"/data/raw/Movie {i}",
                     title=f"Movie {i}",
-                    arm_job_id=f"job-{i}",
                 )
 
         async with session_factory() as session:
@@ -179,6 +180,7 @@ class TestProcessJobLifecycle:
 
             # Queue the job (creates DB record)
             await worker.queue_job(
+                job_id=300,
                 source_path=str(source_dir),
                 title="Test Movie",
             )
@@ -237,7 +239,7 @@ class TestProcessJobLifecycle:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Bad Movie")
+            await worker.queue_job(job_id=301, source_path=str(source_dir), title="Bad Movie")
             job = await worker._queue.get()
 
             # Make transcoding fail
@@ -280,7 +282,7 @@ class TestProcessJobLifecycle:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Empty Movie")
+            await worker.queue_job(job_id=302, source_path=str(source_dir), title="Empty Movie")
             job = await worker._queue.get()
 
             with patch.object(worker, "_wait_for_stable", AsyncMock()):
@@ -314,7 +316,7 @@ class TestProcessJobLifecycle:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Cleanup Movie")
+            await worker.queue_job(job_id=303, source_path=str(source_dir), title="Cleanup Movie")
             job = await worker._queue.get()
 
             transcode_mock = AsyncMock()
@@ -357,7 +359,7 @@ class TestProcessJobLifecycle:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Keep Movie")
+            await worker.queue_job(job_id=304, source_path=str(source_dir), title="Keep Movie")
             job = await worker._queue.get()
 
             fail_mock = AsyncMock(side_effect=RuntimeError("fail"))
@@ -400,7 +402,7 @@ class TestProcessJobLifecycle:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Work Cleanup Movie")
+            await worker.queue_job(job_id=305, source_path=str(source_dir), title="Work Cleanup Movie")
             job = await worker._queue.get()
 
             transcode_mock = AsyncMock()
@@ -444,7 +446,7 @@ class TestProcessJobLifecycle:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Work Fail Movie")
+            await worker.queue_job(job_id=306, source_path=str(source_dir), title="Work Fail Movie")
             job = await worker._queue.get()
 
             fail_mock = AsyncMock(side_effect=RuntimeError("encoder crash"))
@@ -485,6 +487,7 @@ class TestLoadPendingJobsOnStartup:
         async with session_factory() as session:
             for i in range(3):
                 session.add(TranscodeJobDB(
+                    id=400 + i,
                     title=f"Pending Movie {i}",
                     source_path=f"/data/raw/movie{i}",
                     status=JobStatus.PENDING,
@@ -511,7 +514,7 @@ class TestLoadPendingJobsOnStartup:
 
         async with session_factory() as session:
             session.add(TranscodeJobDB(
-                title="Interrupted Movie",
+                id=501, title="Interrupted Movie",
                 source_path="/data/raw/interrupted",
                 status=JobStatus.PROCESSING,
             ))
@@ -543,12 +546,12 @@ class TestLoadPendingJobsOnStartup:
 
         async with session_factory() as session:
             session.add(TranscodeJobDB(
-                title="Done Movie",
+                id=502, title="Done Movie",
                 source_path="/data/raw/done",
                 status=JobStatus.COMPLETED,
             ))
             session.add(TranscodeJobDB(
-                title="Failed Movie",
+                id=503, title="Failed Movie",
                 source_path="/data/raw/failed",
                 status=JobStatus.FAILED,
             ))
@@ -595,7 +598,7 @@ class TestWorkerRunLoop:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Loop Movie")
+            await worker.queue_job(job_id=307, source_path=str(source_dir), title="Loop Movie")
 
             transcode_mock = AsyncMock()
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
@@ -610,6 +613,8 @@ class TestWorkerRunLoop:
                 mock_settings.stabilize_seconds = 0
                 mock_settings.work_path = str(tmp_path / "work")
                 mock_settings.minimum_free_space_gb = 10.0
+                mock_settings.arm_callback_url = ""
+                mock_settings.log_path = str(tmp_path / "logs")
 
                 # Run worker briefly - it should process the job then we shut it down
                 async def run_and_stop():
@@ -655,7 +660,7 @@ class TestWorkerRunLoop:
                 nonlocal current_job_during_process
                 current_job_during_process = worker.current_job
 
-            await worker.queue_job(source_path=str(source_dir), title="Track Movie")
+            await worker.queue_job(job_id=308, source_path=str(source_dir), title="Track Movie")
             job = await worker._queue.get()
             worker._current_job = job.title
 
@@ -706,7 +711,7 @@ class TestRetryPipeline:
         # Insert a failed job directly
         async with session_factory() as session:
             job = TranscodeJobDB(
-                title="Failed Movie",
+                id=504, title="Failed Movie",
                 source_path="/data/raw/failed",
                 status=JobStatus.FAILED,
                 error="HandBrake crashed",
@@ -724,20 +729,10 @@ class TestRetryPipeline:
         assert data["status"] == "queued"
         assert data["retry_count"] == 1
 
-        # Verify worker.queue_job was called
+        # Verify worker.queue_job was called with job_id
         mock_worker.queue_job.assert_called_once()
         call_kwargs = mock_worker.queue_job.call_args
-        assert call_kwargs.kwargs.get("existing_job_id") == job_id
-
-        # Verify DB state
-        async with session_factory() as session:
-            result = await session.execute(
-                select(TranscodeJobDB).where(TranscodeJobDB.id == job_id)
-            )
-            job_db = result.scalar_one()
-            assert job_db.status == JobStatus.PENDING
-            assert job_db.retry_count == 1
-            assert job_db.error is None
+        assert call_kwargs.kwargs.get("job_id") == job_id
 
     @pytest.mark.asyncio
     async def test_retry_max_limit_reached(self, api_client):
@@ -746,7 +741,7 @@ class TestRetryPipeline:
 
         async with session_factory() as session:
             job = TranscodeJobDB(
-                title="Too Many Retries",
+                id=505, title="Too Many Retries",
                 source_path="/data/raw/retries",
                 status=JobStatus.FAILED,
                 retry_count=3,  # Default max is 3
@@ -767,7 +762,7 @@ class TestRetryPipeline:
 
         async with session_factory() as session:
             job = TranscodeJobDB(
-                title="Pending Movie",
+                id=506, title="Pending Movie",
                 source_path="/data/raw/pending",
                 status=JobStatus.PENDING,
             )
@@ -817,7 +812,7 @@ class TestDeletePipeline:
 
         async with session_factory() as session:
             job = TranscodeJobDB(
-                title="Done Movie",
+                id=507, title="Done Movie",
                 source_path="/data/raw/done",
                 status=JobStatus.COMPLETED,
             )
@@ -844,7 +839,7 @@ class TestDeletePipeline:
 
         async with session_factory() as session:
             job = TranscodeJobDB(
-                title="Failed Movie",
+                id=508, title="Failed Movie",
                 source_path="/data/raw/failed",
                 status=JobStatus.FAILED,
             )
@@ -863,7 +858,7 @@ class TestDeletePipeline:
 
         async with session_factory() as session:
             job = TranscodeJobDB(
-                title="Active Movie",
+                id=509, title="Active Movie",
                 source_path="/data/raw/active",
                 status=JobStatus.PROCESSING,
             )
@@ -914,13 +909,13 @@ class TestStatsAccuracy:
         # Insert jobs with various statuses
         async with session_factory() as session:
             jobs = [
-                TranscodeJobDB(title="P1", source_path="/p1", status=JobStatus.PENDING),
-                TranscodeJobDB(title="P2", source_path="/p2", status=JobStatus.PENDING),
-                TranscodeJobDB(title="R1", source_path="/r1", status=JobStatus.PROCESSING),
-                TranscodeJobDB(title="C1", source_path="/c1", status=JobStatus.COMPLETED),
-                TranscodeJobDB(title="C2", source_path="/c2", status=JobStatus.COMPLETED),
-                TranscodeJobDB(title="C3", source_path="/c3", status=JobStatus.COMPLETED),
-                TranscodeJobDB(title="F1", source_path="/f1", status=JobStatus.FAILED),
+                TranscodeJobDB(id=511, title="P1", source_path="/p1", status=JobStatus.PENDING),
+                TranscodeJobDB(id=512, title="P2", source_path="/p2", status=JobStatus.PENDING),
+                TranscodeJobDB(id=513, title="R1", source_path="/r1", status=JobStatus.PROCESSING),
+                TranscodeJobDB(id=514, title="C1", source_path="/c1", status=JobStatus.COMPLETED),
+                TranscodeJobDB(id=515, title="C2", source_path="/c2", status=JobStatus.COMPLETED),
+                TranscodeJobDB(id=516, title="C3", source_path="/c3", status=JobStatus.COMPLETED),
+                TranscodeJobDB(id=517, title="F1", source_path="/f1", status=JobStatus.FAILED),
             ]
             session.add_all(jobs)
             await session.commit()
@@ -975,9 +970,9 @@ class TestWebhookToJobsList:
 
         async with session_factory() as session:
             session.add_all([
-                TranscodeJobDB(title="OK", source_path="/ok", status=JobStatus.COMPLETED),
-                TranscodeJobDB(title="Bad", source_path="/bad", status=JobStatus.FAILED),
-                TranscodeJobDB(title="Wait", source_path="/wait", status=JobStatus.PENDING),
+                TranscodeJobDB(id=518, title="OK", source_path="/ok", status=JobStatus.COMPLETED),
+                TranscodeJobDB(id=519, title="Bad", source_path="/bad", status=JobStatus.FAILED),
+                TranscodeJobDB(id=520, title="Wait", source_path="/wait", status=JobStatus.PENDING),
             ])
             await session.commit()
 
@@ -996,7 +991,7 @@ class TestWebhookToJobsList:
         async with session_factory() as session:
             for i in range(10):
                 session.add(TranscodeJobDB(
-                    title=f"Movie {i}",
+                    id=510 + i, title=f"Movie {i}",
                     source_path=f"/data/{i}",
                     status=JobStatus.COMPLETED,
                 ))
@@ -1046,7 +1041,7 @@ class TestAudioPassthrough:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Greatest Hits")
+            await worker.queue_job(job_id=309, source_path=str(source_dir), title="Greatest Hits")
             job = await worker._queue.get()
 
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
@@ -1100,7 +1095,7 @@ class TestAudioPassthrough:
             worker = TranscodeWorker()
 
             await worker.queue_job(
-                source_path=str(source_dir), title="Movie With Soundtrack"
+                job_id=315, source_path=str(source_dir), title="Movie With Soundtrack"
             )
             job = await worker._queue.get()
 
@@ -1145,7 +1140,7 @@ class TestAudioPassthrough:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Empty Disc")
+            await worker.queue_job(job_id=310, source_path=str(source_dir), title="Empty Disc")
             job = await worker._queue.get()
 
             with patch.object(worker, "_wait_for_stable", AsyncMock()):
@@ -1179,7 +1174,7 @@ class TestAudioPassthrough:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Cleanup Album")
+            await worker.queue_job(job_id=311, source_path=str(source_dir), title="Cleanup Album")
             job = await worker._queue.get()
 
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
@@ -1240,7 +1235,7 @@ class TestResolutionPresetSelection:
             # Force HandBrake backend (default encoder "x265" selects ffmpeg)
             worker._encoder_backend = "handbrake"
 
-            await worker.queue_job(source_path=str(source_dir), title="4K Movie")
+            await worker.queue_job(job_id=312, source_path=str(source_dir), title="4K Movie")
             job = await worker._queue.get()
 
             # Mock _get_video_resolution to return 4K, capture the HandBrake command
@@ -1323,7 +1318,7 @@ class TestMultiFileTranscode:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Multi Movie")
+            await worker.queue_job(job_id=313, source_path=str(source_dir), title="Multi Movie")
             job = await worker._queue.get()
 
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
@@ -1375,7 +1370,7 @@ class TestMultiFileTranscode:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(source_path=str(source_dir), title="Size Test")
+            await worker.queue_job(job_id=314, source_path=str(source_dir), title="Size Test")
             job = await worker._queue.get()
 
             transcode_mock = AsyncMock()

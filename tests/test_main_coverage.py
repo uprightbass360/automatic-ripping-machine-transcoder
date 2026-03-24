@@ -467,12 +467,12 @@ class TestRetryWithJob:
         # Insert a failed job
         async with session_factory() as session:
             job = TranscodeJobDB(
+                id=42,
                 title="Test Movie",
                 source_path="/data/raw/Test Movie (2024)",
                 status=JobStatus.FAILED,
                 error="HandBrake crashed",
                 retry_count=0,
-                arm_job_id="42",
             )
             session.add(job)
             await session.commit()
@@ -492,7 +492,7 @@ class TestRetryWithJob:
 
         async with session_factory() as session:
             job = TranscodeJobDB(
-                title="Test Movie",
+                id=601, title="Test Movie",
                 source_path="/data/raw/Test Movie (2024)",
                 status=JobStatus.COMPLETED,
             )
@@ -511,7 +511,7 @@ class TestRetryWithJob:
 
         async with session_factory() as session:
             job = TranscodeJobDB(
-                title="Test Movie",
+                id=602, title="Test Movie",
                 source_path="/data/raw/Test Movie (2024)",
                 status=JobStatus.FAILED,
                 retry_count=settings.max_retry_count,
@@ -537,7 +537,7 @@ class TestDeleteWithJob:
 
         async with session_factory() as session:
             job = TranscodeJobDB(
-                title="Test Movie",
+                id=603, title="Test Movie",
                 source_path="/data/raw/Test Movie (2024)",
                 status=JobStatus.COMPLETED,
             )
@@ -557,7 +557,7 @@ class TestDeleteWithJob:
 
         async with session_factory() as session:
             job = TranscodeJobDB(
-                title="Test Movie",
+                id=604, title="Test Movie",
                 source_path="/data/raw/Test Movie (2024)",
                 status=JobStatus.PROCESSING,
             )
@@ -575,7 +575,7 @@ class TestDeleteWithJob:
 
         async with session_factory() as session:
             job = TranscodeJobDB(
-                title="Test Movie",
+                id=605, title="Test Movie",
                 source_path="/data/raw/Test Movie (2024)",
                 status=JobStatus.FAILED,
             )
@@ -600,10 +600,10 @@ class TestJobsListWithData:
         async with session_factory() as session:
             for i in range(3):
                 session.add(TranscodeJobDB(
+                    id=100 + i,
                     title=f"Movie {i}",
                     source_path=f"/data/raw/Movie {i}",
                     status=JobStatus.COMPLETED if i < 2 else JobStatus.PENDING,
-                    arm_job_id=str(100 + i),
                 ))
             await session.commit()
 
@@ -619,9 +619,9 @@ class TestJobsListWithData:
 
         async with session_factory() as session:
             session.add(TranscodeJobDB(
-                title="Done", source_path="/x", status=JobStatus.COMPLETED))
+                id=200, title="Done", source_path="/x", status=JobStatus.COMPLETED))
             session.add(TranscodeJobDB(
-                title="Waiting", source_path="/y", status=JobStatus.PENDING))
+                id=201, title="Waiting", source_path="/y", status=JobStatus.PENDING))
             await session.commit()
 
         response = await ac.get("/jobs?status=pending")
@@ -630,22 +630,20 @@ class TestJobsListWithData:
         assert data["jobs"][0]["title"] == "Waiting"
 
     @pytest.mark.asyncio
-    async def test_filter_by_arm_job_id(self, client):
+    async def test_filter_by_job_id(self, client):
         ac, session_factory = client
 
         async with session_factory() as session:
             session.add(TranscodeJobDB(
-                title="Movie A", source_path="/a", status=JobStatus.COMPLETED,
-                arm_job_id="123"))
+                id=123, title="Movie A", source_path="/a", status=JobStatus.COMPLETED))
             session.add(TranscodeJobDB(
-                title="Movie B", source_path="/b", status=JobStatus.COMPLETED,
-                arm_job_id="456"))
+                id=456, title="Movie B", source_path="/b", status=JobStatus.COMPLETED))
             await session.commit()
 
-        response = await ac.get("/jobs?arm_job_id=123")
+        response = await ac.get("/jobs?job_id=123")
         data = response.json()
         assert data["total"] == 1
-        assert data["jobs"][0]["arm_job_id"] == "123"
+        assert data["jobs"][0]["id"] == 123
 
     @pytest.mark.asyncio
     async def test_limit_below_1_clamped(self, client):
@@ -662,12 +660,12 @@ class TestJobsListWithData:
 
         async with session_factory() as session:
             session.add(TranscodeJobDB(
+                id=99,
                 title="Test Movie",
                 source_path="/data/raw/Test",
                 output_path="/data/completed/Test",
                 status=JobStatus.COMPLETED,
                 progress=100.0,
-                arm_job_id="99",
                 error=None,
                 logfile="test.log",
                 video_type="movie",
@@ -704,13 +702,13 @@ class TestStatsWithData:
 
         async with session_factory() as session:
             session.add(TranscodeJobDB(
-                title="A", source_path="/a", status=JobStatus.COMPLETED))
+                id=606, title="A", source_path="/a", status=JobStatus.COMPLETED))
             session.add(TranscodeJobDB(
-                title="B", source_path="/b", status=JobStatus.COMPLETED))
+                id=607, title="B", source_path="/b", status=JobStatus.COMPLETED))
             session.add(TranscodeJobDB(
-                title="C", source_path="/c", status=JobStatus.FAILED))
+                id=608, title="C", source_path="/c", status=JobStatus.FAILED))
             session.add(TranscodeJobDB(
-                title="D", source_path="/d", status=JobStatus.PENDING))
+                id=609, title="D", source_path="/d", status=JobStatus.PENDING))
             await session.commit()
 
         response = await ac.get("/stats")
@@ -841,6 +839,7 @@ class TestWebhookEdgeCases:
             "title": "Rip complete",
             "path": "/home/arm/media/raw/Movie Title (2024)",
             "status": "success",
+            "job_id": 901,
         }
         response = await ac.post("/webhook/arm", json=payload)
         assert response.status_code == 200
@@ -857,6 +856,7 @@ class TestWebhookEdgeCases:
             "title": "Rip complete",
             "path": "Movie",
             "status": "success",
+            "job_id": 902,
         }
         response = await ac.post("/webhook/arm", json=payload)
         assert response.status_code == 200
@@ -885,7 +885,7 @@ class TestWebhookEdgeCases:
         response = await ac.post("/webhook/arm", json=payload)
         assert response.status_code == 200
         call_kwargs = mock_worker.queue_job.call_args.kwargs
-        assert call_kwargs["arm_job_id"] == "42"
+        assert call_kwargs["job_id"] == 42
         assert call_kwargs["video_type"] == "movie"
         assert call_kwargs["year"] == "2024"
         assert call_kwargs["disctype"] == "bluray"
@@ -906,6 +906,7 @@ class TestWebhookEdgeCases:
                 "title": "Rip complete",
                 "path": "Movie",
                 "status": "success",
+            "job_id": 903,
             }
             response = await ac.post("/webhook/arm", json=payload)
             assert response.status_code == 503

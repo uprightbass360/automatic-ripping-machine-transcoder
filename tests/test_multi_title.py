@@ -244,7 +244,7 @@ class TestNotifyArmCallback:
         """track_results should be included in the callback payload."""
         worker = self._make_worker()
         job = TranscodeJob(id=1, title="Movie", source_path="/data/raw/movie")
-        job.arm_job_id = "42"
+        # job.id is already 1 (the ARM job ID)
 
         track_results = [
             {"track_number": 1, "status": "completed", "output_path": "/out/ep1.mkv"},
@@ -278,7 +278,7 @@ class TestNotifyArmCallback:
         """track_results key should not be in payload when None."""
         worker = self._make_worker()
         job = TranscodeJob(id=1, title="Movie", source_path="/data/raw/movie")
-        job.arm_job_id = "42"
+        # job.id is already 1 (the ARM job ID)
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -303,7 +303,7 @@ class TestNotifyArmCallback:
         """track_results key should not be in payload when empty list."""
         worker = self._make_worker()
         job = TranscodeJob(id=1, title="Movie", source_path="/data/raw/movie")
-        job.arm_job_id = "42"
+        # job.id is already 1 (the ARM job ID)
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -324,15 +324,14 @@ class TestNotifyArmCallback:
             assert "track_results" not in payload
 
     @pytest.mark.asyncio
-    async def test_skips_callback_without_arm_job_id(self):
-        """Should not send callback when arm_job_id is None."""
+    async def test_skips_callback_without_callback_url(self):
+        """Should not send callback when arm_callback_url is not set."""
         worker = self._make_worker()
         job = TranscodeJob(id=1, title="Movie", source_path="/data/raw/movie")
-        job.arm_job_id = None
 
         with patch("transcoder.settings") as mock_settings, \
              patch("transcoder.httpx.AsyncClient") as mock_client_cls:
-            mock_settings.arm_callback_url = "https://arm:8080"
+            mock_settings.arm_callback_url = ""
             mock_client = AsyncMock()
             mock_client_cls.return_value = mock_client
 
