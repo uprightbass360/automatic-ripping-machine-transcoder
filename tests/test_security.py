@@ -80,17 +80,17 @@ class TestOversizedPayloads:
     def test_oversized_title(self):
         """Title exceeding 500 chars must be rejected."""
         with pytest.raises(ValidationError):
-            WebhookPayload(title="X" * 501)
+            WebhookPayload(title="X" * 501, job_id=951)
 
     def test_oversized_body(self):
         """Body exceeding 2000 chars must be rejected."""
         with pytest.raises(ValidationError):
-            WebhookPayload(title="Test", body="X" * 2001)
+            WebhookPayload(title="Test", body="X" * 2001, job_id=952)
 
     def test_oversized_path(self):
         """Path exceeding 1000 chars must be rejected."""
         with pytest.raises(ValidationError):
-            WebhookPayload(title="Test", path="X" * 1001)
+            WebhookPayload(title="Test", path="X" * 1001, job_id=953)
 
     def test_oversized_job_id(self):
         """Job ID exceeding 50 chars must be rejected."""
@@ -103,7 +103,7 @@ class TestOversizedPayloads:
             title="T" * 500,
             body="B" * 2000,
             path="P" * 1000,
-            job_id="j" * 50,
+            job_id=99999,
             status="s" * 50,
             type="t" * 50,
         )
@@ -241,7 +241,7 @@ class TestWebhookInputSanitization:
 
     def test_title_with_script_tags(self):
         """HTML/script injection in title should be sanitized (control chars removed)."""
-        payload = WebhookPayload(title="<script>alert('xss')</script>")
+        payload = WebhookPayload(title="<script>alert('xss')</script>", job_id=954)
         # No control chars to strip, but field is sanitized
         assert payload.title is not None
 
@@ -257,16 +257,16 @@ class TestWebhookInputSanitization:
 
     def test_path_with_null_byte(self):
         """Null bytes in path should be stripped."""
-        payload = WebhookPayload(title="Test", path="movie\x00.mkv")
+        payload = WebhookPayload(title="Test", path="movie\x00.mkv", job_id=955)
         assert "\x00" not in payload.path
 
     def test_title_with_null_byte(self):
         """Control characters (including null) should be stripped from title."""
-        payload = WebhookPayload(title="Movie\x00Title")
+        payload = WebhookPayload(title="Movie\x00Title", job_id=956)
         assert "\x00" not in payload.title
 
     def test_body_massive_newlines(self):
         """Body with many newlines should still be constrained by max_length."""
         body = "\n" * 2001
         with pytest.raises(ValidationError):
-            WebhookPayload(title="Test", body=body)
+            WebhookPayload(title="Test", body=body, job_id=957)

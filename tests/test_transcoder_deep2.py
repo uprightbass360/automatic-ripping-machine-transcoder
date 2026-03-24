@@ -188,7 +188,7 @@ class TestNotifyArmCallback:
     async def test_callback_with_error(self, worker_db):
         """Cover lines 897-898: error payload."""
         worker, _, _ = worker_db
-        job = TranscodeJob(id=1, title="Test", source_path="/test", arm_job_id="5")
+        job = TranscodeJob(id=1, title="Test", source_path="/test")
 
         with patch("transcoder.settings") as ms:
             ms.arm_callback_url = "https://arm.local"
@@ -204,7 +204,7 @@ class TestNotifyArmCallback:
     async def test_callback_exception(self, worker_db):
         """Cover lines 905-906: callback HTTP failure."""
         worker, _, _ = worker_db
-        job = TranscodeJob(id=1, title="Test", source_path="/test", arm_job_id="5")
+        job = TranscodeJob(id=1, title="Test", source_path="/test")
 
         with patch("transcoder.settings") as ms:
             ms.arm_callback_url = "https://arm.local"
@@ -220,7 +220,7 @@ class TestNotifyArmCallback:
     async def test_callback_skipped_no_url(self, worker_db):
         """Cover line 893: no callback URL → skip."""
         worker, _, _ = worker_db
-        job = TranscodeJob(id=1, title="Test", source_path="/test", arm_job_id="5")
+        job = TranscodeJob(id=1, title="Test", source_path="/test")
 
         with patch("transcoder.settings") as ms:
             ms.arm_callback_url = ""
@@ -272,7 +272,7 @@ class TestLoadTrackMetadata:
         ]
         async with sf() as session:
             job = TranscodeJobDB(
-                title="Series", source_path="/test", arm_job_id="1",
+                id=101, title="Series", source_path="/test",
                 status=JobStatus.PENDING, multi_title=1,
                 track_metadata=json.dumps(tracks),
             )
@@ -293,7 +293,7 @@ class TestLoadTrackMetadata:
         worker, sf, _ = worker_db
         async with sf() as session:
             job = TranscodeJobDB(
-                title="Movie", source_path="/test", arm_job_id="1",
+                id=102, title="Movie", source_path="/test",
                 status=JobStatus.PENDING,
             )
             session.add(job)

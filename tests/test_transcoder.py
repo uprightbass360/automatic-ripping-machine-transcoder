@@ -1448,7 +1448,7 @@ class TestDiskSpacePreCheck:
         async with session_factory() as session:
             from models import JobStatus
             job_db = TranscodeJobDB(
-                title="TestMovie",
+                id=801, title="TestMovie",
                 source_path=str(source_dir),
                 status=JobStatus.PENDING,
             )
@@ -1542,7 +1542,7 @@ class TestLoadTrackMetadata:
         # Create a job with multi_title=0
         async with session_factory() as session:
             job_db = TranscodeJobDB(
-                title="SingleTitle",
+                id=802, title="SingleTitle",
                 source_path="/data/raw/movie",
                 status=JobStatus.PENDING,
                 multi_title=0,
@@ -1569,7 +1569,7 @@ class TestLoadTrackMetadata:
 
         async with session_factory() as session:
             job_db = TranscodeJobDB(
-                title="NoMetadata",
+                id=803, title="NoMetadata",
                 source_path="/data/raw/movie",
                 status=JobStatus.PENDING,
                 multi_title=1,
@@ -1608,7 +1608,7 @@ class TestLoadTrackMetadata:
 
         async with session_factory() as session:
             job_db = TranscodeJobDB(
-                title="BadJSON",
+                id=804, title="BadJSON",
                 source_path="/data/raw/movie",
                 status=JobStatus.PENDING,
                 multi_title=1,
@@ -1640,7 +1640,7 @@ class TestLoadTrackMetadata:
         ]
         async with session_factory() as session:
             job_db = TranscodeJobDB(
-                title="MultiTitle",
+                id=805, title="MultiTitle",
                 source_path="/data/raw/series",
                 status=JobStatus.PENDING,
                 multi_title=1,
@@ -1676,7 +1676,7 @@ class TestLoadTrackMetadata:
 
         async with session_factory() as session:
             job_db = TranscodeJobDB(
-                title="EmptyTracks",
+                id=806, title="EmptyTracks",
                 source_path="/data/raw/movie",
                 status=JobStatus.PENDING,
                 multi_title=1,
@@ -1747,6 +1747,7 @@ class TestQueueJobMultiTitle:
 
         with patch("transcoder.get_db", test_get_db):
             job_id, created = await worker.queue_job(
+                job_id=700,
                 source_path="/data/raw/series",
                 title="Series",
                 multi_title=True,
@@ -1780,6 +1781,7 @@ class TestQueueJobMultiTitle:
 
         with patch("transcoder.get_db", test_get_db):
             job_id, created = await worker.queue_job(
+                job_id=701,
                 source_path="/data/raw/movie",
                 title="Movie",
                 multi_title=False,
@@ -1809,6 +1811,7 @@ class TestQueueJobMultiTitle:
 
         with patch("transcoder.get_db", test_get_db):
             job_id, created = await worker.queue_job(
+                job_id=702,
                 source_path="/data/raw/movie",
                 title="Movie",
             )
@@ -1839,6 +1842,7 @@ class TestQueueJobMultiTitle:
 
         with patch("transcoder.get_db", test_get_db):
             job_id, created = await worker.queue_job(
+                job_id=703,
                 source_path="/data/raw/movie",
                 title="Movie",
                 tracks=tracks,

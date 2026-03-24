@@ -207,10 +207,9 @@ class TranscodeWorker:
 
     async def queue_job(
         self,
+        job_id: int,
         source_path: str,
         title: str,
-        arm_job_id: Optional[str] = None,
-        existing_job_id: Optional[int] = None,
         video_type: Optional[str] = None,
         year: Optional[str] = None,
         disctype: Optional[str] = None,
@@ -223,40 +222,42 @@ class TranscodeWorker:
     ) -> tuple[int, bool]:
         """Add a job to the transcode queue.
 
+        job_id is the ARM job ID, used as the primary key.
         Returns (job_id, created) — created is False when an existing
-        pending/processing job already covers the same source_path.
+        active job already covers the same ID.
         """
         overrides_json = json.dumps(config_overrides) if config_overrides else None
         track_meta_json = json.dumps(tracks) if tracks else None
         async with self._queue_lock:
             async with get_db() as db:
-                if existing_job_id:
-                    # Retry existing job
-                    result = await db.execute(
-                        select(TranscodeJobDB).where(TranscodeJobDB.id == existing_job_id)
-                    )
-                    job_db = result.scalar_one()
-                else:
-                    # Deduplicate: skip if an active job already exists for this source
-                    result = await db.execute(
-                        select(TranscodeJobDB).where(
-                            TranscodeJobDB.source_path == source_path,
-                            TranscodeJobDB.status.in_([JobStatus.PENDING, JobStatus.PROCESSING]),
-                        )
-                    )
-                    existing = result.scalar_one_or_none()
-                    if existing:
+                # Check for existing job by primary key
+                existing = await db.get(TranscodeJobDB, job_id)
+                if existing:
+                    if existing.status in (JobStatus.PENDING, JobStatus.PROCESSING):
+                        # Active job — return idempotently
                         logger.info(
                             f"Duplicate webhook — job {existing.id} already "
                             f"{existing.status.value} for {source_path}"
                         )
                         return existing.id, False
-
-                    # Create new job record
+                    else:
+                        # Terminal job (COMPLETED/FAILED) — reset for re-queue
+                        existing.status = JobStatus.PENDING
+                        existing.progress = 0.0
+                        existing.error = None
+                        existing.started_at = None
+                        existing.completed_at = None
+                        existing.retry_count = (existing.retry_count or 0) + 1
+                        existing.source_path = source_path
+                        existing.title = title
+                        await db.commit()
+                        job_db = existing
+                else:
+                    # Create new job with ARM job ID as PK
                     job_db = TranscodeJobDB(
+                        id=job_id,
                         title=title,
                         source_path=source_path,
-                        arm_job_id=arm_job_id,
                         video_type=video_type,
                         year=year,
                         disctype=disctype,
@@ -270,13 +271,11 @@ class TranscodeWorker:
                     )
                     db.add(job_db)
                     await db.commit()
-                    await db.refresh(job_db)
 
                 job = TranscodeJob(
                     id=job_db.id,
                     title=title,
                     source_path=source_path,
-                    arm_job_id=arm_job_id,
                 )
 
         await self._queue.put(job)
@@ -359,7 +358,6 @@ class TranscodeWorker:
                     id=job_db.id,
                     title=job_db.title,
                     source_path=job_db.source_path,
-                    arm_job_id=job_db.arm_job_id,
                 )
                 await self._queue.put(job)
                 logger.info(f"Restored pending job {job.id}: {job.title}")
@@ -574,7 +572,6 @@ class TranscodeWorker:
         structlog.contextvars.bind_contextvars(
             job_id=job.id,
             label=job.title,
-            arm_job_id=job.arm_job_id,
         )
 
         work_job_dir = Path(settings.work_path) / f"job-{job.id}"
@@ -895,9 +892,9 @@ class TranscodeWorker:
         track_results: list[dict] | None = None,
     ):
         """Send transcode result back to ARM so it can update the job status."""
-        if not settings.arm_callback_url or not job.arm_job_id:
+        if not settings.arm_callback_url:
             return
-        url = f"{settings.arm_callback_url.rstrip('/')}/api/v1/jobs/{job.arm_job_id}/transcode-callback"
+        url = f"{settings.arm_callback_url.rstrip('/')}/api/v1/jobs/{job.id}/transcode-callback"
         payload: dict = {"status": status}
         if error:
             payload["error"] = error[:500]
@@ -906,9 +903,9 @@ class TranscodeWorker:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.post(url, json=payload)
-            logger.info(f"ARM callback sent ({resp.status_code}): {status} for ARM job {job.arm_job_id}")
+            logger.info(f"ARM callback sent ({resp.status_code}): {status} for job {job.id}")
         except Exception as e:
-            logger.warning(f"Failed to send ARM callback for job {job.arm_job_id}: {e}")
+            logger.warning(f"Failed to send ARM callback for job {job.id}: {e}")
 
     def _discover_source_files(self, source_path: str) -> list[Path]:
         """Find all MKV files in source directory."""
@@ -944,7 +941,6 @@ class TranscodeWorker:
         structlog.contextvars.bind_contextvars(
             job_id=job.id,
             label=job.title,
-            arm_job_id=job.arm_job_id,
         )
         clean_title = clean_title_for_filesystem(job.title)
         output_dir = Path(settings.completed_path) / settings.audio_subdir / clean_title

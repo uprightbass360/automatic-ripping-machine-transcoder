@@ -376,9 +376,9 @@ class TestMainAPIGaps:
         assert "worker_running" in data
 
     @pytest.mark.asyncio
-    async def test_list_jobs_with_arm_job_id(self, api_client):
+    async def test_list_jobs_with_job_id(self, api_client):
         client, _ = api_client
-        response = await client.get("/jobs?arm_job_id=123&limit=5&offset=0")
+        response = await client.get("/jobs?job_id=123&limit=5&offset=0")
         assert response.status_code == 200
         assert "jobs" in response.json()
 
@@ -387,7 +387,7 @@ class TestMainAPIGaps:
         client, session_factory = api_client
         from models import TranscodeJobDB, JobStatus
         async with session_factory() as session:
-            job = TranscodeJobDB(source_path="/test", title="T", status=JobStatus.COMPLETED, arm_job_id="1", progress=100)
+            job = TranscodeJobDB(id=1001, source_path="/test", title="T", status=JobStatus.COMPLETED, progress=100)
             session.add(job)
             await session.commit()
             job_id = job.id
@@ -399,7 +399,7 @@ class TestMainAPIGaps:
         client, session_factory = api_client
         from models import TranscodeJobDB, JobStatus
         async with session_factory() as session:
-            job = TranscodeJobDB(source_path="/test", title="T", status=JobStatus.PROCESSING, arm_job_id="1", progress=50)
+            job = TranscodeJobDB(id=1002, source_path="/test", title="T", status=JobStatus.PROCESSING, progress=50)
             session.add(job)
             await session.commit()
             job_id = job.id
@@ -411,7 +411,7 @@ class TestMainAPIGaps:
         client, session_factory = api_client
         from models import TranscodeJobDB, JobStatus
         async with session_factory() as session:
-            job = TranscodeJobDB(source_path="/test", title="T", status=JobStatus.COMPLETED, arm_job_id="1", progress=100)
+            job = TranscodeJobDB(id=1003, source_path="/test", title="T", status=JobStatus.COMPLETED, progress=100)
             session.add(job)
             await session.commit()
             job_id = job.id
@@ -424,7 +424,7 @@ class TestMainAPIGaps:
         client, session_factory = api_client
         from models import TranscodeJobDB, JobStatus
         async with session_factory() as session:
-            job = TranscodeJobDB(source_path="/test", title="T", status=JobStatus.FAILED, arm_job_id="1", progress=0, retry_count=0, error="err")
+            job = TranscodeJobDB(id=1004, source_path="/test", title="T", status=JobStatus.FAILED, progress=0, retry_count=0, error="err")
             session.add(job)
             await session.commit()
             job_id = job.id

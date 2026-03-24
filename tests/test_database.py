@@ -129,6 +129,7 @@ class TestGetDb:
 
         async with session_factory() as session:
             job = TranscodeJobDB(
+                id=1,
                 title="Test Movie",
                 source_path="/data/raw/test",
                 status=JobStatus.PENDING,
@@ -152,6 +153,7 @@ class TestGetDb:
         try:
             async with session_factory() as session:
                 job = TranscodeJobDB(
+                    id=2,
                     title="Rollback Test",
                     source_path="/data/raw/rollback",
                     status=JobStatus.PENDING,

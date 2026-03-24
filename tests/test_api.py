@@ -102,6 +102,7 @@ class TestWebhookEndpoint:
             "title": "ARM notification",
             "body": "Rip of Test Movie (2024) complete",
             "type": "info",
+            "job_id": 1,
         }
         response = await client.post("/webhook/arm", json=payload)
         assert response.status_code == 200
@@ -116,6 +117,7 @@ class TestWebhookEndpoint:
             "title": "Rip complete",
             "path": "Movie Title (2024)",
             "status": "success",
+            "job_id": 2,
         }
         response = await client.post("/webhook/arm", json=payload)
         assert response.status_code == 200
@@ -130,6 +132,7 @@ class TestWebhookEndpoint:
             "path": "Movie Title (2024)",
             "body": "some unrecognized format",
             "status": "success",
+            "job_id": 3,
         }
         response = await client.post("/webhook/arm", json=payload)
         assert response.status_code == 200
@@ -144,6 +147,7 @@ class TestWebhookEndpoint:
             "title": "ARM notification",
             "message": "Test Movie (2024) rip complete. Starting transcode.",
             "type": "info",
+            "job_id": 4,
         }
         response = await client.post("/webhook/arm", json=payload)
         assert response.status_code == 200
@@ -158,6 +162,7 @@ class TestWebhookEndpoint:
             "title": "ARM notification",
             "body": "Movie Title (2024) rip complete. Starting transcode.",
             "type": "info",
+            "job_id": 5,
         }
         response = await client.post("/webhook/arm", json=payload)
         assert response.status_code == 200
@@ -176,6 +181,7 @@ class TestWebhookEndpoint:
             "title": "ARM notification",
             "body": "Movie Title (2024) processing complete.",
             "type": "info",
+            "job_id": 6,
         }
         response = await client.post("/webhook/arm", json=payload)
         assert response.status_code == 200
@@ -194,6 +200,7 @@ class TestWebhookEndpoint:
                 "title": "ARM notification",
                 "body": "Rip of Test Movie (2024) complete",
                 "type": "info",
+                "job_id": 7,
             }
             response = await client.post("/webhook/arm", json=payload)
             assert response.status_code == 503
@@ -208,6 +215,7 @@ class TestWebhookEndpoint:
             "title": "ARM notification",
             "body": "Rip started for some movie",
             "type": "info",
+            "job_id": 8,
         }
         response = await client.post("/webhook/arm", json=payload)
         assert response.status_code == 200
@@ -221,6 +229,7 @@ class TestWebhookEndpoint:
             "title": "ARM notification",
             "message": "Found data disc. Copying data.",
             "type": "info",
+            "job_id": 9,
         }
         response = await client.post("/webhook/arm", json=payload)
         assert response.status_code == 200
@@ -231,6 +240,7 @@ class TestWebhookEndpoint:
         """Webhook with no determinable path should return error."""
         payload = {
             "title": "Something complete",
+            "job_id": 10,
         }
         response = await client.post("/webhook/arm", json=payload)
         assert response.status_code == 200
@@ -249,6 +259,7 @@ class TestWebhookEndpoint:
             "title": "Rip complete",
             "path": "../../../etc/passwd",
             "status": "success",
+            "job_id": 11,
         }
         response = await client.post("/webhook/arm", json=payload)
         data = response.json()
@@ -261,6 +272,7 @@ class TestWebhookEndpoint:
             "title": "Rip complete",
             "path": "movies/The Babysitter (1969)",
             "status": "success",
+            "job_id": 12,
         }
         response = await client.post("/webhook/arm", json=payload)
         data = response.json()
@@ -275,6 +287,7 @@ class TestWebhookEndpoint:
             "title": "Rip complete",
             "path": "some\\nested\\path",
             "status": "success",
+            "job_id": 13,
         }
         response = await client.post("/webhook/arm", json=payload)
         data = response.json()
