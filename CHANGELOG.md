@@ -1,5 +1,12 @@
 # Changelog
 
+## [13.2.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v13.1.1...v13.2.0) (2026-03-25)
+
+
+### Features
+
+* use ARM track manifest for naming regardless of multi_title ([e1a221e](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/e1a221ebadd13dd31ae4a174a09984b96b7c2b83))
+
 ## [13.1.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v13.1.0...v13.1.1) (2026-03-22)
 
 
