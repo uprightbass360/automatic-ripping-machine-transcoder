@@ -1,6 +1,6 @@
 # Changelog
 
-## [13.2.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v13.1.1...v13.2.0) (2026-03-25)
+## [14.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v13.1.1...v14.0.0) (2026-03-25)
 
 
 ### Features
