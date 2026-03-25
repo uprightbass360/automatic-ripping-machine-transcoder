@@ -1532,21 +1532,21 @@ class TestLoadTrackMetadata:
         return engine, session_factory, test_get_db
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_not_multi_title(self, tmp_path):
-        """Should return None when multi_title is 0 (not a multi-title disc)."""
+    async def test_loads_metadata_even_when_not_multi_title(self, tmp_path):
+        """Should return track metadata even when multi_title is 0 (ARM controls naming)."""
         import json
         from models import TranscodeJobDB, JobStatus
 
         engine, session_factory, test_get_db = await self._setup_db(tmp_path)
 
-        # Create a job with multi_title=0
+        # Create a job with multi_title=0 but track_metadata present
         async with session_factory() as session:
             job_db = TranscodeJobDB(
                 id=802, title="SingleTitle",
                 source_path="/data/raw/movie",
                 status=JobStatus.PENDING,
                 multi_title=0,
-                track_metadata=json.dumps([{"track_number": 1, "filename": "t01.mkv"}]),
+                track_metadata=json.dumps([{"track_number": "1", "filename": "t01.mkv"}]),
             )
             session.add(job_db)
             await session.commit()
@@ -1557,7 +1557,9 @@ class TestLoadTrackMetadata:
         with patch("transcoder.get_db", test_get_db):
             result = await worker._load_track_metadata(job_id)
 
-        assert result is None
+        # Track metadata is always used when present — ARM is the naming authority
+        assert result is not None
+        assert "t01" in result
         await engine.dispose()
 
     @pytest.mark.asyncio

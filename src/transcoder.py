@@ -423,7 +423,7 @@ class TranscodeWorker:
                 select(TranscodeJobDB).where(TranscodeJobDB.id == job_id)
             )
             job_db = result.scalar_one_or_none()
-            if not job_db or not job_db.multi_title or not job_db.track_metadata:
+            if not job_db or not job_db.track_metadata:
                 return None
             try:
                 tracks = json.loads(job_db.track_metadata)
