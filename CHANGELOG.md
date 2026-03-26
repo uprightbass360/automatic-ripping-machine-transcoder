@@ -1,5 +1,13 @@
 # Changelog
 
+## [14.0.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v14.0.0...v14.0.1) (2026-03-26)
+
+
+### Bug Fixes
+
+* multi-title main feature embeds source filename for metadata matching ([27698ef](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/27698efa3b5f81667fd36cb87e195a698d13e308))
+* refresh naming metadata on job re-queue ([7d0ab2e](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/7d0ab2ee727be2dd4c45e0f12de159f81cedbda9))
+
 ## [14.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v13.1.1...v14.0.0) (2026-03-25)
 
 
