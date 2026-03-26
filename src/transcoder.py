@@ -250,6 +250,17 @@ class TranscodeWorker:
                         existing.retry_count = (existing.retry_count or 0) + 1
                         existing.source_path = source_path
                         existing.title = title
+                        # Refresh naming metadata from the new webhook payload
+                        # so corrected episode names/folders take effect.
+                        existing.video_type = video_type
+                        existing.year = year
+                        existing.disctype = disctype
+                        existing.poster_url = poster_url
+                        existing.config_overrides = overrides_json
+                        existing.multi_title = 1 if multi_title else 0
+                        existing.track_metadata = track_meta_json
+                        existing.folder_name = folder_name
+                        existing.title_name = title_name
                         await db.commit()
                         job_db = existing
                 else:
