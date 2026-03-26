@@ -534,9 +534,12 @@ class TranscodeWorker:
             await self._update_progress(job.id, progress)
 
             is_main = source_file == main_feature
-            if is_main or len(local_source_files) == 1:
+            if not multi_title and (is_main or len(local_source_files) == 1):
+                # Single-title: main feature uses the job-level name
                 output_file = work_output_dir / f"{folder_name}.{ext}"
             else:
+                # Multi-title: always embed source filename so
+                # _match_track_metadata can map output → track manifest
                 output_file = work_output_dir / f"{folder_name} - {source_file.stem}.{ext}"
 
             logger.info(

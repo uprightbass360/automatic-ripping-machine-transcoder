@@ -110,6 +110,42 @@ class TestMatchTrackMetadata:
         result = worker._match_track_metadata("completely_unrelated", source_files, track_meta)
         assert result is None
 
+    def test_main_feature_multi_title_includes_source_stem(self, worker):
+        """For multi-title jobs, the main feature output name must include the
+        source filename so _match_track_metadata can map it back to the manifest.
+        This is C1 from the naming audit - without this, the main feature keeps
+        the job-level temp name and per-track title_name is never applied."""
+        from models import TranscodeJob
+
+        job = TranscodeJob(id=99, title="Show", source_path="/raw/Show")
+        source_files = [
+            Path("/work/Show Disc 3_t00.mkv"),  # 100 bytes
+            Path("/work/Show Disc 3_t03.mkv"),  # 200 bytes (main feature)
+        ]
+        main_feature = source_files[1]  # t03 is largest
+        ext = "mkv"
+        folder_name = "Show S01E"
+
+        # Multi-title: main feature MUST include source stem
+        is_main = True
+        multi_title = True
+        if not multi_title and (is_main or len(source_files) == 1):
+            output_stem = folder_name
+        else:
+            output_stem = f"{folder_name} - {main_feature.stem}"
+
+        assert main_feature.stem in output_stem, \
+            "Multi-title main feature output must embed source filename for metadata matching"
+        assert output_stem == "Show S01E - Show Disc 3_t03"
+
+        # Now verify _match_track_metadata can find it
+        track_meta = {
+            "Show Disc 3_t03": {"track_number": "3", "title_name": "Chopper S01E15"},
+        }
+        result = worker._match_track_metadata(output_stem, source_files, track_meta)
+        assert result is not None
+        assert result["title_name"] == "Chopper S01E15"
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Per-track title_name used for output filename
