@@ -4,6 +4,8 @@
 
 # Python
 __pycache__/
+.coverage
+coverage.xml
 *.py[cod]
 *$py.class
 *.so
