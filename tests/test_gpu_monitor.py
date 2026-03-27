@@ -23,9 +23,9 @@ class TestGpuSnapshot:
         snap = GpuSnapshot(vendor="nvidia", utilization_percent=45.0, temperature_c=65.0)
         d = snap.to_dict()
         assert d["vendor"] == "nvidia"
-        assert d["utilization_percent"] == 45.0
+        assert d["utilization_percent"] == pytest.approx(45.0)
         assert d["memory_used_mb"] is None
-        assert d["temperature_c"] == 65.0
+        assert d["temperature_c"] == pytest.approx(65.0)
 
 
 class TestCreateGpuMonitor:
@@ -64,11 +64,11 @@ class TestNvidiaMonitor:
             snap = monitor.snapshot()
             mock_run.assert_called_once()
             assert snap.vendor == "nvidia"
-            assert snap.utilization_percent == 45.0
-            assert snap.memory_used_mb == 1024.0
-            assert snap.memory_total_mb == 8192.0
-            assert snap.temperature_c == 65.0
-            assert snap.encoder_percent == 78.0
+            assert snap.utilization_percent == pytest.approx(45.0)
+            assert snap.memory_used_mb == pytest.approx(1024.0)
+            assert snap.memory_total_mb == pytest.approx(8192.0)
+            assert snap.temperature_c == pytest.approx(65.0)
+            assert snap.encoder_percent == pytest.approx(78.0)
 
     def test_snapshot_nvidia_smi_failure(self):
         from gpu_monitor import NvidiaMonitor
@@ -123,9 +123,9 @@ class TestAmdMonitor:
         sysfs = self._make_sysfs(tmp_path, gpu_busy="45", vram_used=1073741824, vram_total=8589934592, temp=65000)
         snap = AmdMonitor(sysfs_path=str(sysfs)).snapshot()
         assert snap.vendor == "amd"
-        assert snap.utilization_percent == 45.0
-        assert snap.memory_used_mb == pytest.approx(1024.0, rel=0.1)
-        assert snap.memory_total_mb == pytest.approx(8192.0, rel=0.1)
+        assert snap.utilization_percent == pytest.approx(45.0)
+        assert snap.memory_used_mb == pytest.approx(1024.0)
+        assert snap.memory_total_mb == pytest.approx(8192.0)
         assert snap.temperature_c == pytest.approx(65.0)
 
     def test_snapshot_no_sysfs(self):
@@ -138,7 +138,7 @@ class TestAmdMonitor:
         from gpu_monitor import AmdMonitor
         sysfs = self._make_sysfs(tmp_path, gpu_busy="80")
         snap = AmdMonitor(sysfs_path=str(sysfs)).snapshot()
-        assert snap.utilization_percent == 80.0
+        assert snap.utilization_percent == pytest.approx(80.0)
         assert snap.memory_used_mb is None
         assert snap.temperature_c is None
 
@@ -153,7 +153,7 @@ class TestAmdMonitor:
         from gpu_monitor import AmdMonitor
         sysfs = self._make_sysfs(tmp_path, gpu_busy="50", vram_used="bad", vram_total="bad")
         snap = AmdMonitor(sysfs_path=str(sysfs)).snapshot()
-        assert snap.utilization_percent == 50.0
+        assert snap.utilization_percent == pytest.approx(50.0)
         assert snap.memory_used_mb is None
         assert snap.memory_total_mb is None
 
@@ -162,7 +162,7 @@ class TestAmdMonitor:
         from gpu_monitor import AmdMonitor
         sysfs = self._make_sysfs(tmp_path, gpu_busy="50", temp="bad")
         snap = AmdMonitor(sysfs_path=str(sysfs)).snapshot()
-        assert snap.utilization_percent == 50.0
+        assert snap.utilization_percent == pytest.approx(50.0)
         assert snap.temperature_c is None
 
 

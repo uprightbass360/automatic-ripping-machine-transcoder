@@ -392,8 +392,8 @@ class TestSystemStatsEndpoint:
             response = await ac.get("/system/stats")
             data = response.json()
             assert data["gpu"]["vendor"] == "nvidia"
-            assert data["gpu"]["utilization_percent"] == 45.0
-            assert data["gpu"]["encoder_percent"] == 78.0
+            assert data["gpu"]["utilization_percent"] == pytest.approx(45.0)
+            assert data["gpu"]["encoder_percent"] == pytest.approx(78.0)
 
     @pytest.mark.asyncio
     async def test_system_stats_gpu_snapshot_exception(self, client):
