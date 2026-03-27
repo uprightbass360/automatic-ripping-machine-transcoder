@@ -28,6 +28,7 @@ from constants import SHUTDOWN_TIMEOUT, VALID_VIDEO_ENCODERS, VALID_AUDIO_ENCODE
 from database import init_db, get_db
 from models import WebhookPayload, JobStatus, TranscodeJobDB, ConfigOverrideDB
 from log_format import _foreign_pre_chain, json_formatter, console_formatter
+from gpu_monitor import create_gpu_monitor
 from transcoder import TranscodeWorker
 
 
@@ -73,6 +74,7 @@ logger = logging.getLogger(__name__)
 
 # Global worker instance
 worker: TranscodeWorker | None = None
+_gpu_monitor: object | None = None
 
 
 @asynccontextmanager
@@ -93,6 +95,11 @@ async def lifespan(app: FastAPI):
 
     worker = TranscodeWorker(gpu_support=gpu_support)
     worker_task = asyncio.create_task(worker.run())
+
+    global _gpu_monitor
+    _gpu_monitor = create_gpu_monitor(settings.gpu_vendor)
+    if _gpu_monitor:
+        logger.info("GPU monitor active: %s", settings.gpu_vendor)
 
     logger.info("ARM Transcoder started")
 
@@ -223,6 +230,13 @@ async def get_system_stats():
         except (FileNotFoundError, OSError):
             continue
 
+    gpu_data = None
+    if _gpu_monitor is not None:
+        try:
+            gpu_data = _gpu_monitor.snapshot().to_dict()
+        except Exception:
+            pass
+
     return {
         "cpu_percent": cpu_percent,
         "cpu_temp": cpu_temp,
@@ -233,6 +247,7 @@ async def get_system_stats():
             "percent": mem.percent,
         },
         "storage": storage,
+        "gpu": gpu_data,
     }
 
 

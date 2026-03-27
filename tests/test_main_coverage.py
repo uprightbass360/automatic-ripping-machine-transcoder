@@ -344,6 +344,78 @@ class TestSystemStatsEndpoint:
             data = response.json()
             assert data["cpu_temp"] == pytest.approx(42.0)
 
+    @pytest.mark.asyncio
+    async def test_system_stats_includes_gpu_null_when_no_monitor(self, client):
+        """GPU field is null when no GPU monitor is configured."""
+        ac, _ = client
+        mock_mem = MagicMock()
+        mock_mem.total = 17179869184
+        mock_mem.used = 8589934592
+        mock_mem.available = 8589934592
+        mock_mem.percent = 50.0
+
+        with patch("main.psutil.cpu_percent", return_value=10.0), \
+             patch("main.psutil.sensors_temperatures", return_value={}), \
+             patch("main.psutil.virtual_memory", return_value=mock_mem), \
+             patch("main.psutil.disk_usage", side_effect=FileNotFoundError), \
+             patch("main._gpu_monitor", None):
+            response = await ac.get("/system/stats")
+            data = response.json()
+            assert data["gpu"] is None
+
+    @pytest.mark.asyncio
+    async def test_system_stats_includes_gpu_snapshot(self, client):
+        """GPU field contains snapshot when monitor is configured."""
+        ac, _ = client
+        mock_mem = MagicMock()
+        mock_mem.total = 17179869184
+        mock_mem.used = 8589934592
+        mock_mem.available = 8589934592
+        mock_mem.percent = 50.0
+
+        mock_monitor = MagicMock()
+        mock_snap = {
+            "vendor": "nvidia",
+            "utilization_percent": 45.0,
+            "memory_used_mb": 1024.0,
+            "memory_total_mb": 8192.0,
+            "temperature_c": 65.0,
+            "encoder_percent": 78.0,
+        }
+        mock_monitor.snapshot.return_value = MagicMock(to_dict=MagicMock(return_value=mock_snap))
+
+        with patch("main.psutil.cpu_percent", return_value=10.0), \
+             patch("main.psutil.sensors_temperatures", return_value={}), \
+             patch("main.psutil.virtual_memory", return_value=mock_mem), \
+             patch("main.psutil.disk_usage", side_effect=FileNotFoundError), \
+             patch("main._gpu_monitor", mock_monitor):
+            response = await ac.get("/system/stats")
+            data = response.json()
+            assert data["gpu"]["vendor"] == "nvidia"
+            assert data["gpu"]["utilization_percent"] == 45.0
+            assert data["gpu"]["encoder_percent"] == 78.0
+
+    @pytest.mark.asyncio
+    async def test_system_stats_gpu_snapshot_exception(self, client):
+        """GPU field is null when monitor.snapshot() raises."""
+        ac, _ = client
+        mock_mem = MagicMock()
+        mock_mem.total = 17179869184
+        mock_mem.used = 8589934592
+        mock_mem.available = 8589934592
+        mock_mem.percent = 50.0
+
+        mock_monitor = MagicMock()
+        mock_monitor.snapshot.side_effect = RuntimeError("GPU hung")
+
+        with patch("main.psutil.cpu_percent", return_value=10.0), \
+             patch("main.psutil.sensors_temperatures", return_value={}), \
+             patch("main.psutil.virtual_memory", return_value=mock_mem), \
+             patch("main.psutil.disk_usage", side_effect=FileNotFoundError), \
+             patch("main._gpu_monitor", mock_monitor):
+            response = await ac.get("/system/stats")
+            assert response.json()["gpu"] is None
+
 
 # ─── Config Endpoints ───────────────────────────────────────────────────────
 
