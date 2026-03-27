@@ -1,11 +1,10 @@
 services:
-  # Webhook receiver and transcode orchestrator
   arm-transcoder:
-    image: uprightbass360/arm-transcoder:${TRANSCODER_VERSION:-latest}
+    image: uprightbass360/arm-transcoder:${TRANSCODER_VERSION:-latest}-nvidia
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: arm-transcoder
+      dockerfile: Dockerfile.nvidia
+    container_name: arm-transcoder-nvidia
     restart: unless-stopped
     ports:
       - "${WEBHOOK_PORT:-5000}:5000"
@@ -27,13 +26,12 @@ services:
       # ARM callback — notify ARM when jobs complete/fail
       - ARM_CALLBACK_URL=${ARM_CALLBACK_URL:-}
       # Transcoding
-      - VIDEO_ENCODER=${VIDEO_ENCODER:-x265}
+      - VIDEO_ENCODER=${VIDEO_ENCODER:-nvenc_h265}
       - VIDEO_QUALITY=${VIDEO_QUALITY:-22}
       - AUDIO_ENCODER=${AUDIO_ENCODER:-copy}
       - SUBTITLE_MODE=${SUBTITLE_MODE:-all}
       - HANDBRAKE_PRESET=${HANDBRAKE_PRESET:-}
-      - HANDBRAKE_PRESET_4K=${HANDBRAKE_PRESET_4K:-}
-      - HANDBRAKE_PRESET_DVD=${HANDBRAKE_PRESET_DVD:-}
+      - HANDBRAKE_PRESET_4K=${HANDBRAKE_PRESET_4K:-H.265 NVENC 2160p 4K}
       - HANDBRAKE_PRESET_FILE=${HANDBRAKE_PRESET_FILE:-}
       - LOG_LEVEL_LIBRARIES=${LOG_LEVEL_LIBRARIES:-WARNING}
       # File handling
@@ -58,27 +56,16 @@ services:
       - ${DB_PATH:-./data}:/data/db:rw
       - ${PRESET_PATH:-./presets}:/config/presets:ro
       - ${LOG_PATH:-./logs}:/data/logs:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, video, compute]
+    runtime: nvidia
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-  # Optional: Run ARM ripper alongside (uncomment if desired)
-  # arm-rippers:
-  #   image: uprightbass360/automatic-ripping-machine:latest
-  #   container_name: arm-rippers
-  #   restart: always
-  #   privileged: true
-  #   ports:
-  #     - "${ARM_PORT:-8080}:8080"
-  #   environment:
-  #     - ARM_UID=${ARM_UID}
-  #     - ARM_GID=${ARM_GID}
-  #     - TZ=${TZ}
-  #   volumes:
-  #     - ${HOST_RAW_PATH}:/home/arm/media/raw
-  #     - ${HOST_COMPLETED_PATH}:/home/arm/media/completed
-  #     - ${ARM_LOGS_PATH}:/home/arm/logs
-  #     - ./config/arm:/etc/arm/config
-  #   cpuset: ${ARM_CPUSET:-2,3,4,5,6,7}

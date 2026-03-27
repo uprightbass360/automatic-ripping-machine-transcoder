@@ -80,7 +80,7 @@ jobs:
       matrix:
         include:
           - variant: nvidia
-            suffix: ""
+            suffix: "-nvidia"
           - variant: amd
             suffix: "-amd"
           - variant: intel

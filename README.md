@@ -1,7 +1,8 @@
 [![CI](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/actions/workflows/test.yml/badge.svg)](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/uprightbass360/automatic-ripping-machine-transcoder/graph/badge.svg)](https://codecov.io/gh/uprightbass360/automatic-ripping-machine-transcoder)
 [![GitHub release](https://img.shields.io/github/v/release/uprightbass360/automatic-ripping-machine-transcoder)](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/releases/latest)
-[![NVIDIA](https://img.shields.io/docker/v/uprightbass360/arm-transcoder?label=nvidia)](https://hub.docker.com/r/uprightbass360/arm-transcoder)
+[![Docker](https://img.shields.io/docker/v/uprightbass360/arm-transcoder?label=cpu)](https://hub.docker.com/r/uprightbass360/arm-transcoder)
+[![NVIDIA](https://img.shields.io/docker/v/uprightbass360/arm-transcoder?tag=latest-nvidia&label=nvidia)](https://hub.docker.com/r/uprightbass360/arm-transcoder)
 [![AMD](https://img.shields.io/docker/v/uprightbass360/arm-transcoder?tag=latest-amd&label=amd)](https://hub.docker.com/r/uprightbass360/arm-transcoder)
 [![Intel](https://img.shields.io/docker/v/uprightbass360/arm-transcoder?tag=latest-intel&label=intel)](https://hub.docker.com/r/uprightbass360/arm-transcoder)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -71,10 +72,10 @@ flowchart TB
 Pre-built images are published to Docker Hub on every release:
 
 ```bash
-docker pull uprightbass360/arm-transcoder:latest            # NVIDIA (default)
-docker pull uprightbass360/arm-transcoder:latest-nvidia     # NVIDIA (explicit)
-docker pull uprightbass360/arm-transcoder:latest-amd        # AMD Radeon
-docker pull uprightbass360/arm-transcoder:latest-intel      # Intel QSV
+docker pull uprightbass360/arm-transcoder:latest            # CPU-only (default, software x265/x264)
+docker pull uprightbass360/arm-transcoder:latest-nvidia     # NVIDIA NVENC
+docker pull uprightbass360/arm-transcoder:latest-amd        # AMD Radeon (VAAPI)
+docker pull uprightbass360/arm-transcoder:latest-intel      # Intel Quick Sync (QSV)
 ```
 
 For the full ecosystem quick start (ARM + UI + Transcoder), see the [ARM-neu README](https://github.com/uprightbass360/automatic-ripping-machine-neu#quick-start).
@@ -88,10 +89,10 @@ For the full ecosystem quick start (ARM + UI + Transcoder), see the [ARM-neu REA
 
 | Hardware | Requirements | Compose File | Encoder |
 |----------|-------------|--------------|---------|
+| **No GPU** | None | `docker-compose.yml` | `x265` |
+| **NVIDIA** | NVIDIA Container Toolkit | `docker-compose.nvidia.yml` | `nvenc_h265` |
 | **AMD Radeon** | `/dev/dri` device + mesa-va-drivers | `docker-compose.amd.yml` | `vaapi_h265` |
 | **Intel** | `/dev/dri` device + intel-media-driver | `docker-compose.intel.yml` | `qsv_h265` |
-| **NVIDIA** | NVIDIA Container Toolkit | `docker-compose.yml` | `nvenc_h265` |
-| **No GPU** | None | `docker-compose.dev.yml` | `x265` |
 
 ## Setting Up with ARM
 
@@ -130,10 +131,10 @@ HOST_COMPLETED_PATH=/mnt/media/completed
 Start the container for your GPU:
 
 ```bash
-docker compose up -d                                  # NVIDIA
-docker compose -f docker-compose.amd.yml up -d        # AMD Radeon
-docker compose -f docker-compose.intel.yml up -d       # Intel Quick Sync
-docker compose -f docker-compose.dev.yml up -d         # No GPU (software)
+docker compose up -d                                       # CPU-only (software x265)
+docker compose -f docker-compose.nvidia.yml up -d          # NVIDIA NVENC
+docker compose -f docker-compose.amd.yml up -d             # AMD Radeon (VAAPI)
+docker compose -f docker-compose.intel.yml up -d           # Intel Quick Sync
 ```
 
 Verify it's running:
