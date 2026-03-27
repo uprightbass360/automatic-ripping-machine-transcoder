@@ -75,7 +75,7 @@ class AmdMonitor:
     def _read_file(path: Path) -> Optional[str]:
         try:
             return path.read_text().strip()
-        except (OSError, IOError):
+        except OSError:
             return None
 
     def snapshot(self) -> GpuSnapshot:
