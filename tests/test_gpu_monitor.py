@@ -148,6 +148,23 @@ class TestAmdMonitor:
         snap = AmdMonitor(sysfs_path=str(sysfs)).snapshot()
         assert snap.utilization_percent is None
 
+    def test_snapshot_bad_vram_values(self, tmp_path):
+        """ValueError in VRAM parsing returns None for those fields."""
+        from gpu_monitor import AmdMonitor
+        sysfs = self._make_sysfs(tmp_path, gpu_busy="50", vram_used="bad", vram_total="bad")
+        snap = AmdMonitor(sysfs_path=str(sysfs)).snapshot()
+        assert snap.utilization_percent == 50.0
+        assert snap.memory_used_mb is None
+        assert snap.memory_total_mb is None
+
+    def test_snapshot_bad_temp_value(self, tmp_path):
+        """ValueError in temperature parsing returns None for that field."""
+        from gpu_monitor import AmdMonitor
+        sysfs = self._make_sysfs(tmp_path, gpu_busy="50", temp="bad")
+        snap = AmdMonitor(sysfs_path=str(sysfs)).snapshot()
+        assert snap.utilization_percent == 50.0
+        assert snap.temperature_c is None
+
 
 class TestIntelMonitor:
     def test_snapshot_success(self):
@@ -206,3 +223,14 @@ class TestIntelMonitor:
         with patch("gpu_monitor.subprocess.Popen", side_effect=OSError("permission denied")):
             snap = IntelMonitor().snapshot()
             assert snap.utilization_percent is None
+
+    def test_snapshot_intel_process_kill_oserror(self):
+        """OSError during process cleanup in finally block is handled."""
+        from gpu_monitor import IntelMonitor
+        mock_proc = MagicMock()
+        mock_proc.stdout.readline.return_value = "not json\n"
+        mock_proc.kill.side_effect = OSError("no such process")
+        with patch("gpu_monitor.subprocess.Popen", return_value=mock_proc):
+            snap = IntelMonitor().snapshot()
+            assert snap.vendor == "intel"
+            mock_proc.kill.assert_called_once()
