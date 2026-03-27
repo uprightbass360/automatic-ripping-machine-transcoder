@@ -60,8 +60,12 @@ jobs:
           tags: |
             ${{ env.DOCKERHUB_BASE }}:${{ steps.version.outputs.version }}
             ${{ env.DOCKERHUB_BASE }}:latest
+            ${{ env.DOCKERHUB_IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ env.DOCKERHUB_IMAGE }}:latest
             ${{ env.GHCR_BASE }}:${{ steps.version.outputs.version }}
             ${{ env.GHCR_BASE }}:latest
+            ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ env.GHCR_IMAGE }}:latest
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
 
@@ -78,7 +82,7 @@ jobs:
       matrix:
         include:
           - variant: nvidia
-            suffix: ""
+            suffix: "-nvidia"
           - variant: amd
             suffix: "-amd"
           - variant: intel
@@ -107,13 +111,9 @@ jobs:
           VERSION="${{ needs.build-base.outputs.version }}"
           SUFFIX="${{ matrix.suffix }}"
           TAGS="${{ env.DOCKERHUB_IMAGE }}:${VERSION}${SUFFIX}"
+          TAGS="${TAGS},${{ env.DOCKERHUB_IMAGE }}:latest${SUFFIX}"
           TAGS="${TAGS},${{ env.GHCR_IMAGE }}:${VERSION}${SUFFIX}"
-          if [ -z "$SUFFIX" ]; then
-            TAGS="${TAGS},${{ env.DOCKERHUB_IMAGE }}:latest"
-            TAGS="${TAGS},${{ env.DOCKERHUB_IMAGE }}:${VERSION}-nvidia"
-            TAGS="${TAGS},${{ env.GHCR_IMAGE }}:latest"
-            TAGS="${TAGS},${{ env.GHCR_IMAGE }}:${VERSION}-nvidia"
-          fi
+          TAGS="${TAGS},${{ env.GHCR_IMAGE }}:latest${SUFFIX}"
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push GPU variant
