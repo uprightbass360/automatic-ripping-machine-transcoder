@@ -54,6 +54,7 @@ services:
       - ${DB_PATH:-./data}:/data/db:rw
       - ${PRESET_PATH:-./presets}:/config/presets:ro
       - ${LOG_PATH:-./logs}:/data/logs:rw
+      - /sys:/sys:ro
     devices:
       - /dev/dri:/dev/dri
     group_add:
