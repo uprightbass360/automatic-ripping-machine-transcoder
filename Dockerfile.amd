@@ -5,3 +5,5 @@ FROM uprightbass360/arm-transcoder-base:${BASE_TAG}
 RUN apt-get update && apt-get install -y --no-install-recommends \
     mesa-va-drivers \
     && rm -rf /var/lib/apt/lists/*
+
+ENV GPU_VENDOR=amd
