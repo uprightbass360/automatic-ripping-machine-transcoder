@@ -283,6 +283,7 @@ These variables are used across all `docker-compose*.yml` files:
 | `HANDBRAKE_PRESET_4K` | *(auto-detected)* | HandBrake preset for 4K content (source > 1080p) |
 | `ARM_CALLBACK_URL` | *(empty)* | ARM API base URL for status callbacks (e.g. `http://192.168.0.68:8080`) |
 | `VAAPI_DEVICE` | /dev/dri/renderD128 | VAAPI/QSV render device path (AMD and Intel only) |
+| `GPU_VENDOR` | *(auto, set by image)* | GPU vendor for live monitoring: `nvidia`, `amd`, `intel`, or empty. Set automatically by each Docker image layer. |
 
 See `.env.example` for the full template.
 
@@ -335,6 +336,13 @@ FFmpeg upscaling uses the appropriate hardware filter per GPU: `scale_cuda` (NVI
 | `/jobs/{id}/retry` | POST | Admin API key | Retry a failed job |
 | `/jobs/{id}` | DELETE | Admin API key | Delete a job |
 | `/stats` | GET | API key | Transcoding statistics |
+| `/system/info` | GET | None | Static hardware identity (CPU, RAM, GPU support) |
+| `/system/stats` | GET | None | Live metrics: CPU, memory, storage, GPU utilization |
+| `/config` | GET | API key | Current transcoding configuration |
+| `/config` | PATCH | Admin API key | Update runtime settings |
+| `/logs` | GET | API key | List available log files |
+| `/logs/{file}` | GET | API key | Read log file contents |
+| `/system/restart` | POST | Admin API key | Gracefully restart the transcoder |
 
 When `REQUIRE_API_AUTH=false` (default), API key auth is bypassed. See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for details.
 
@@ -351,7 +359,41 @@ curl http://localhost:5000/stats
 curl http://localhost:5000/jobs
 curl http://localhost:5000/jobs?status=failed
 curl http://localhost:5000/jobs?limit=10&offset=0
+
+# Live system metrics (CPU, memory, storage, GPU utilization)
+curl http://localhost:5000/system/stats
 ```
+
+### GPU Utilization
+
+The `/system/stats` endpoint includes live GPU metrics when running a GPU-enabled image. Each Docker image layer sets `GPU_VENDOR` automatically:
+
+| Image | Vendor | Metrics | Tool |
+|-------|--------|---------|------|
+| NVIDIA | `nvidia` | Utilization %, VRAM, temperature, encoder % | `nvidia-smi` |
+| AMD | `amd` | Utilization %, VRAM, temperature | sysfs (`gpu_busy_percent`) |
+| Intel | `intel` | Render engine %, video encoder % | `intel_gpu_top` |
+| CPU-only | *(none)* | `"gpu": null` | — |
+
+Example response:
+```json
+{
+  "cpu_percent": 25.0,
+  "cpu_temp": 55.0,
+  "memory": { "total_gb": 16.0, "used_gb": 8.0, "free_gb": 8.0, "percent": 50.0 },
+  "storage": [...],
+  "gpu": {
+    "vendor": "nvidia",
+    "utilization_percent": 45.0,
+    "memory_used_mb": 1024.0,
+    "memory_total_mb": 8192.0,
+    "temperature_c": 65.0,
+    "encoder_percent": 78.0
+  }
+}
+```
+
+Fields are `null` when not available for a given vendor (e.g., Intel has no VRAM/temperature reporting).
 
 ## Troubleshooting
 
