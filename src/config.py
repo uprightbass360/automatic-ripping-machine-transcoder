@@ -157,6 +157,13 @@ class Settings(BaseSettings):
         description="Logging level for third-party libraries (aiosqlite, httpcore, httpx, uvicorn.access)",
     )
 
+    # GPU monitoring
+    gpu_vendor: str = Field(
+        "",
+        description="GPU vendor for monitoring: nvidia, amd, intel, or empty for CPU-only. "
+                    "Set automatically by Docker image layer (Dockerfile.nvidia/amd/intel).",
+    )
+
     @field_validator("video_encoder")
     @classmethod
     def validate_video_encoder(cls, v: str) -> str:
