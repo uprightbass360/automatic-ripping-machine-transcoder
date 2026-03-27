@@ -126,13 +126,9 @@ class TestMatchTrackMetadata:
         ext = "mkv"
         folder_name = "Show S01E"
 
-        # Multi-title: main feature MUST include source stem
-        is_main = True
-        multi_title = True
-        if not multi_title and (is_main or len(source_files) == 1):
-            output_stem = folder_name
-        else:
-            output_stem = f"{folder_name} - {main_feature.stem}"
+        # Multi-title: main feature MUST include source stem.
+        # mirrors transcoder.py logic when multi_title=True
+        output_stem = f"{folder_name} - {main_feature.stem}"
 
         assert main_feature.stem in output_stem, \
             "Multi-title main feature output must embed source filename for metadata matching"
