@@ -67,12 +67,14 @@ class NvidiaMonitor:
                 clock_core_mhz=_float(7),
                 clock_memory_mhz=_float(8),
             )
-        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+        except (OSError, subprocess.TimeoutExpired, ValueError):
             return GpuSnapshot(vendor="nvidia")
 
 
 class AmdMonitor:
     """Read GPU metrics from sysfs."""
+
+    _HWMON_GLOB = "hwmon*"
 
     def __init__(self, sysfs_path: str = "/sys/class/drm") -> None:
         self._sysfs_path = sysfs_path
@@ -93,97 +95,46 @@ class AmdMonitor:
         except OSError:
             return None
 
+    def _read_sysfs_float(self, device: Path, filename: str, scale: float = 1.0, ndigits: Optional[int] = None) -> Optional[float]:
+        """Read a numeric value from a sysfs file, optionally scaling and rounding."""
+        raw = self._read_file(device / filename)
+        if raw is None:
+            return None
+        try:
+            value = float(raw) * scale
+            return round(value, ndigits) if ndigits is not None else value
+        except ValueError:
+            return None
+
+    def _read_hwmon_float(self, device: Path, filename: str, scale: float = 1.0, ndigits: Optional[int] = None) -> Optional[float]:
+        """Read a numeric value from the first matching hwmon file."""
+        matches = sorted(glob.glob(str(device / "hwmon" / self._HWMON_GLOB / filename)))
+        if not matches:
+            return None
+        raw = self._read_file(Path(matches[0]))
+        if raw is None:
+            return None
+        try:
+            value = float(raw) * scale
+            return round(value, ndigits) if ndigits is not None else value
+        except ValueError:
+            return None
+
     def snapshot(self) -> GpuSnapshot:
         device = self._find_card()
         if device is None:
             return GpuSnapshot(vendor="amd")
 
-        utilization = None
-        raw = self._read_file(device / "gpu_busy_percent")
-        if raw is not None:
-            try:
-                utilization = float(raw)
-            except ValueError:
-                utilization = None
-
-        memory_used_mb = None
-        raw = self._read_file(device / "mem_info_vram_used")
-        if raw is not None:
-            try:
-                memory_used_mb = float(raw) / (1024 * 1024)
-            except ValueError:
-                pass
-
-        memory_total_mb = None
-        raw = self._read_file(device / "mem_info_vram_total")
-        if raw is not None:
-            try:
-                memory_total_mb = float(raw) / (1024 * 1024)
-            except ValueError:
-                pass
-
-        temperature_c = None
-        temp_files = sorted(glob.glob(str(device / "hwmon" / "hwmon*" / "temp1_input")))
-        if temp_files:
-            raw = self._read_file(Path(temp_files[0]))
-            if raw is not None:
-                try:
-                    temperature_c = float(raw) / 1000.0
-                except ValueError:
-                    pass
-
-        # Power: hwmon power1_average (microwatts) and power1_cap (microwatts)
-        power_draw = None
-        power_files = sorted(glob.glob(str(device / "hwmon" / "hwmon*" / "power1_average")))
-        if power_files:
-            raw = self._read_file(Path(power_files[0]))
-            if raw is not None:
-                try:
-                    power_draw = round(float(raw) / 1_000_000, 1)
-                except ValueError:
-                    pass
-
-        power_limit = None
-        cap_files = sorted(glob.glob(str(device / "hwmon" / "hwmon*" / "power1_cap")))
-        if cap_files:
-            raw = self._read_file(Path(cap_files[0]))
-            if raw is not None:
-                try:
-                    power_limit = round(float(raw) / 1_000_000, 1)
-                except ValueError:
-                    pass
-
-        # Clocks: hwmon freq1_input (Hz, core) and freq2_input (Hz, memory)
-        clock_core = None
-        freq1_files = sorted(glob.glob(str(device / "hwmon" / "hwmon*" / "freq1_input")))
-        if freq1_files:
-            raw = self._read_file(Path(freq1_files[0]))
-            if raw is not None:
-                try:
-                    clock_core = round(float(raw) / 1_000_000, 0)
-                except ValueError:
-                    pass
-
-        clock_mem = None
-        freq2_files = sorted(glob.glob(str(device / "hwmon" / "hwmon*" / "freq2_input")))
-        if freq2_files:
-            raw = self._read_file(Path(freq2_files[0]))
-            if raw is not None:
-                try:
-                    clock_mem = round(float(raw) / 1_000_000, 0)
-                except ValueError:
-                    pass
-
         return GpuSnapshot(
             vendor="amd",
-            utilization_percent=utilization,
-            memory_used_mb=memory_used_mb,
-            memory_total_mb=memory_total_mb,
-            temperature_c=temperature_c,
-            power_draw_w=power_draw,
-            power_limit_w=power_limit,
-            clock_core_mhz=clock_core,
-            clock_memory_mhz=clock_mem,
+            utilization_percent=self._read_sysfs_float(device, "gpu_busy_percent"),
+            memory_used_mb=self._read_sysfs_float(device, "mem_info_vram_used", scale=1 / (1024 * 1024)),
+            memory_total_mb=self._read_sysfs_float(device, "mem_info_vram_total", scale=1 / (1024 * 1024)),
+            temperature_c=self._read_hwmon_float(device, "temp1_input", scale=1 / 1000),
+            power_draw_w=self._read_hwmon_float(device, "power1_average", scale=1e-6, ndigits=1),
+            power_limit_w=self._read_hwmon_float(device, "power1_cap", scale=1e-6, ndigits=1),
+            clock_core_mhz=self._read_hwmon_float(device, "freq1_input", scale=1e-6, ndigits=0),
+            clock_memory_mhz=self._read_hwmon_float(device, "freq2_input", scale=1e-6, ndigits=0),
         )
 
 
@@ -218,7 +169,7 @@ class IntelMonitor:
                 utilization_percent=utilization,
                 encoder_percent=encoder,
             )
-        except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+        except (OSError, json.JSONDecodeError, ValueError):
             return GpuSnapshot(vendor="intel")
         finally:
             if proc is not None:
