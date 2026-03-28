@@ -231,7 +231,21 @@ async def get_system_stats():
             continue
 
     gpu_data = None
-    if _gpu_monitor is not None:
+    if os.environ.get("FAKE_GPU_STATS"):
+        import random
+        gpu_data = {
+            "vendor": "nvidia",
+            "utilization_percent": round(random.uniform(20, 95), 1),
+            "memory_used_mb": round(random.uniform(1000, 7000), 1),
+            "memory_total_mb": 8192.0,
+            "temperature_c": round(random.uniform(45, 82), 1),
+            "encoder_percent": round(random.uniform(30, 100), 1),
+            "power_draw_w": round(random.uniform(50, 280), 1),
+            "power_limit_w": 300.0,
+            "clock_core_mhz": round(random.uniform(800, 2100), 0),
+            "clock_memory_mhz": round(random.uniform(5000, 8000), 0),
+        }
+    elif _gpu_monitor is not None:
         try:
             gpu_data = _gpu_monitor.snapshot().to_dict()
         except Exception:

@@ -20,6 +20,10 @@ class GpuSnapshot:
     memory_total_mb: Optional[float] = None
     temperature_c: Optional[float] = None
     encoder_percent: Optional[float] = None
+    power_draw_w: Optional[float] = None
+    power_limit_w: Optional[float] = None
+    clock_core_mhz: Optional[float] = None
+    clock_memory_mhz: Optional[float] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -30,7 +34,7 @@ class NvidiaMonitor:
 
     _CMD = [
         "nvidia-smi",
-        "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,utilization.encoder",
+        "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,utilization.encoder,power.draw,power.limit,clocks.current.graphics,clocks.current.memory",
         "--format=csv,noheader,nounits",
     ]
 
@@ -42,15 +46,26 @@ class NvidiaMonitor:
             if result.returncode != 0:
                 return GpuSnapshot(vendor="nvidia")
             parts = [p.strip() for p in result.stdout.strip().split(",")]
-            if len(parts) != 5:
+            if len(parts) < 5:
                 return GpuSnapshot(vendor="nvidia")
+
+            def _float(idx: int) -> Optional[float]:
+                try:
+                    return float(parts[idx])
+                except (IndexError, ValueError):
+                    return None
+
             return GpuSnapshot(
                 vendor="nvidia",
-                utilization_percent=float(parts[0]),
-                memory_used_mb=float(parts[1]),
-                memory_total_mb=float(parts[2]),
-                temperature_c=float(parts[3]),
-                encoder_percent=float(parts[4]),
+                utilization_percent=_float(0),
+                memory_used_mb=_float(1),
+                memory_total_mb=_float(2),
+                temperature_c=_float(3),
+                encoder_percent=_float(4),
+                power_draw_w=_float(5),
+                power_limit_w=_float(6),
+                clock_core_mhz=_float(7),
+                clock_memory_mhz=_float(8),
             )
         except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
             return GpuSnapshot(vendor="nvidia")
@@ -117,12 +132,58 @@ class AmdMonitor:
                 except ValueError:
                     pass
 
+        # Power: hwmon power1_average (microwatts) and power1_cap (microwatts)
+        power_draw = None
+        power_files = sorted(glob.glob(str(device / "hwmon" / "hwmon*" / "power1_average")))
+        if power_files:
+            raw = self._read_file(Path(power_files[0]))
+            if raw is not None:
+                try:
+                    power_draw = round(float(raw) / 1_000_000, 1)
+                except ValueError:
+                    pass
+
+        power_limit = None
+        cap_files = sorted(glob.glob(str(device / "hwmon" / "hwmon*" / "power1_cap")))
+        if cap_files:
+            raw = self._read_file(Path(cap_files[0]))
+            if raw is not None:
+                try:
+                    power_limit = round(float(raw) / 1_000_000, 1)
+                except ValueError:
+                    pass
+
+        # Clocks: hwmon freq1_input (Hz, core) and freq2_input (Hz, memory)
+        clock_core = None
+        freq1_files = sorted(glob.glob(str(device / "hwmon" / "hwmon*" / "freq1_input")))
+        if freq1_files:
+            raw = self._read_file(Path(freq1_files[0]))
+            if raw is not None:
+                try:
+                    clock_core = round(float(raw) / 1_000_000, 0)
+                except ValueError:
+                    pass
+
+        clock_mem = None
+        freq2_files = sorted(glob.glob(str(device / "hwmon" / "hwmon*" / "freq2_input")))
+        if freq2_files:
+            raw = self._read_file(Path(freq2_files[0]))
+            if raw is not None:
+                try:
+                    clock_mem = round(float(raw) / 1_000_000, 0)
+                except ValueError:
+                    pass
+
         return GpuSnapshot(
             vendor="amd",
             utilization_percent=utilization,
             memory_used_mb=memory_used_mb,
             memory_total_mb=memory_total_mb,
             temperature_c=temperature_c,
+            power_draw_w=power_draw,
+            power_limit_w=power_limit,
+            clock_core_mhz=clock_core,
+            clock_memory_mhz=clock_mem,
         )
 
 
