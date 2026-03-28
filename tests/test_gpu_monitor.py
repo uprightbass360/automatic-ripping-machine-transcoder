@@ -18,6 +18,10 @@ class TestGpuSnapshot:
         assert snap.memory_total_mb is None
         assert snap.temperature_c is None
         assert snap.encoder_percent is None
+        assert snap.power_draw_w is None
+        assert snap.power_limit_w is None
+        assert snap.clock_core_mhz is None
+        assert snap.clock_memory_mhz is None
 
     def test_to_dict(self):
         snap = GpuSnapshot(vendor="nvidia", utilization_percent=45.0, temperature_c=65.0)
@@ -56,7 +60,7 @@ class TestNvidiaMonitor:
     def test_snapshot_success(self):
         from gpu_monitor import NvidiaMonitor
         monitor = NvidiaMonitor()
-        csv_output = "45, 1024, 8192, 65, 78\n"
+        csv_output = "45, 1024, 8192, 65, 78, 180.5, 300.0, 1800, 7000\n"
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = csv_output
@@ -69,6 +73,10 @@ class TestNvidiaMonitor:
             assert snap.memory_total_mb == pytest.approx(8192.0)
             assert snap.temperature_c == pytest.approx(65.0)
             assert snap.encoder_percent == pytest.approx(78.0)
+            assert snap.power_draw_w == pytest.approx(180.5)
+            assert snap.power_limit_w == pytest.approx(300.0)
+            assert snap.clock_core_mhz == pytest.approx(1800.0)
+            assert snap.clock_memory_mhz == pytest.approx(7000.0)
 
     def test_snapshot_nvidia_smi_failure(self):
         from gpu_monitor import NvidiaMonitor
