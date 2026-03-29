@@ -169,7 +169,7 @@ class IntelMonitor:
                 utilization_percent=utilization,
                 encoder_percent=encoder,
             )
-        except (OSError, json.JSONDecodeError, ValueError):
+        except (OSError, ValueError):
             return GpuSnapshot(vendor="intel")
         finally:
             if proc is not None:
