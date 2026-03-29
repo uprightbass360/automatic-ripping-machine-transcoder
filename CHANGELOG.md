@@ -1,5 +1,29 @@
 # Changelog
 
+## [15.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v14.0.1...v15.0.0) (2026-03-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* `latest` tag is now CPU-only (software x265/x264). NVIDIA users must switch to `latest-nvidia` or `docker-compose.nvidia.yml`. AMD and Intel tags are unchanged.
+
+### Features
+
+* add gpu_monitor with nvidia, amd, and intel backends ([d687666](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/d687666efbf0e9bf5d270ac3678cbcebb98983d4))
+* add gpu_vendor setting for GPU monitoring selection ([984fea1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/984fea11e9ba027ce2cce95c328a5baf53e26bf3))
+* add power draw, power limit, core clock, and memory clock to GPU metrics ([324abe9](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/324abe9727bfa8254d414cc6b3e6430f163a778e))
+* make CPU-only the default image, NVIDIA moves to -nvidia suffix ([797082d](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/797082d8ba3c80d14f8b62e502e282c1f85e495f))
+* set GPU_VENDOR env in Docker layers, add intel-gpu-tools and capabilities ([668c735](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/668c735e9e4fd83c69b9ab92d2a92addbd651612))
+* wire GPU monitor into /system/stats endpoint ([9212a05](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/9212a055526e7435910563d0dc78b8c1297fce93))
+
+
+### Bug Fixes
+
+* improve gpu_monitor coverage to 100% and remove redundant IOError catch ([d147248](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/d1472481cbbd203fe13d1be1f1279fe87afd91b9))
+* remove dead conditional in multi-title naming test (SonarCloud reliability) ([58aa9c3](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/58aa9c39ea2985ea7c3731adec7d8213c86a3c99))
+* remove redundant json.JSONDecodeError (subclass of ValueError) ([2b094fb](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/2b094fb423e511a6653df5c29c97dad352bc6f9b))
+* use pytest.approx for float comparisons (SonarCloud S1244) ([74d1375](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/74d1375af8efb9966b629ca54b04b9e3b6ead3c6))
+
 ## [14.0.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v14.0.0...v14.0.1) (2026-03-26)
 
 
