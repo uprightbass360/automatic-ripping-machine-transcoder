@@ -1054,25 +1054,28 @@ class TestCleanupSource:
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
-    def test_cleanup_directory(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_cleanup_directory(self, tmp_path):
         target = tmp_path / "movie_dir"
         target.mkdir()
         (target / "file.mkv").write_bytes(b"\x00" * 100)
         worker = self._make_worker()
-        worker._cleanup_source(str(target))
+        await worker._cleanup_source(str(target))
         assert not target.exists()
 
-    def test_cleanup_single_file(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_cleanup_single_file(self, tmp_path):
         target = tmp_path / "movie.mkv"
         target.write_bytes(b"\x00" * 100)
         worker = self._make_worker()
-        worker._cleanup_source(str(target))
+        await worker._cleanup_source(str(target))
         assert not target.exists()
 
-    def test_cleanup_nonexistent(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_cleanup_nonexistent(self, tmp_path):
         worker = self._make_worker()
         path = str(tmp_path / "nonexistent")
-        worker._cleanup_source(path)  # Should not raise
+        await worker._cleanup_source(path)  # Should not raise
 
 
 # ─── TranscodeWorker properties ──────────────────────────────────────────────

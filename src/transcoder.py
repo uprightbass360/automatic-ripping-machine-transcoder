@@ -17,6 +17,7 @@ import httpx
 import structlog
 from sqlalchemy import select
 
+from file_transfer import async_copy, async_copy_file, async_move_file, async_rmtree
 from config import settings
 from constants import (
     AUDIO_FILE_EXTENSIONS,
@@ -633,9 +634,9 @@ class TranscodeWorker:
             logger.info(f"Copying source to local scratch: {work_source_dir}")
             if source.is_file():
                 work_source_dir.mkdir()
-                shutil.copy2(str(source), str(work_source_dir / source.name))
+                await async_copy_file(str(source), str(work_source_dir / source.name))
             else:
-                shutil.copytree(str(source), str(work_source_dir))
+                await async_copy(str(source), str(work_source_dir))
 
             local_source_files = self._discover_source_files(str(work_source_dir))
             main_feature = max(local_source_files, key=lambda f: f.stat().st_size)
@@ -684,7 +685,7 @@ class TranscodeWorker:
                     if not matched_meta:
                         # Fall back to job-level output dir
                         logger.debug(f"No per-track match for {f.name}, using job output dir")
-                        shutil.move(str(f), str(output_dir / f.name))
+                        await async_move_file(str(f), str(output_dir / f.name))
                         continue
 
                     track_num = matched_meta.get("track_number", "")
@@ -720,7 +721,7 @@ class TranscodeWorker:
                                 per_title_name = f"{per_title_name} - Track {track_num}"
                         new_name = f"{per_title_name}{f.suffix}"
                         logger.info(f"Moving {f.name} → {per_output_dir / new_name}")
-                        shutil.move(str(f), str(per_output_dir / new_name))
+                        await async_move_file(str(f), str(per_output_dir / new_name))
                         track_results.append({
                             "track_number": track_num,
                             "status": "completed",
@@ -730,7 +731,7 @@ class TranscodeWorker:
                         logger.error(f"Failed to route track {track_num} ({f.name}): {e}")
                         # Move to job-level dir as fallback
                         try:
-                            shutil.move(str(f), str(output_dir / f.name))
+                            await async_move_file(str(f), str(output_dir / f.name))
                         except Exception:
                             pass
                         track_results.append({
@@ -741,7 +742,7 @@ class TranscodeWorker:
             else:
                 logger.info(f"Moving output to completed: {output_dir}")
                 for f in work_output_dir.iterdir():
-                    shutil.move(str(f), str(output_dir / f.name))
+                    await async_move_file(str(f), str(output_dir / f.name))
 
             # Merge transcode file_results into track_results for the callback
             failed_transcodes = [r for r in file_results if r.get("status") == "failed"]
@@ -775,7 +776,7 @@ class TranscodeWorker:
 
             if self._effective("delete_source", overrides):
                 try:
-                    self._cleanup_source(job.source_path)
+                    await self._cleanup_source(job.source_path)
                     logger.info(f"Cleaned up source: {job.source_path}")
                 except OSError as e:
                     logger.warning(f"Could not clean up source: {e}")
@@ -965,7 +966,7 @@ class TranscodeWorker:
         logger.info(f"Audio passthrough: copying {len(audio_files)} audio files to {output_dir}")
 
         for f in audio_files:
-            shutil.copy2(str(f), str(output_dir / f.name))
+            await async_copy_file(str(f), str(output_dir / f.name))
 
         await self._update_job(
             job.id,
@@ -982,7 +983,7 @@ class TranscodeWorker:
         # Clean up source directory if delete_source is set (non-fatal)
         if settings.delete_source:
             try:
-                self._cleanup_source(job.source_path)
+                await self._cleanup_source(job.source_path)
                 logger.info(f"Cleaned up source: {job.source_path}")
             except OSError as e:
                 logger.warning(f"Could not clean up source {job.source_path}: {e}")
@@ -1340,7 +1341,7 @@ class TranscodeWorker:
         except Exception:
             return None
 
-    def _cleanup_source(self, source_path: str):
+    async def _cleanup_source(self, source_path: str):
         """Remove source files after successful transcode."""
         path = Path(source_path)
 
@@ -1351,4 +1352,4 @@ class TranscodeWorker:
         if path.is_file():
             path.unlink()
         elif path.is_dir():
-            shutil.rmtree(path)
+            await async_rmtree(str(path))
