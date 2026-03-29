@@ -325,23 +325,25 @@ class TestGetCodecName:
 # ── _cleanup_source ──────────────────────────────────────────────────────────
 
 class TestCleanupSource:
-    def test_cleanup_directory(self, worker_db, tmp_path):
+    @pytest.mark.asyncio
+    async def test_cleanup_directory(self, worker_db, tmp_path):
         """Cover _cleanup_source: removes directory."""
         worker, _, _ = worker_db
         source = tmp_path / "to_clean"
         source.mkdir()
         (source / "file.mkv").write_bytes(b"\x00" * 100)
 
-        worker._cleanup_source(str(source))
+        await worker._cleanup_source(str(source))
         assert not source.exists()
 
-    def test_cleanup_single_file(self, worker_db, tmp_path):
+    @pytest.mark.asyncio
+    async def test_cleanup_single_file(self, worker_db, tmp_path):
         """Cover _cleanup_source: removes single file."""
         worker, _, _ = worker_db
         source = tmp_path / "single.mkv"
         source.write_bytes(b"\x00" * 100)
 
-        worker._cleanup_source(str(source))
+        await worker._cleanup_source(str(source))
         assert not source.exists()
 
 

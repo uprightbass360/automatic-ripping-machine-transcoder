@@ -7,6 +7,8 @@ Tests the end-to-end flow:
 """
 
 import asyncio
+import os
+import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -18,6 +20,35 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from models import Base, JobStatus, TranscodeJobDB
+
+
+# ─── Mock async file transfer (use local shutil in tests, no rsync needed) ──
+
+@pytest.fixture(autouse=True)
+def _mock_file_transfer():
+    """Replace async rsync-based file transfer with sync shutil for tests."""
+    async def _copy(s, d, **kw):
+        if Path(s).is_dir():
+            shutil.copytree(s, d)
+        else:
+            shutil.copy2(s, d)
+
+    async def _copy_file(s, d):
+        os.makedirs(os.path.dirname(d) or ".", exist_ok=True)
+        shutil.copy2(s, d)
+
+    async def _move(s, d):
+        os.makedirs(os.path.dirname(d) or ".", exist_ok=True)
+        shutil.move(s, d)
+
+    async def _rmtree(p):
+        shutil.rmtree(p, ignore_errors=True)
+
+    with patch("transcoder.async_copy", side_effect=_copy), \
+         patch("transcoder.async_copy_file", side_effect=_copy_file), \
+         patch("transcoder.async_move_file", side_effect=_move), \
+         patch("transcoder.async_rmtree", side_effect=_rmtree):
+        yield
 
 
 # ─── Shared test DB infrastructure ──────────────────────────────────────────
