@@ -12,7 +12,7 @@ LABEL org.opencontainers.image.license="MIT"
 LABEL org.opencontainers.image.description="ARM Transcoder base — add a GPU layer (Dockerfile.nvidia/intel/amd) for hardware encoding"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip ffmpeg mediainfo curl vainfo gosu \
+    python3 python3-pip ffmpeg mediainfo curl vainfo gosu rsync \
     libva2 libva-drm2 libdrm2 \
     libass9 libbz2-1.0 libfontconfig1 libfreetype6 libfribidi0 \
     libharfbuzz0b libjansson4 liblzma5 libmp3lame0 libnuma1 \
