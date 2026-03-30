@@ -1,5 +1,12 @@
 # Changelog
 
+## [15.0.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v15.0.0...v15.0.1) (2026-03-30)
+
+
+### Bug Fixes
+
+* replace blocking shutil with async rsync subprocess for NFS file operations ([ab651b8](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/ab651b85da448f45dd7b4c47a4a2e2f62d333946))
+
 ## [15.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v14.0.1...v15.0.0) (2026-03-29)
 
 
