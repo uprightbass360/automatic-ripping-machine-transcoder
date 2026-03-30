@@ -1,5 +1,12 @@
 # Changelog
 
+## [15.0.2](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v15.0.1...v15.0.2) (2026-03-30)
+
+
+### Bug Fixes
+
+* add rsync to Docker image - required by file_transfer.py ([17e6ddb](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/17e6ddb177530daee2f7332d910a5c552ccbc46b))
+
 ## [15.0.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v15.0.0...v15.0.1) (2026-03-30)
 
 
