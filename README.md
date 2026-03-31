@@ -273,6 +273,7 @@ These variables are used across all `docker-compose*.yml` files:
 | `MOVIES_SUBDIR` | movies | Subdirectory under COMPLETED_PATH for movies |
 | `TV_SUBDIR` | tv | Subdirectory under COMPLETED_PATH for TV shows |
 | `AUDIO_SUBDIR` | audio | Subdirectory under COMPLETED_PATH for audio CD rips |
+| `OUTPUT_EXTENSION` | mkv | Output file extension |
 | `DELETE_SOURCE` | true | Remove source after successful transcode |
 | `MAX_CONCURRENT` | 1 | Max concurrent transcodes (1 recommended for single GPU) |
 | `STABILIZE_SECONDS` | 60 | Seconds to wait for source files to stop changing |
@@ -282,6 +283,7 @@ These variables are used across all `docker-compose*.yml` files:
 | `API_KEYS` | *(empty)* | Comma-separated API keys (see [Authentication](docs/AUTHENTICATION.md)) |
 | `HANDBRAKE_PRESET` | *(auto-detected)* | HandBrake preset for standard content |
 | `HANDBRAKE_PRESET_4K` | *(auto-detected)* | HandBrake preset for 4K content (source > 1080p) |
+| `HANDBRAKE_PRESET_DVD` | *(auto-detected)* | HandBrake preset for DVD/low-res sources (< 720p). Falls back to `HANDBRAKE_PRESET` if empty |
 | `ARM_CALLBACK_URL` | *(empty)* | ARM API base URL for status callbacks (e.g. `http://192.168.0.68:8080`) |
 | `VAAPI_DEVICE` | /dev/dri/renderD128 | VAAPI/QSV render device path (AMD and Intel only) |
 | `GPU_VENDOR` | *(auto, set by image)* | GPU vendor for live monitoring: `nvidia`, `amd`, `intel`, or empty. Set automatically by each Docker image layer. |
@@ -309,7 +311,7 @@ The compose files default to `x265` (software). At startup, `auto_resolve_gpu_de
 
 HandBrake is used as the transcoding backend when NVIDIA NVENC is selected and HandBrake is available. For all other encoder families, FFmpeg is used directly.
 
-When `HANDBRAKE_PRESET` is empty, the transcoder auto-detects your GPU and selects the appropriate preset (e.g. **H.265 NVENC 1080p** for NVIDIA, **H.265 MKV 1080p30** for software). Custom presets are available in `presets/nvenc_presets.json` — to use them, set `HANDBRAKE_PRESET_FILE=/config/presets/nvenc_presets.json`:
+When `HANDBRAKE_PRESET` is empty, the transcoder auto-detects your GPU and selects the appropriate preset (e.g. **NVENC H.265 1080p** for NVIDIA, **H.265 MKV 1080p30** for software). Custom presets are available in `presets/nvenc_presets.json` — to use them, set `HANDBRAKE_PRESET_FILE=/config/presets/nvenc_presets.json`:
 
 - **NVENC H.265 1080p** - Best compression, decomb deinterlacing, all audio/subtitle tracks
 - **NVENC H.265 4K** - For 4K/UHD content
@@ -323,7 +325,7 @@ The transcoder automatically detects source resolution and adjusts encoding:
 |--------|-----------|--------|
 | **4K UHD** (> 1080p) | Uses `HANDBRAKE_PRESET_4K` | Preserves native resolution |
 | **Blu-ray** (720p–1080p) | Uses `HANDBRAKE_PRESET` | Preserves native resolution |
-| **DVD** (< 720p) | Uses `HANDBRAKE_PRESET` + upscale to 720p | Upscales to 720p via GPU-native filter |
+| **DVD** (< 720p) | Uses `HANDBRAKE_PRESET_DVD` (falls back to `HANDBRAKE_PRESET`) | Upscales to 720p via GPU-native filter |
 
 FFmpeg upscaling uses the appropriate hardware filter per GPU: `scale_cuda` (NVIDIA), `scale_vaapi` (AMD), `vpp_qsv` (Intel), or software `scale` fallback.
 
@@ -343,6 +345,7 @@ FFmpeg upscaling uses the appropriate hardware filter per GPU: `scale_cuda` (NVI
 | `/config` | PATCH | Admin API key | Update runtime settings |
 | `/logs` | GET | API key | List available log files |
 | `/logs/{file}` | GET | API key | Read log file contents |
+| `/logs/{file}/structured` | GET | API key | Structured (JSON lines) log with `?level=`, `?search=` filters |
 | `/system/restart` | POST | Admin API key | Gracefully restart the transcoder |
 
 When `REQUIRE_API_AUTH=false` (default), API key auth is bypassed. See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for details.
