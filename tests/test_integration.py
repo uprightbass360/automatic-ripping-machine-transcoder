@@ -723,16 +723,18 @@ class TestRetryPipeline:
         mock_worker.shutdown = MagicMock()
 
         with patch.object(db_module, "get_db", test_get_db), \
-             patch("main.get_db", test_get_db), \
+             patch("routers.jobs.get_db", test_get_db), \
+             patch("routers.stats.get_db", test_get_db), \
+             patch("routers.config.get_db", test_get_db), \
              patch("main.init_db", AsyncMock()):
 
-            main_module.worker = mock_worker
+            main_module.app.state.worker = mock_worker
 
             transport = ASGITransport(app=main_module.app)
             async with AsyncClient(transport=transport, base_url="http://test") as ac:
                 yield ac, session_factory, mock_worker
 
-            main_module.worker = None
+            main_module.app.state.worker = None
 
     @pytest.mark.asyncio
     async def test_retry_failed_job_via_api(self, api_client):
@@ -826,15 +828,17 @@ class TestDeletePipeline:
         mock_worker.current_job = None
 
         with patch.object(db_module, "get_db", test_get_db), \
-             patch("main.get_db", test_get_db), \
+             patch("routers.jobs.get_db", test_get_db), \
+             patch("routers.stats.get_db", test_get_db), \
+             patch("routers.config.get_db", test_get_db), \
              patch("main.init_db", AsyncMock()):
 
-            main_module.worker = mock_worker
+            main_module.app.state.worker = mock_worker
             transport = ASGITransport(app=main_module.app)
             async with AsyncClient(transport=transport, base_url="http://test") as ac:
                 yield ac, session_factory
 
-            main_module.worker = None
+            main_module.app.state.worker = None
 
     @pytest.mark.asyncio
     async def test_delete_completed_job(self, api_client):
@@ -922,15 +926,17 @@ class TestStatsAccuracy:
         mock_worker.current_job = "Currently Transcoding"
 
         with patch.object(db_module, "get_db", test_get_db), \
-             patch("main.get_db", test_get_db), \
+             patch("routers.jobs.get_db", test_get_db), \
+             patch("routers.stats.get_db", test_get_db), \
+             patch("routers.config.get_db", test_get_db), \
              patch("main.init_db", AsyncMock()):
 
-            main_module.worker = mock_worker
+            main_module.app.state.worker = mock_worker
             transport = ASGITransport(app=main_module.app)
             async with AsyncClient(transport=transport, base_url="http://test") as ac:
                 yield ac, session_factory
 
-            main_module.worker = None
+            main_module.app.state.worker = None
 
     @pytest.mark.asyncio
     async def test_stats_reflect_db_state(self, api_client):
@@ -984,15 +990,17 @@ class TestWebhookToJobsList:
         mock_worker.queue_job = AsyncMock()
 
         with patch.object(db_module, "get_db", test_get_db), \
-             patch("main.get_db", test_get_db), \
+             patch("routers.jobs.get_db", test_get_db), \
+             patch("routers.stats.get_db", test_get_db), \
+             patch("routers.config.get_db", test_get_db), \
              patch("main.init_db", AsyncMock()):
 
-            main_module.worker = mock_worker
+            main_module.app.state.worker = mock_worker
             transport = ASGITransport(app=main_module.app)
             async with AsyncClient(transport=transport, base_url="http://test") as ac:
                 yield ac, session_factory
 
-            main_module.worker = None
+            main_module.app.state.worker = None
 
     @pytest.mark.asyncio
     async def test_jobs_filtered_by_status(self, api_client):
