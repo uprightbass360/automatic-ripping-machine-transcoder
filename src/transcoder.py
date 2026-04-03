@@ -498,7 +498,8 @@ class TranscodeWorker:
 
     async def _discover_or_passthrough(self, job: TranscodeJob) -> list[Path]:
         """Discover source files, retrying after re-resolve. Handles audio passthrough."""
-        source_files = self._discover_source_files(job.source_path)
+        loop = asyncio.get_event_loop()
+        source_files = await loop.run_in_executor(None, self._discover_source_files, job.source_path)
         if not source_files:
             # ARM may have moved files during stabilization (race condition)
             resolved_path = self._resolve_source_path(job.source_path)
@@ -506,10 +507,10 @@ class TranscodeWorker:
                 await self._update_job(job.id, source_path=resolved_path)
                 job.source_path = resolved_path
                 await self._wait_for_stable(job.source_path)
-                source_files = self._discover_source_files(job.source_path)
+                source_files = await loop.run_in_executor(None, self._discover_source_files, job.source_path)
 
         if not source_files:
-            audio_files = self._discover_audio_files(job.source_path)
+            audio_files = await loop.run_in_executor(None, self._discover_audio_files, job.source_path)
             if audio_files:
                 await self._passthrough_audio(job)
                 return []
@@ -638,7 +639,10 @@ class TranscodeWorker:
             else:
                 await async_copy(str(source), str(work_source_dir))
 
-            local_source_files = self._discover_source_files(str(work_source_dir))
+            loop = asyncio.get_event_loop()
+            local_source_files = await loop.run_in_executor(
+                None, self._discover_source_files, str(work_source_dir)
+            )
             main_feature = max(local_source_files, key=lambda f: f.stat().st_size)
             resolution = await self._get_video_resolution(main_feature)
             await self._update_job(job.id, main_feature_file=main_feature.name)
@@ -882,10 +886,13 @@ class TranscodeWorker:
         stable_time = 0
         start_time = asyncio.get_event_loop().time()
 
+        def _scan_dir_size(p: Path) -> int:
+            return sum(f.stat().st_size for f in p.rglob('*') if f.is_file())
+
+        loop = asyncio.get_event_loop()
+
         while stable_time < settings.stabilize_seconds:
-            current_size = sum(
-                f.stat().st_size for f in path.rglob('*') if f.is_file()
-            )
+            current_size = await loop.run_in_executor(None, _scan_dir_size, path)
 
             if current_size == last_size:
                 stable_time += 5
@@ -959,9 +966,10 @@ class TranscodeWorker:
         )
         clean_title = clean_title_for_filesystem(job.title)
         output_dir = Path(settings.completed_path) / settings.audio_subdir / clean_title
-        os.makedirs(output_dir, exist_ok=True)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: os.makedirs(output_dir, exist_ok=True))
 
-        audio_files = self._discover_audio_files(job.source_path)
+        audio_files = await loop.run_in_executor(None, self._discover_audio_files, job.source_path)
 
         logger.info(f"Audio passthrough: copying {len(audio_files)} audio files to {output_dir}")
 
