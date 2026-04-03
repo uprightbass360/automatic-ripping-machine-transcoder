@@ -1,5 +1,7 @@
 """Log file endpoints."""
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth import get_current_user
@@ -8,7 +10,7 @@ router = APIRouter()
 
 
 @router.get("/logs")
-async def list_logs(_role: str = Depends(get_current_user)):
+async def list_logs(_role: Annotated[str, Depends(get_current_user)]):
     """List available log files."""
     from log_reader import list_logs as _list_logs
     return _list_logs()
@@ -17,11 +19,11 @@ async def list_logs(_role: str = Depends(get_current_user)):
 @router.get("/logs/{filename}/structured", responses={404: {"description": "Log file not found"}})
 async def get_structured_log(
     filename: str,
+    _role: Annotated[str, Depends(get_current_user)],
     mode: str = Query("tail", pattern="^(tail|full)$"),
     lines: int = Query(100, ge=1, le=10000),
     level: str | None = Query(None),
     search: str | None = Query(None),
-    _role: str = Depends(get_current_user),
 ):
     """Read a structured (JSON lines) log file with optional filtering."""
     from log_reader import read_structured_log
@@ -34,9 +36,9 @@ async def get_structured_log(
 @router.get("/logs/{filename}", responses={404: {"description": "Log file not found"}})
 async def get_log(
     filename: str,
+    _role: Annotated[str, Depends(get_current_user)],
     mode: str = Query("tail", pattern="^(tail|full)$"),
     lines: int = Query(100, ge=1, le=10000),
-    _role: str = Depends(get_current_user),
 ):
     """Read a log file's content."""
     from log_reader import read_log

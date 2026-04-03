@@ -1,5 +1,7 @@
 """Transcoding statistics endpoint."""
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select, func
 
@@ -11,7 +13,7 @@ router = APIRouter()
 
 
 @router.get("/stats")
-async def get_stats(request: Request, _role: str = Depends(get_current_user)):
+async def get_stats(request: Request, _role: Annotated[str, Depends(get_current_user)]):
     """Get transcoding statistics."""
     worker = request.app.state.worker
     async with get_db() as db:

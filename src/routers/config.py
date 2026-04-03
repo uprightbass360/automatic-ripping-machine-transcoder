@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -20,7 +21,7 @@ router = APIRouter()
 
 
 @router.get("/config")
-async def get_config(_role: str = Depends(get_current_user)):
+async def get_config(_role: Annotated[str, Depends(get_current_user)]):
     """Return current updatable settings and valid option lists."""
     config = {key: getattr(settings, key) for key in UPDATABLE_KEYS}
     return {
@@ -44,7 +45,7 @@ async def get_config(_role: str = Depends(get_current_user)):
 @router.patch("/config", responses={400: {"description": "Invalid or non-updatable keys"}, 422: {"description": "Validation error"}})
 async def update_config(
     request: Request,
-    _role: str = Depends(require_admin),
+    _role: Annotated[str, Depends(require_admin)],
 ):
     """Update runtime settings. Validates, persists to DB, patches singleton."""
     data = await request.json()
