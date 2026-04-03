@@ -693,11 +693,19 @@ class TestWorkerRunLoop:
 
             await worker.queue_job(job_id=308, source_path=str(source_dir), title="Track Movie")
             job = await worker._queue.get()
-            worker._current_job = job.title
+
+            # Simulate worker picking up the job (sets active_jobs)
+            from datetime import datetime, timezone
+            from transcoder import WorkerStatus
+            worker._active_jobs[0] = WorkerStatus(
+                worker_id=0, status="processing",
+                current_job=job.title, current_job_id=job.id,
+                started_at=datetime.now(timezone.utc),
+            )
 
             # Verify tracking works
             assert worker.current_job == "Track Movie"
-            worker._current_job = None
+            worker._active_jobs[0] = WorkerStatus(worker_id=0)
             assert worker.current_job is None
 
 

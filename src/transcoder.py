@@ -3,6 +3,7 @@ Transcode worker - handles GPU transcoding with HandBrake or FFmpeg
 """
 
 import asyncio
+import dataclasses
 import json
 import logging
 import os
@@ -11,7 +12,7 @@ import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 import structlog
@@ -111,13 +112,32 @@ def check_gpu_support() -> dict:
 check_nvenc_support = check_gpu_support
 
 
+@dataclasses.dataclass
+class WorkerStatus:
+    """Per-worker status for tracking active jobs."""
+    worker_id: int
+    status: Literal["idle", "processing"] = "idle"
+    current_job: Optional[str] = None
+    current_job_id: Optional[int] = None
+    started_at: Optional[datetime] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "worker_id": self.worker_id,
+            "status": self.status,
+            "current_job": self.current_job,
+            "current_job_id": self.current_job_id,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+        }
+
+
 class TranscodeWorker:
     """Background worker that processes transcode jobs."""
 
     def __init__(self, gpu_support: dict | None = None):
-        self._queue: asyncio.Queue[TranscodeJob] = asyncio.Queue()
+        self._queue: asyncio.Queue[TranscodeJob | None] = asyncio.Queue()
         self._running = False
-        self._current_job: Optional[str] = None
+        self._active_jobs: dict[int, WorkerStatus] = {}
         self._shutdown_event = asyncio.Event()
         self._gpu_support = gpu_support if gpu_support is not None else check_gpu_support()
         self._last_progress: dict[int, float] = {}
@@ -188,7 +208,7 @@ class TranscodeWorker:
 
     @property
     def is_running(self) -> bool:
-        return self._running
+        return self._running and not self._shutdown_event.is_set()
 
     @property
     def queue_size(self) -> int:
@@ -196,7 +216,19 @@ class TranscodeWorker:
 
     @property
     def current_job(self) -> Optional[str]:
-        return self._current_job
+        """First active job title, for backward compatibility."""
+        for ws in self._active_jobs.values():
+            if ws.status == "processing":
+                return ws.current_job
+        return None
+
+    @property
+    def active_count(self) -> int:
+        return sum(1 for ws in self._active_jobs.values() if ws.status == "processing")
+
+    @property
+    def active_jobs(self) -> list[dict]:
+        return [ws.to_dict() for ws in sorted(self._active_jobs.values(), key=lambda w: w.worker_id)]
 
     @property
     def gpu_support(self) -> dict:
@@ -205,6 +237,10 @@ class TranscodeWorker:
     def shutdown(self):
         """Signal worker to shutdown."""
         self._shutdown_event.set()
+
+    async def queue_sentinel(self):
+        """Put a sentinel None into the queue to stop one worker."""
+        await self._queue.put(None)
 
     async def queue_job(
         self,
@@ -319,17 +355,23 @@ class TranscodeWorker:
             self._last_progress[job_id] = progress
             self._last_progress_time[job_id] = now
 
-    async def run(self):
-        """Main worker loop."""
-        self._running = True
-        logger.info("Transcode worker started")
+    async def run(self, worker_id: int = 0):
+        """Main worker loop. Multiple instances pull from the shared queue.
 
-        # Load any pending jobs from database on startup
-        await self._load_pending_jobs()
+        Args:
+            worker_id: Integer identifier for this worker (0-based).
+        """
+        tag = f"[worker-{worker_id}]"
+        self._running = True
+        self._active_jobs[worker_id] = WorkerStatus(worker_id=worker_id)
+        logger.info(f"{tag} Worker started")
+
+        # Only worker-0 loads pending jobs on startup (avoid duplicates)
+        if worker_id == 0:
+            await self._load_pending_jobs()
 
         while not self._shutdown_event.is_set():
             try:
-                # Wait for a job with timeout to allow shutdown checks
                 try:
                     job = await asyncio.wait_for(
                         self._queue.get(),
@@ -338,17 +380,34 @@ class TranscodeWorker:
                 except asyncio.TimeoutError:
                     continue
 
-                self._current_job = job.title
+                # Sentinel None = shutdown this worker
+                if job is None:
+                    self._queue.task_done()
+                    logger.info(f"{tag} Received shutdown sentinel")
+                    break
+
+                self._active_jobs[worker_id] = WorkerStatus(
+                    worker_id=worker_id,
+                    status="processing",
+                    current_job=job.title,
+                    current_job_id=job.id,
+                    started_at=datetime.now(timezone.utc),
+                )
+                logger.info(f"{tag} Starting transcode: {job.title} (job_id={job.id})")
+
                 await self._process_job(job)
-                self._current_job = None
+
+                self._active_jobs[worker_id] = WorkerStatus(worker_id=worker_id)
                 self._queue.task_done()
+                logger.info(f"{tag} Idle — waiting for next job")
 
             except Exception as e:
-                logger.error(f"Worker error: {e}", exc_info=True)
+                logger.error(f"{tag} Worker error: {e}", exc_info=True)
+                self._active_jobs[worker_id] = WorkerStatus(worker_id=worker_id)
                 await asyncio.sleep(5)
 
-        self._running = False
-        logger.info("Transcode worker stopped")
+        self._active_jobs.pop(worker_id, None)
+        logger.info(f"{tag} Worker stopped")
 
     async def _load_pending_jobs(self):
         """Load any pending jobs from database on startup."""
@@ -490,7 +549,8 @@ class TranscodeWorker:
 
     async def _resolve_and_stabilize(self, job: TranscodeJob) -> None:
         """Resolve the source path and wait for files to stabilize."""
-        resolved_path = self._resolve_source_path(job.source_path)
+        loop = asyncio.get_event_loop()
+        resolved_path = await loop.run_in_executor(None, self._resolve_source_path, job.source_path)
         if resolved_path != job.source_path:
             await self._update_job(job.id, source_path=resolved_path)
             job.source_path = resolved_path
@@ -502,7 +562,7 @@ class TranscodeWorker:
         source_files = await loop.run_in_executor(None, self._discover_source_files, job.source_path)
         if not source_files:
             # ARM may have moved files during stabilization (race condition)
-            resolved_path = self._resolve_source_path(job.source_path)
+            resolved_path = await loop.run_in_executor(None, self._resolve_source_path, job.source_path)
             if resolved_path != job.source_path:
                 await self._update_job(job.id, source_path=resolved_path)
                 job.source_path = resolved_path
@@ -618,8 +678,11 @@ class TranscodeWorker:
             logger.info(f"Found {len(source_files)} MKV files to transcode")
 
             # Check disk space and copy source to local scratch
-            work_job_dir.mkdir(parents=True, exist_ok=True)
-            source_size = sum(f.stat().st_size for f in source_files)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: work_job_dir.mkdir(parents=True, exist_ok=True))
+            source_size = await loop.run_in_executor(
+                None, lambda: sum(f.stat().st_size for f in source_files)
+            )
             estimated_output = estimate_transcode_size(source_size)
             sufficient, msg = check_sufficient_disk_space(
                 settings.work_path, source_size + estimated_output, settings.minimum_free_space_gb
@@ -630,11 +693,11 @@ class TranscodeWorker:
             work_source_dir = work_job_dir / "source"
             work_output_dir = work_job_dir / "output"
             source = Path(job.source_path)
-            work_output_dir.mkdir()
+            await asyncio.get_event_loop().run_in_executor(None, work_output_dir.mkdir)
 
             logger.info(f"Copying source to local scratch: {work_source_dir}")
             if source.is_file():
-                work_source_dir.mkdir()
+                await asyncio.get_event_loop().run_in_executor(None, work_source_dir.mkdir)
                 await async_copy_file(str(source), str(work_source_dir / source.name))
             else:
                 await async_copy(str(source), str(work_source_dir))
@@ -665,7 +728,7 @@ class TranscodeWorker:
                     db_year=db_year, db_video_type=db_video_type,
                 )
             folder_name = arm_title_name or output_dir.name
-            os.makedirs(output_dir, exist_ok=True)
+            await loop.run_in_executor(None, lambda: os.makedirs(output_dir, exist_ok=True))
             await self._update_job(
                 job.id,
                 video_type=db_video_type or self._detect_video_type(job.title, job.source_path),
@@ -712,7 +775,7 @@ class TranscodeWorker:
                                 per_title, job.source_path, resolution, overrides,
                                 db_year=per_year, db_video_type=per_video_type,
                             )
-                        os.makedirs(per_output_dir, exist_ok=True)
+                        await loop.run_in_executor(None, lambda d=per_output_dir: os.makedirs(d, exist_ok=True))
                         # title_name = display filename (from ARM naming engine),
                         # folder_name = directory path.  ARM's naming includes
                         # episode numbers per track so names are unique.
@@ -804,8 +867,9 @@ class TranscodeWorker:
 
         finally:
             # Always clean up local scratch
-            if work_job_dir.exists():
-                shutil.rmtree(work_job_dir)
+            loop = asyncio.get_event_loop()
+            if await loop.run_in_executor(None, work_job_dir.exists):
+                await async_rmtree(str(work_job_dir))
                 logger.info(f"Cleaned up work dir: {work_job_dir}")
             if job_handler:
                 logging.getLogger().removeHandler(job_handler)
@@ -1352,12 +1416,15 @@ class TranscodeWorker:
     async def _cleanup_source(self, source_path: str):
         """Remove source files after successful transcode."""
         path = Path(source_path)
+        loop = asyncio.get_event_loop()
 
-        if not path.exists():
+        exists = await loop.run_in_executor(None, path.exists)
+        if not exists:
             logger.warning(f"Source already removed: {source_path}")
             return
 
-        if path.is_file():
-            path.unlink()
-        elif path.is_dir():
+        is_file = await loop.run_in_executor(None, path.is_file)
+        if is_file:
+            await loop.run_in_executor(None, path.unlink)
+        elif await loop.run_in_executor(None, path.is_dir):
             await async_rmtree(str(path))

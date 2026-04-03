@@ -36,6 +36,8 @@ async def health_check(request: Request):
         "version": request.app.version,
         "worker_running": worker is not None and worker.is_running,
         "queue_size": worker.queue_size if worker else 0,
+        "active_count": worker.active_count if worker else 0,
+        "max_concurrent": settings.max_concurrent,
         "gpu_support": gpu_support,
         "config": {
             "video_encoder": settings.video_encoder,
