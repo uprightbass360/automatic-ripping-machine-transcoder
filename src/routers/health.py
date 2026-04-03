@@ -156,7 +156,13 @@ async def restart_service(background_tasks: BackgroundTasks, request: Request):
         if worker:
             worker.shutdown()
         time.sleep(0.5)
-        os.killpg(0, signal.SIGTERM)
+        try:
+            # Kill process group — in Docker, this triggers restart policy.
+            # PGID 0 = our own group, so this reaches uvicorn/reloader.
+            os.killpg(0, signal.SIGTERM)
+        except OSError as e:
+            logger.warning("killpg failed, falling back to self-signal: %s", e)
+            os.kill(os.getpid(), signal.SIGTERM)
 
     background_tasks.add_task(_shutdown)
     return {"success": True, "message": "Transcoder is restarting"}
