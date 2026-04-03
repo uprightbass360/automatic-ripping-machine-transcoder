@@ -51,18 +51,21 @@ flowchart TB
 ## Features
 
 - Webhook receiver for ARM job completion notifications
+- **Multi-worker concurrency** — spawn `MAX_CONCURRENT` worker tasks from a shared queue, configurable per GPU (NVIDIA 3-5, AMD 1-2, Intel 2-3, CPU 2-3)
 - **Auto-detected GPU encoding** — detects NVIDIA, AMD, or Intel at startup and selects the right encoder and preset automatically
 - Hardware-accelerated transcoding via FFmpeg (with HandBrake fallback for NVIDIA)
 - Resolution-based encoding — 4K preserved, Blu-ray at 1080p, DVDs upscaled to 720p
 - Multi-GPU support: NVIDIA NVENC, AMD VAAPI/AMF, Intel Quick Sync, software fallback
 - **ARM callback** — notifies ARM when jobs complete or fail (`ARM_CALLBACK_URL`)
+- **Non-blocking I/O** — all filesystem operations run off the event loop via thread pool, keeping API responsive during transcodes
 - Queue management with SQLite persistence
-- REST API for job monitoring and management
+- REST API with modular router architecture for job monitoring, worker status, and management
 - API key authentication with role-based access (admin/readonly)
 - Input validation and path traversal protection
 - Audio CD passthrough — detects audio rips (FLAC/MP3/etc.) and copies them to an audio folder without transcoding
 - Local scratch storage to avoid heavy I/O on network shares (copy→transcode→move)
 - Automatic source cleanup after successful transcode
+- Per-worker status tracking with `/workers` endpoint for dashboard integration
 - Pagination support on job listings
 - Retry limits with tracking
 - Disk space pre-checks
@@ -275,7 +278,7 @@ These variables are used across all `docker-compose*.yml` files:
 | `AUDIO_SUBDIR` | audio | Subdirectory under COMPLETED_PATH for audio CD rips |
 | `OUTPUT_EXTENSION` | mkv | Output file extension |
 | `DELETE_SOURCE` | true | Remove source after successful transcode |
-| `MAX_CONCURRENT` | 1 | Max concurrent transcodes (1 recommended for single GPU) |
+| `MAX_CONCURRENT` | 1 | Max concurrent transcodes. NVIDIA: 3-5 sessions, AMD: 1-2, Intel: 2-3, CPU: 2-3. Default 1 unless verified. |
 | `STABILIZE_SECONDS` | 60 | Seconds to wait for source files to stop changing |
 | `MAX_RETRY_COUNT` | 3 | Maximum retry attempts for failed jobs (0-10) |
 | `MINIMUM_FREE_SPACE_GB` | 10 | Minimum free disk space required (GB) |
@@ -338,7 +341,8 @@ FFmpeg upscaling uses the appropriate hardware filter per GPU: `scale_cuda` (NVI
 | `/jobs` | GET | API key | List jobs (supports `?status=` filter, `?limit=`, `?offset=`) |
 | `/jobs/{id}/retry` | POST | Admin API key | Retry a failed job |
 | `/jobs/{id}` | DELETE | Admin API key | Delete a job |
-| `/stats` | GET | API key | Transcoding statistics |
+| `/stats` | GET | API key | Transcoding statistics (includes `active_count`, `max_concurrent`) |
+| `/workers` | GET | API key | Per-worker status: id, processing state, current job, started_at |
 | `/system/info` | GET | None | Static hardware identity (CPU, RAM, GPU support) |
 | `/system/stats` | GET | None | Live metrics: CPU, memory, storage, GPU utilization |
 | `/config` | GET | API key | Current transcoding configuration |
