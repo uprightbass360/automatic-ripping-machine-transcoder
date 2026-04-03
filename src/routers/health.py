@@ -97,7 +97,7 @@ async def get_system_stats(request: Request):
                 "free_gb": round(usage.free / 1073741824, 1),
                 "percent": usage.percent,
             })
-        except (FileNotFoundError, OSError):
+        except OSError:
             continue
 
     gpu_data = None

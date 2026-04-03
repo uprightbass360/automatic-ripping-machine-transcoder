@@ -5,6 +5,7 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select, delete, func
@@ -56,7 +57,7 @@ def _extract_media_title(body: str | None) -> str | None:
 @router.post("/webhook/arm", responses={400: {"description": "Invalid payload"}, 413: {"description": "Payload too large"}, 503: {"description": "Transcoder not ready"}})
 async def arm_webhook(
     request: Request,
-    _verified: bool = Depends(verify_webhook_secret),
+    _verified: Annotated[bool, Depends(verify_webhook_secret)],
 ):
     """
     Receive webhook from ARM's JSON_URL or BASH_SCRIPT curl.
@@ -155,11 +156,11 @@ async def arm_webhook(
 
 @router.get("/jobs")
 async def list_jobs(
+    _role: Annotated[str, Depends(get_current_user)],
     status: JobStatus | None = None,
     job_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
-    _role: str = Depends(get_current_user),
 ):
     """List all transcode jobs, optionally filtered by status."""
     # Validate pagination
@@ -226,7 +227,7 @@ async def list_jobs(
 async def retry_job(
     job_id: int,
     request: Request,
-    _role: str = Depends(require_admin),
+    _role: Annotated[str, Depends(require_admin)],
 ):
     """Retry a failed job (admin only)."""
     worker = request.app.state.worker
@@ -265,7 +266,7 @@ async def retry_job(
 @router.delete("/jobs/{job_id}", responses={400: {"description": "Cannot delete job in progress"}, 404: {"description": "Job not found"}})
 async def delete_job(
     job_id: int,
-    _role: str = Depends(require_admin),
+    _role: Annotated[str, Depends(require_admin)],
 ):
     """Delete a job from the database (admin only)."""
     async with get_db() as db:
