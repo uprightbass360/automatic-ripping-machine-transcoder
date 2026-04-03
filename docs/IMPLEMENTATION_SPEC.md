@@ -105,7 +105,7 @@ This specification addresses critical security vulnerabilities, high-priority bu
 - ~~Return 503 Service Unavailable if worker not ready~~
 - ~~Guards on webhook handler and retry endpoint~~
 
-**Note:** WorkerState enum and mutex not implemented — simple `worker is None or not worker.is_running` guards are sufficient for single-worker architecture.
+**Note:** Worker stored on `app.state.worker`. `is_running` checks `_running and not _shutdown_event.is_set()`. Multi-worker architecture uses per-worker `WorkerStatus` tracking.
 
 **Files Modified:**
 - `src/main.py` (readiness checks on webhook and retry endpoints)
@@ -160,23 +160,31 @@ This specification addresses critical security vulnerabilities, high-priority bu
 - `src/transcoder.py` (all datetime usages)
 - `src/models.py` (DateTime column defaults already correct)
 
-### 3.2 Concurrent Processing Implementation
+### 3.2 Concurrent Processing Implementation — COMPLETE
 
 **Issue:** `max_concurrent` setting unused
 **Severity:** Medium
 **Impact:** Misleading configuration
 
 **Implementation:**
-- Implement semaphore-based concurrency limiting
-- Use `asyncio.Semaphore(max_concurrent)` to control parallel jobs
-- Add concurrent job tracking to stats endpoint
-- Document GPU NVENC session limits (GTX 1660: 3 sessions)
+- ~~Spawn `max_concurrent` worker tasks from shared `asyncio.Queue`~~
+- ~~Per-worker `WorkerStatus` tracking (id, status, current_job, started_at)~~
+- ~~Sentinel-based shutdown (None in queue stops one worker)~~
+- ~~Worker crash isolation (one failure doesn't affect others)~~
+- ~~`GET /workers` endpoint for dashboard integration~~
+- ~~`/health` and `/stats` updated with `active_count`, `max_concurrent`~~
+- ~~Config docs updated with GPU vendor session limits (NVIDIA 3-5, AMD 1-2, Intel 2-3, CPU 2-3)~~
+- ~~All blocking filesystem ops moved to `run_in_executor`~~
 
-**Current state:** Not started — `max_concurrent` defined in config.py but never used.
+**Note:** Multi-worker pool pattern chosen over semaphore — N workers pull from queue naturally, no semaphore bookkeeping needed.
 
 **Files Modified:**
-- `src/transcoder.py` (concurrency control)
-- `src/config.py` (documentation)
+- `src/transcoder.py` (WorkerStatus, run(worker_id), sentinel shutdown, is_running, active_jobs)
+- `src/main.py` (spawn N worker tasks in lifespan, sentinel shutdown)
+- `src/routers/workers.py` (new — GET /workers)
+- `src/routers/health.py` (active_count, max_concurrent)
+- `src/routers/stats.py` (active_count, max_concurrent)
+- `src/config.py` (max_concurrent description)
 
 ### 3.3 Docker Dependencies — COMPLETE
 
@@ -203,24 +211,30 @@ This specification addresses critical security vulnerabilities, high-priority bu
 - ~~Worker finishes current job before exiting (`asyncio.wait_for`)~~
 - ~~Falls back to cancel on timeout~~
 - ~~Log shutdown progress~~
+- ~~Sentinel-based multi-worker shutdown (one None per worker task)~~
 
 **Files Modified:**
-- `src/main.py` (lifespan shutdown with `wait_for` + timeout)
+- `src/main.py` (lifespan shutdown with sentinels + per-task `wait_for` + timeout)
 - `src/constants.py` (`SHUTDOWN_TIMEOUT`)
 
 ### 3.5 Code Organization — COMPLETE
 
-**Issue:** Imports inside functions, unused imports
+**Issue:** Imports inside functions, unused imports, monolithic main.py
 **Severity:** Low
-**Impact:** Code clarity
+**Impact:** Code clarity, maintainability
 
 **Implementation:**
 - ~~Move all imports to module level~~
 - ~~Remove unused `BackgroundTasks` import~~
 - ~~Organize imports: stdlib, third-party, local~~
+- ~~Split 686-line main.py into FastAPI routers (main.py now ~157 lines)~~
+- ~~`routers/health.py`, `config.py`, `jobs.py`, `stats.py`, `logs.py`, `workers.py`~~
+- ~~Worker stored on `app.state` instead of module global~~
+- ~~Modern `Annotated` type hints for FastAPI DI~~
 
 **Files Modified:**
-- All `.py` files — imports organized at module level
+- `src/main.py` — app creation, lifespan, logging only
+- `src/routers/` — 7 focused router modules
 
 ### 3.6 Hardcoded Values — COMPLETE
 
@@ -501,11 +515,14 @@ Required tests:
 - ~~Disk space calculations~~
 - ~~Retry logic with backoff~~
 
-**Files (298 tests total):**
+**Files (665 tests total):**
 - `tests/test_utils.py` — 48 tests (PathValidator, CommandValidator, disk space, title cleaning, log sanitization)
 - `tests/test_models.py` — 34 tests (WebhookPayload validation, JobStatus, TranscodeJob)
 - `tests/test_transcoder.py` — 93 tests (GPU detection, encoder routing, FFmpeg commands, file discovery, audio file discovery, resolution detection, preset selection, FFmpeg upscale per GPU, source path resolution, stream mapping, disk space pre-check)
 - `tests/test_auth.py` — 27 tests (API key auth, webhook secret, settings validation)
+- `tests/test_multi_worker.py` — 18 tests (WorkerStatus, worker properties, sentinel shutdown, crash isolation, /workers endpoint)
+- `tests/test_router_coverage.py` — 13 tests (router endpoint coverage via ASGI client)
+- `tests/test_router_direct.py` — 14 tests (direct-call coverage for jobs, stats, config, lifespan)
 
 ### 6.2 Integration Tests — COMPLETE
 
@@ -513,10 +530,10 @@ Required tests:
 - ~~Full transcode workflow~~
 - ~~Webhook to completion~~
 - Job cancellation
-- Graceful shutdown
-- Concurrent job processing
+- ~~Graceful shutdown~~
+- ~~Concurrent job processing~~
 
-**Note:** Job cancellation, graceful shutdown, and concurrent processing tests pending their respective feature implementations.
+**Note:** Job cancellation pending feature implementation. Graceful shutdown and concurrent processing tests complete.
 
 **Files:**
 - `tests/test_integration.py` — 31 tests (job lifecycle, retry/delete, startup restore, worker run loop, multi-file transcode, work dir cleanup, audio CD passthrough, 4K preset selection, main feature identification)
@@ -574,11 +591,11 @@ Required tests:
    - ~~Database sessions~~
    - ~~Progress optimization~~
 
-3. **Phase 3: Medium Priority** — Partial
+3. **Phase 3: Medium Priority** — COMPLETE
    - ~~Deprecated API replacements~~
-   - Concurrent processing — not started
-   - ~~Graceful shutdown~~
-   - ~~Code cleanup~~
+   - ~~Concurrent processing (multi-worker pool)~~
+   - ~~Graceful shutdown (sentinel-based)~~
+   - ~~Code cleanup (router refactor)~~
    - ~~Constants file~~
    - ~~Docker dependencies~~
 
@@ -593,7 +610,7 @@ Required tests:
    - ~~Resolution-based preset selection~~
 
 5. **Phase 5: Testing & Documentation** — Partial
-   - ~~Write tests (298 tests)~~
+   - ~~Write tests (665 tests)~~
    - ~~Update documentation~~
    - ~~Security audit~~
    - Performance testing — not started
@@ -607,6 +624,9 @@ The following changes may break existing deployments:
 1. **API Authentication** - Existing API clients need to add API key header
 2. **Webhook Validation** - Invalid webhooks now return 400 instead of being ignored
 3. **Path Restrictions** - Paths outside RAW_PATH/COMPLETED_PATH are rejected
+4. **Router Refactor** - Direct imports of endpoint functions from `main` module no longer work. Endpoints live in `src/routers/`.
+5. **Worker API** - `run()` now requires `worker_id` parameter. `_current_job` replaced with `_active_jobs` dict. Sentinel-based shutdown.
+6. **Health/Stats Response** - `/health` and `/stats` now include `active_count` and `max_concurrent` fields.
 
 **Migration Path:**
 - API keys can be disabled via `REQUIRE_API_AUTH=false` (default)

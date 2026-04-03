@@ -107,11 +107,20 @@ If ARM supports custom headers in JSON_URL (check ARM documentation), you can in
 | Endpoint | Public (no auth) | Authenticated User | Admin Only |
 |----------|------------------|-------------------|-----------|
 | `GET /health` | ✅ Always | - | - |
+| `GET /system/info` | ✅ Always | - | - |
+| `GET /system/stats` | ✅ Always | - | - |
 | `POST /webhook/arm` | ✅ With WEBHOOK_SECRET | - | - |
 | `GET /jobs` | - | ✅ | ✅ |
 | `GET /stats` | - | ✅ | ✅ |
+| `GET /workers` | - | ✅ | ✅ |
+| `GET /config` | - | ✅ | ✅ |
+| `GET /logs` | - | ✅ | ✅ |
+| `GET /logs/{file}` | - | ✅ | ✅ |
+| `GET /logs/{file}/structured` | - | ✅ | ✅ |
+| `PATCH /config` | - | - | ✅ |
 | `POST /jobs/{id}/retry` | - | - | ✅ |
 | `DELETE /jobs/{id}` | - | - | ✅ |
+| `POST /system/restart` | - | - | ✅ |
 
 ## Security Best Practices
 
