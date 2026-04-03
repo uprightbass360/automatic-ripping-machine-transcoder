@@ -27,6 +27,7 @@ from routers.config import router as config_router
 from routers.jobs import router as jobs_router
 from routers.stats import router as stats_router
 from routers.logs import router as logs_router
+from routers.workers import router as workers_router
 
 
 def _configure_logging():
@@ -85,7 +86,14 @@ async def lifespan(app: FastAPI):
     await auto_resolve_gpu_defaults(gpu_support)
 
     app.state.worker = TranscodeWorker(gpu_support=gpu_support)
-    worker_task = asyncio.create_task(app.state.worker.run())
+
+    # Spawn max_concurrent worker tasks pulling from the shared queue
+    n_workers = settings.max_concurrent
+    worker_tasks = []
+    for i in range(n_workers):
+        task = asyncio.create_task(app.state.worker.run(worker_id=i))
+        worker_tasks.append(task)
+    logger.info("Started %d worker(s)", n_workers)
 
     app.state.gpu_monitor = create_gpu_monitor(settings.gpu_vendor)
     if app.state.gpu_monitor:
@@ -95,19 +103,23 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown: signal worker to stop, then wait for current job to finish
+    # Shutdown: send sentinel per worker, then wait for all to finish
     worker = app.state.worker
     if worker:
         worker.shutdown()
-        try:
-            await asyncio.wait_for(worker_task, timeout=SHUTDOWN_TIMEOUT)
-        except asyncio.TimeoutError:
-            logger.warning(f"Worker did not finish within {SHUTDOWN_TIMEOUT}s, cancelling")
-            worker_task.cancel()
-        except asyncio.CancelledError:
-            raise
+        for _ in worker_tasks:
+            await worker.queue_sentinel()
+        for task in worker_tasks:
+            try:
+                await asyncio.wait_for(task, timeout=SHUTDOWN_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning("Worker did not finish within %ds, cancelling", SHUTDOWN_TIMEOUT)
+                task.cancel()
+            except asyncio.CancelledError:
+                raise
     else:
-        worker_task.cancel()
+        for task in worker_tasks:
+            task.cancel()
 
     logger.info("ARM Transcoder stopped")
 
@@ -141,3 +153,4 @@ app.include_router(config_router)
 app.include_router(jobs_router)
 app.include_router(stats_router)
 app.include_router(logs_router)
+app.include_router(workers_router)

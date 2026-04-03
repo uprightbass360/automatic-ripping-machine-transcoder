@@ -126,7 +126,11 @@ class Settings(BaseSettings):
         1,
         ge=1,
         le=10,
-        description="Max concurrent transcodes (1 recommended for single GPU)"
+        description="Max concurrent transcodes. Each job consumes a GPU encoder session. "
+                    "NVIDIA: 3-5 sessions (GTX 1660: 3, RTX 3060+: 5). "
+                    "AMD (VCN/AMF): 1-2 sessions. Intel (QSV): 2-3 sessions. "
+                    "CPU (x265/x264): bounded by cores, 2-3 recommended. "
+                    "Default 1 unless hardware supports multiple sessions."
     )
     stabilize_seconds: int = Field(
         60,
