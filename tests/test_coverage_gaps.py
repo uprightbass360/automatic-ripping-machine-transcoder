@@ -54,17 +54,19 @@ async def api_client(mock_worker_gaps, tmp_path):
     auth_module.auth.require_auth = False
 
     with patch.object(db_module, "get_db", test_get_db), \
-         patch("main.get_db", test_get_db), \
+         patch("routers.jobs.get_db", test_get_db), \
+         patch("routers.stats.get_db", test_get_db), \
+         patch("routers.config.get_db", test_get_db), \
          patch("main.init_db", AsyncMock()):
 
         import main as main_module
-        main_module.worker = mock_worker_gaps
+        main_module.app.state.worker = mock_worker_gaps
 
         transport = ASGITransport(app=main_module.app)
         async with AsyncClient(transport=transport, base_url="https://test") as ac:
             yield ac, test_session_factory
 
-        main_module.worker = None
+        main_module.app.state.worker = None
 
     auth_module.auth.require_auth = orig_require
 

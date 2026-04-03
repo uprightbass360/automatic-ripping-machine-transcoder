@@ -53,17 +53,19 @@ async def client(mock_worker, tmp_path):
 
     # Patch both the database module and the main module's reference
     with patch.object(db_module, "get_db", test_get_db), \
-         patch("main.get_db", test_get_db), \
+         patch("routers.jobs.get_db", test_get_db), \
+         patch("routers.stats.get_db", test_get_db), \
+         patch("routers.config.get_db", test_get_db), \
          patch("main.init_db", AsyncMock()):
 
         import main as main_module
-        main_module.worker = mock_worker
+        main_module.app.state.worker = mock_worker
 
         transport = ASGITransport(app=main_module.app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac
 
-        main_module.worker = None
+        main_module.app.state.worker = None
 
     # Cleanup
     async with test_engine.begin() as conn:
@@ -193,8 +195,8 @@ class TestWebhookEndpoint:
     async def test_webhook_returns_503_when_worker_not_ready(self, client):
         """Webhook should return 503 when worker is None or not running."""
         import main as main_module
-        saved_worker = main_module.worker
-        main_module.worker = None
+        saved_worker = main_module.app.state.worker
+        main_module.app.state.worker = None
         try:
             payload = {
                 "title": "ARM notification",
@@ -206,7 +208,7 @@ class TestWebhookEndpoint:
             assert response.status_code == 503
             assert "not ready" in response.json()["detail"].lower()
         finally:
-            main_module.worker = saved_worker
+            main_module.app.state.worker = saved_worker
 
     @pytest.mark.asyncio
     async def test_non_completion_ignored(self, client):
@@ -346,14 +348,14 @@ class TestRetryEndpoint:
         """Retry should return 503 when worker is None."""
         import main as main_module
 
-        saved_worker = main_module.worker
-        main_module.worker = None
+        saved_worker = main_module.app.state.worker
+        main_module.app.state.worker = None
         try:
             response = await client.post("/jobs/1/retry")
             assert response.status_code == 503
             assert "not ready" in response.json()["detail"].lower()
         finally:
-            main_module.worker = saved_worker
+            main_module.app.state.worker = saved_worker
 
     @pytest.mark.asyncio
     async def test_retry_nonexistent_job(self, client):

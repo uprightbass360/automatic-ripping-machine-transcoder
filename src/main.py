@@ -1,35 +1,32 @@
 """
 ARM Transcoder - Webhook receiver and transcode orchestrator
+
+Endpoints in src/routers/ — health.py, config.py, jobs.py, stats.py, logs.py
 """
 
 import asyncio
-import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
-import platform
-import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import psutil
 import structlog
 
-from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, Query, Request
-from sqlalchemy import select, delete, func
+from fastapi import FastAPI
 
-from auth import get_current_user, require_admin, verify_webhook_secret
-from config import (
-    settings, UPDATABLE_KEYS, VALID_LOG_LEVELS, get_available_presets,
-    get_preset_files, get_presets_by_file, load_config_overrides,
-    auto_resolve_gpu_defaults,
-)
-from constants import SHUTDOWN_TIMEOUT, VALID_VIDEO_ENCODERS, VALID_AUDIO_ENCODERS, VALID_SUBTITLE_MODES
-from database import init_db, get_db
-from models import WebhookPayload, JobStatus, TranscodeJobDB, ConfigOverrideDB
+from config import settings, load_config_overrides, auto_resolve_gpu_defaults
+from constants import SHUTDOWN_TIMEOUT
+from database import init_db
 from log_format import _foreign_pre_chain, json_formatter, console_formatter
 from gpu_monitor import create_gpu_monitor
 from transcoder import TranscodeWorker
+
+from routers.health import router as health_router
+from routers.config import router as config_router
+from routers.jobs import router as jobs_router
+from routers.stats import router as stats_router
+from routers.logs import router as logs_router
 
 
 def _configure_logging():
@@ -72,16 +69,10 @@ def _configure_logging():
 _configure_logging()
 logger = logging.getLogger(__name__)
 
-# Global worker instance
-worker: TranscodeWorker | None = None
-_gpu_monitor: object | None = None
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
-    global worker
-
     # Initialize database
     await init_db()
 
@@ -93,12 +84,11 @@ async def lifespan(app: FastAPI):
     gpu_support = check_gpu_support()
     await auto_resolve_gpu_defaults(gpu_support)
 
-    worker = TranscodeWorker(gpu_support=gpu_support)
-    worker_task = asyncio.create_task(worker.run())
+    app.state.worker = TranscodeWorker(gpu_support=gpu_support)
+    worker_task = asyncio.create_task(app.state.worker.run())
 
-    global _gpu_monitor
-    _gpu_monitor = create_gpu_monitor(settings.gpu_vendor)
-    if _gpu_monitor:
+    app.state.gpu_monitor = create_gpu_monitor(settings.gpu_vendor)
+    if app.state.gpu_monitor:
         logger.info("GPU monitor active: %s", settings.gpu_vendor)
 
     logger.info("ARM Transcoder started")
@@ -106,6 +96,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown: signal worker to stop, then wait for current job to finish
+    worker = app.state.worker
     if worker:
         worker.shutdown()
         try:
@@ -145,542 +136,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint with GPU support and active configuration."""
-    gpu_support = worker.gpu_support if worker else {}
-    return {
-        "status": "healthy",
-        "version": APP_VERSION,
-        "worker_running": worker is not None and worker.is_running,
-        "queue_size": worker.queue_size if worker else 0,
-        "gpu_support": gpu_support,
-        "config": {
-            "video_encoder": settings.video_encoder,
-            "video_quality": settings.video_quality,
-            "audio_encoder": settings.audio_encoder,
-            "subtitle_mode": settings.subtitle_mode,
-            "delete_source": settings.delete_source,
-            "output_extension": settings.output_extension,
-            "max_concurrent": settings.max_concurrent,
-            "stabilize_seconds": settings.stabilize_seconds,
-        },
-        "require_api_auth": settings.require_api_auth,
-        "webhook_secret_configured": bool(settings.webhook_secret),
-    }
-
-
-def _detect_cpu() -> str:
-    """Detect CPU model name from /proc/cpuinfo (Linux) or platform fallback."""
-    try:
-        with open("/proc/cpuinfo") as f:
-            for line in f:
-                if line.startswith("model name"):
-                    return line.split(":", 1)[1].strip()
-    except OSError:
-        pass
-    return platform.processor() or "Unknown"
-
-
-@app.get("/system/info")
-async def get_system_info():
-    """Return static hardware identity (CPU, RAM, GPU). No auth required."""
-    mem = psutil.virtual_memory()
-    return {
-        "cpu": _detect_cpu(),
-        "memory_total_gb": round(mem.total / 1073741824, 1),
-        "gpu_support": worker.gpu_support if worker else {},
-    }
-
-
-@app.get("/system/stats")
-async def get_system_stats():
-    """Return live system metrics: CPU, memory, temperature. No auth required."""
-    cpu_percent = psutil.cpu_percent()
-    cpu_temp = 0.0
-    try:
-        temps = psutil.sensors_temperatures()
-        for key in ('coretemp', 'cpu_thermal', 'k10temp', 'zenpower'):
-            if temps.get(key):
-                cpu_temp = temps[key][0].current
-                break
-    except (AttributeError, OSError):
-        pass
-
-    mem = psutil.virtual_memory()
-
-    storage = []
-    media_paths = [
-        ("Raw", settings.raw_path),
-        ("Work", settings.work_path),
-        ("Completed", settings.completed_path),
-    ]
-    for name, path in media_paths:
-        try:
-            usage = psutil.disk_usage(path)
-            storage.append({
-                "name": name,
-                "path": path,
-                "total_gb": round(usage.total / 1073741824, 1),
-                "used_gb": round(usage.used / 1073741824, 1),
-                "free_gb": round(usage.free / 1073741824, 1),
-                "percent": usage.percent,
-            })
-        except (FileNotFoundError, OSError):
-            continue
-
-    gpu_data = None
-    if os.environ.get("FAKE_GPU_STATS"):
-        import random
-        gpu_data = {
-            "vendor": "nvidia",
-            "utilization_percent": round(random.uniform(20, 95), 1),
-            "memory_used_mb": round(random.uniform(1000, 7000), 1),
-            "memory_total_mb": 8192.0,
-            "temperature_c": round(random.uniform(45, 82), 1),
-            "encoder_percent": round(random.uniform(30, 100), 1),
-            "power_draw_w": round(random.uniform(50, 280), 1),
-            "power_limit_w": 300.0,
-            "clock_core_mhz": round(random.uniform(800, 2100), 0),
-            "clock_memory_mhz": round(random.uniform(5000, 8000), 0),
-        }
-    elif _gpu_monitor is not None:
-        try:
-            gpu_data = _gpu_monitor.snapshot().to_dict()
-        except Exception:
-            pass
-
-    return {
-        "cpu_percent": cpu_percent,
-        "cpu_temp": cpu_temp,
-        "memory": {
-            "total_gb": round(mem.total / 1073741824, 1),
-            "used_gb": round(mem.used / 1073741824, 1),
-            "free_gb": round(mem.available / 1073741824, 1),
-            "percent": mem.percent,
-        },
-        "storage": storage,
-        "gpu": gpu_data,
-    }
-
-
-@app.post("/system/restart")
-async def restart_service(background_tasks: BackgroundTasks):
-    """Restart the transcoder service.
-
-    In reload mode (dev): kills the server child; the WatchFiles reloader
-    automatically spawns a new one.
-    In non-reload mode (prod): os._exit terminates PID 1 and Docker's
-    restart policy brings the container back.
-    """
-    import os
-
-    def _shutdown():
-        import signal
-        import time
-        logger.info("Restart requested via API — shutting down for Docker restart")
-        if worker:
-            worker.shutdown()
-        time.sleep(0.5)
-        # Kill the entire process group (PGID 0 = our group).
-        # In reload mode this reaches the reloader (PID 1), which shuts
-        # down cleanly. Docker's restart policy then restarts the container.
-        # In non-reload mode, this kills the single uvicorn process.
-        os.killpg(0, signal.SIGTERM)
-
-    background_tasks.add_task(_shutdown)
-    return {"success": True, "message": "Transcoder is restarting"}
-
-
-@app.get("/config")
-async def get_config(_role: str = Depends(get_current_user)):
-    """Return current updatable settings and valid option lists."""
-    config = {key: getattr(settings, key) for key in UPDATABLE_KEYS}
-    return {
-        "config": config,
-        "updatable_keys": sorted(UPDATABLE_KEYS),
-        "paths": {
-            "raw_path": settings.raw_path,
-            "completed_path": settings.completed_path,
-            "work_path": settings.work_path,
-        },
-        "valid_video_encoders": VALID_VIDEO_ENCODERS,
-        "valid_audio_encoders": VALID_AUDIO_ENCODERS,
-        "valid_subtitle_modes": VALID_SUBTITLE_MODES,
-        "valid_log_levels": VALID_LOG_LEVELS,
-        "valid_handbrake_presets": get_available_presets(),
-        "valid_preset_files": get_preset_files(),
-        "presets_by_file": get_presets_by_file(),
-    }
-
-
-@app.patch("/config", responses={400: {"description": "Invalid or non-updatable keys"}, 422: {"description": "Validation error"}})
-async def update_config(
-    request: Request,
-    _role: str = Depends(require_admin),
-):
-    """Update runtime settings. Validates, persists to DB, patches singleton."""
-    data = await request.json()
-    if not isinstance(data, dict) or not data:
-        raise HTTPException(status_code=400, detail="Request body must be a non-empty JSON object")
-
-    # Reject unknown keys
-    invalid_keys = set(data.keys()) - UPDATABLE_KEYS
-    if invalid_keys:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Non-updatable keys: {', '.join(sorted(invalid_keys))}",
-        )
-
-    # Validate values by building a partial Settings with overrides
-    current_vals = {key: getattr(settings, key) for key in UPDATABLE_KEYS}
-    current_vals.update(data)
-    try:
-        from config import Settings as SettingsClass
-        validated = SettingsClass.model_validate({**settings.model_dump(), **current_vals})
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=str(e))
-
-    # Persist to DB and update in-memory singleton
-    from datetime import datetime, timezone
-    async with get_db() as db:
-        for key, value in data.items():
-            coerced = getattr(validated, key)
-            override = await db.get(ConfigOverrideDB, key)
-            if override:
-                override.value = str(coerced)
-                override.updated_at = datetime.now(timezone.utc)
-            else:
-                db.add(ConfigOverrideDB(key=key, value=str(coerced)))
-            setattr(settings, key, coerced)
-        await db.commit()
-
-    return {
-        "success": True,
-        "applied": {key: getattr(settings, key) for key in data},
-    }
-
-
-def _normalize_source_path(source_path: str | None) -> str | None:
-    """Normalize absolute paths from ARM host to relative paths.
-
-    The webhook sender may include the full ARM host path
-    (e.g. /home/arm/media/raw/Title). Strip any leading directory prefix
-    and keep only the component(s) relative to the raw root.
-    """
-    if not source_path or not os.path.isabs(source_path):
-        return source_path
-    parts = Path(source_path).parts  # ('/', 'home', 'arm', 'media', 'raw', 'Title')
-    try:
-        raw_idx = len(parts) - 1 - parts[::-1].index("raw")
-        return str(Path(*parts[raw_idx + 1:])) if raw_idx + 1 < len(parts) else None
-    except ValueError:
-        return Path(source_path).name
-
-
-def _extract_media_title(body: str | None) -> str | None:
-    """Extract media title from ARM notification body text."""
-    if not body:
-        return None
-    for pattern in [
-        r"^(.+?)\s+rip complete",           # ARM rip notification
-        r"^(.+?)\s+processing complete",     # ARM transcode notification
-        r"Rip of (.+?) complete",            # legacy format
-    ]:
-        match = re.search(pattern, body, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-    # No notification pattern matched — use body directly, stripping trailing year
-    cleaned = re.sub(r"\s*\(\d{4}\)\s*$", "", body).strip()
-    return cleaned or None
-
-
-@app.post("/webhook/arm", responses={400: {"description": "Invalid payload"}, 413: {"description": "Payload too large"}, 503: {"description": "Transcoder not ready"}})
-async def arm_webhook(
-    request: Request,
-    _verified: bool = Depends(verify_webhook_secret),
-):
-    """
-    Receive webhook from ARM's JSON_URL or BASH_SCRIPT curl.
-
-    Expected payload formats:
-
-    1. Apprise JSON format:
-    {
-        "title": "ARM notification",
-        "body": "Rip of Movie Title (2024) complete",
-        "type": "info"
-    }
-
-    2. Custom format from BASH_SCRIPT:
-    {
-        "title": "Movie Title",
-        "path": "/home/arm/media/raw/Movie Title (2024)",
-        "job_id": "123",
-        "status": "success"
-    }
-    """
-    # Validate request size (10KB limit)
-    content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > 10240:  # 10KB
-        raise HTTPException(status_code=413, detail="Payload too large (max 10KB)")
-
-    try:
-        payload_dict = await request.json()
-        payload = WebhookPayload(**payload_dict)
-    except Exception as e:
-        logger.warning(f"Invalid webhook payload: {e}")
-        raise HTTPException(status_code=400, detail=f"Invalid payload: {e}")
-
-    body = payload.effective_body
-    logger.info(f"Received webhook: {payload.title} (body={'present' if body else 'empty'})")
-
-    # Check if this is a completion notification
-    is_complete = (
-        "complete" in payload.title.lower() or
-        (body and "complete" in body.lower()) or
-        payload.status == "success"
-    )
-    if not is_complete:
-        logger.debug(f"Ignoring non-completion webhook: {payload.title}")
-        return {"status": "ignored", "reason": "not a completion event"}
-
-    source_path = _normalize_source_path(payload.path)
-    if source_path:
-        logger.debug(f"Normalized absolute path to: {source_path}")
-
-    media_title = _extract_media_title(body)
-
-    # Use extracted title as source path if no explicit path provided
-    if not source_path and media_title:
-        source_path = Path(media_title).name
-
-    if not source_path:
-        logger.warning(f"Could not determine path from webhook: {payload.title}")
-        return {"status": "error", "reason": "could not determine source path"}
-
-    # Security: reject traversal attempts but allow relative subdirectories
-    if "\\" in source_path or ".." in source_path:
-        logger.warning(f"Rejected path with traversal attempt: {source_path}")
-        return {"status": "error", "reason": "invalid path"}
-
-    full_path = str(Path(settings.raw_path) / source_path)
-
-    if worker is None or not worker.is_running:
-        raise HTTPException(status_code=503, detail="Transcoder not ready")
-
-    job_title = media_title or payload.title
-    job_id, created = await worker.queue_job(
-        job_id=payload.job_id,
-        source_path=full_path,
-        title=job_title,
-        video_type=payload.video_type,
-        year=payload.year,
-        disctype=payload.disctype,
-        poster_url=payload.poster_url,
-        config_overrides=payload.config_overrides,
-        multi_title=bool(payload.multi_title),
-        tracks=payload.tracks,
-        folder_name=payload.folder_name,
-        title_name=payload.title_name,
-    )
-
-    return {
-        "status": "queued" if created else "already_queued",
-        "job_id": job_id,
-        "path": source_path,
-        "queue_size": worker.queue_size,
-    }
-
-
-@app.get("/jobs")
-async def list_jobs(
-    status: JobStatus | None = None,
-    job_id: int | None = None,
-    limit: int = 50,
-    offset: int = 0,
-    _role: str = Depends(get_current_user),
-):
-    """List all transcode jobs, optionally filtered by status."""
-    # Validate pagination
-    if limit > 500:
-        limit = 500
-    if limit < 1:
-        limit = 1
-    if offset < 0:
-        offset = 0
-
-    async with get_db() as db:
-        query = select(TranscodeJobDB)
-        if status:
-            query = query.where(TranscodeJobDB.status == status)
-        if job_id is not None:
-            query = query.where(TranscodeJobDB.id == job_id)
-        query = query.order_by(TranscodeJobDB.created_at.desc())
-
-        # Get total count
-        count_query = select(func.count()).select_from(TranscodeJobDB)
-        if status:
-            count_query = count_query.where(TranscodeJobDB.status == status)
-        if job_id is not None:
-            count_query = count_query.where(TranscodeJobDB.id == job_id)
-        total_result = await db.execute(count_query)
-        total = total_result.scalar()
-
-        # Apply pagination
-        query = query.limit(limit).offset(offset)
-
-        result = await db.execute(query)
-        jobs = result.scalars().all()
-
-        return {
-            "jobs": [
-                {
-                    "id": job.id,
-                    "title": job.title,
-                    "source_path": job.source_path,
-                    "status": job.status,
-                    "progress": job.progress,
-                    "created_at": job.created_at.isoformat() if job.created_at else None,
-                    "started_at": job.started_at.isoformat() if job.started_at else None,
-                    "completed_at": job.completed_at.isoformat() if job.completed_at else None,
-                    "error": job.error,
-                    "logfile": job.logfile,
-                    "video_type": job.video_type,
-                    "year": job.year,
-                    "disctype": job.disctype,
-                    "output_path": job.output_path,
-                    "total_tracks": job.total_tracks,
-                    "poster_url": job.poster_url,
-                    "config_overrides": json.loads(job.config_overrides) if job.config_overrides else None,
-                }
-                for job in jobs
-            ],
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-        }
-
-
-@app.post("/jobs/{job_id}/retry", responses={400: {"description": "Job not in failed state or retry limit reached"}, 404: {"description": "Job not found"}, 503: {"description": "Transcoder not ready"}})
-async def retry_job(
-    job_id: int,
-    _role: str = Depends(require_admin),
-):
-    """Retry a failed job (admin only)."""
-    if worker is None or not worker.is_running:
-        raise HTTPException(status_code=503, detail="Transcoder not ready")
-
-    async with get_db() as db:
-        result = await db.execute(
-            select(TranscodeJobDB).where(TranscodeJobDB.id == job_id)
-        )
-        job = result.scalar_one_or_none()
-
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-
-        if job.status != JobStatus.FAILED:
-            raise HTTPException(status_code=400, detail="Job is not in failed state")
-
-        # Check retry limit
-        if job.retry_count >= settings.max_retry_count:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Maximum retry limit reached ({settings.max_retry_count})"
-            )
-
-        # Re-queue via queue_job (handles status reset internally)
-        await worker.queue_job(
-            job_id=job.id,
-            source_path=job.source_path,
-            title=job.title,
-        )
-
-        return {"status": "queued", "job_id": job.id, "retry_count": job.retry_count + 1}
-
-
-@app.delete("/jobs/{job_id}", responses={400: {"description": "Cannot delete job in progress"}, 404: {"description": "Job not found"}})
-async def delete_job(
-    job_id: int,
-    _role: str = Depends(require_admin),
-):
-    """Delete a job from the database (admin only)."""
-    async with get_db() as db:
-        result = await db.execute(
-            select(TranscodeJobDB).where(TranscodeJobDB.id == job_id)
-        )
-        job = result.scalar_one_or_none()
-
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-
-        if job.status == JobStatus.PROCESSING:
-            raise HTTPException(status_code=400, detail="Cannot delete job in progress")
-
-        await db.execute(delete(TranscodeJobDB).where(TranscodeJobDB.id == job_id))
-        await db.commit()
-
-        return {"status": "deleted", "job_id": job_id}
-
-
-@app.get("/stats")
-async def get_stats(_role: str = Depends(get_current_user)):
-    """Get transcoding statistics."""
-    async with get_db() as db:
-        # Count by status
-        result = await db.execute(
-            select(TranscodeJobDB.status, func.count(TranscodeJobDB.id))
-            .group_by(TranscodeJobDB.status)
-        )
-        status_counts = dict(result.all())
-
-        return {
-            "pending": status_counts.get(JobStatus.PENDING, 0),
-            "processing": status_counts.get(JobStatus.PROCESSING, 0),
-            "completed": status_counts.get(JobStatus.COMPLETED, 0),
-            "failed": status_counts.get(JobStatus.FAILED, 0),
-            "cancelled": status_counts.get(JobStatus.CANCELLED, 0),
-            "worker_running": worker is not None and worker.is_running,
-            "current_job": worker.current_job if worker else None,
-        }
-
-
-@app.get("/logs")
-async def list_logs(_role: str = Depends(get_current_user)):
-    """List available log files."""
-    from log_reader import list_logs as _list_logs
-    return _list_logs()
-
-
-@app.get("/logs/{filename}/structured", responses={404: {"description": "Log file not found"}})
-async def get_structured_log(
-    filename: str,
-    mode: str = Query("tail", pattern="^(tail|full)$"),
-    lines: int = Query(100, ge=1, le=10000),
-    level: str | None = Query(None),
-    search: str | None = Query(None),
-    _role: str = Depends(get_current_user),
-):
-    """Read a structured (JSON lines) log file with optional filtering."""
-    from log_reader import read_structured_log
-    result = read_structured_log(filename, mode=mode, lines=lines, level=level, search=search)
-    if result is None:
-        raise HTTPException(status_code=404, detail="Log file not found")
-    return result
-
-
-@app.get("/logs/{filename}", responses={404: {"description": "Log file not found"}})
-async def get_log(
-    filename: str,
-    mode: str = Query("tail", pattern="^(tail|full)$"),
-    lines: int = Query(100, ge=1, le=10000),
-    _role: str = Depends(get_current_user),
-):
-    """Read a log file's content."""
-    from log_reader import read_log
-    result = read_log(filename, mode=mode, lines=lines)
-    if result is None:
-        raise HTTPException(status_code=404, detail="Log file not found")
-    return result
+app.include_router(health_router)
+app.include_router(config_router)
+app.include_router(jobs_router)
+app.include_router(stats_router)
+app.include_router(logs_router)

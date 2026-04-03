@@ -60,17 +60,19 @@ async def client(mock_worker, tmp_path):
                 raise
 
     with patch.object(db_module, "get_db", test_get_db), \
-         patch("main.get_db", test_get_db), \
+         patch("routers.jobs.get_db", test_get_db), \
+         patch("routers.stats.get_db", test_get_db), \
+         patch("routers.config.get_db", test_get_db), \
          patch("main.init_db", AsyncMock()):
 
         import main as main_module
-        main_module.worker = mock_worker
+        main_module.app.state.worker = mock_worker
 
         transport = ASGITransport(app=main_module.app)
         async with AsyncClient(transport=transport, base_url="https://test") as ac:
-            yield ac, test_session_factory
+            yield ac, main_module.app, test_session_factory
 
-        main_module.worker = None
+        main_module.app.state.worker = None
 
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -116,7 +118,7 @@ class TestDetectCpu:
 
     def test_reads_from_proc_cpuinfo(self):
         """Should extract model name from /proc/cpuinfo."""
-        from main import _detect_cpu
+        from routers.health import _detect_cpu
 
         cpuinfo = "processor\t: 0\nmodel name\t: Intel(R) Core(TM) i7-10700K\nstepping\t: 5\n"
         with patch("builtins.open", mock_open(read_data=cpuinfo)):
@@ -125,29 +127,29 @@ class TestDetectCpu:
 
     def test_falls_back_to_platform_on_oserror(self):
         """Should use platform.processor() when /proc/cpuinfo unavailable."""
-        from main import _detect_cpu
+        from routers.health import _detect_cpu
 
         with patch("builtins.open", side_effect=OSError("not found")), \
-             patch("main.platform.processor", return_value="x86_64"):
+             patch("routers.health.platform.processor", return_value="x86_64"):
             result = _detect_cpu()
             assert result == "x86_64"
 
     def test_returns_unknown_on_no_data(self):
         """Should return 'Unknown' when nothing available."""
-        from main import _detect_cpu
+        from routers.health import _detect_cpu
 
         with patch("builtins.open", side_effect=OSError("not found")), \
-             patch("main.platform.processor", return_value=""):
+             patch("routers.health.platform.processor", return_value=""):
             result = _detect_cpu()
             assert result == "Unknown"
 
     def test_no_model_name_line(self):
         """Should fall back when cpuinfo has no model name line."""
-        from main import _detect_cpu
+        from routers.health import _detect_cpu
 
         cpuinfo = "processor\t: 0\nstepping\t: 5\n"
         with patch("builtins.open", mock_open(read_data=cpuinfo)), \
-             patch("main.platform.processor", return_value="aarch64"):
+             patch("routers.health.platform.processor", return_value="aarch64"):
             result = _detect_cpu()
             assert result == "aarch64"
 
@@ -159,32 +161,32 @@ class TestNormalizeSourcePath:
     """Tests for _normalize_source_path()."""
 
     def test_returns_none_for_none(self):
-        from main import _normalize_source_path
+        from routers.jobs import _normalize_source_path
         assert _normalize_source_path(None) is None
 
     def test_returns_relative_path_unchanged(self):
-        from main import _normalize_source_path
+        from routers.jobs import _normalize_source_path
         assert _normalize_source_path("Movie Title (2024)") == "Movie Title (2024)"
 
     def test_strips_raw_prefix(self):
-        from main import _normalize_source_path
+        from routers.jobs import _normalize_source_path
         result = _normalize_source_path("/home/arm/media/raw/Movie Title (2024)")
         assert result == "Movie Title (2024)"
 
     def test_absolute_path_without_raw(self):
         """Should return basename when 'raw' not in path."""
-        from main import _normalize_source_path
+        from routers.jobs import _normalize_source_path
         result = _normalize_source_path("/some/other/path/MovieDir")
         assert result == "MovieDir"
 
     def test_returns_none_when_raw_is_last_part(self):
         """Should return None when raw is the last path component."""
-        from main import _normalize_source_path
+        from routers.jobs import _normalize_source_path
         result = _normalize_source_path("/home/arm/media/raw")
         assert result is None
 
     def test_empty_string(self):
-        from main import _normalize_source_path
+        from routers.jobs import _normalize_source_path
         assert _normalize_source_path("") == ""
 
 
@@ -195,35 +197,35 @@ class TestExtractMediaTitle:
     """Tests for _extract_media_title()."""
 
     def test_returns_none_for_none(self):
-        from main import _extract_media_title
+        from routers.jobs import _extract_media_title
         assert _extract_media_title(None) is None
 
     def test_returns_none_for_empty(self):
-        from main import _extract_media_title
+        from routers.jobs import _extract_media_title
         assert _extract_media_title("") is None
 
     def test_rip_complete_pattern(self):
-        from main import _extract_media_title
+        from routers.jobs import _extract_media_title
         result = _extract_media_title("Movie Title (2024) rip complete. Starting transcode.")
         assert result == "Movie Title (2024)"
 
     def test_processing_complete_pattern(self):
-        from main import _extract_media_title
+        from routers.jobs import _extract_media_title
         result = _extract_media_title("Movie Title (2024) processing complete.")
         assert result == "Movie Title (2024)"
 
     def test_legacy_rip_of_pattern(self):
-        from main import _extract_media_title
+        from routers.jobs import _extract_media_title
         result = _extract_media_title("Rip of Movie Title complete")
         assert result == "Movie Title"
 
     def test_fallback_strips_year(self):
-        from main import _extract_media_title
+        from routers.jobs import _extract_media_title
         result = _extract_media_title("Movie Title (2024)")
         assert result == "Movie Title"
 
     def test_fallback_no_year(self):
-        from main import _extract_media_title
+        from routers.jobs import _extract_media_title
         result = _extract_media_title("Some Random Text")
         assert result == "Some Random Text"
 
@@ -236,11 +238,11 @@ class TestSystemInfoEndpoint:
 
     @pytest.mark.asyncio
     async def test_system_info(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         mock_mem = MagicMock()
         mock_mem.total = 17179869184  # 16 GB
-        with patch("main.psutil.virtual_memory", return_value=mock_mem), \
-             patch("main._detect_cpu", return_value="Intel i7-10700K"):
+        with patch("routers.health.psutil.virtual_memory", return_value=mock_mem), \
+             patch("routers.health._detect_cpu", return_value="Intel i7-10700K"):
             response = await ac.get("/system/info")
             assert response.status_code == 200
             data = response.json()
@@ -254,7 +256,7 @@ class TestSystemStatsEndpoint:
 
     @pytest.mark.asyncio
     async def test_system_stats_with_temps(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         mock_mem = MagicMock()
         mock_mem.total = 17179869184
         mock_mem.used = 8589934592
@@ -265,10 +267,10 @@ class TestSystemStatsEndpoint:
         mock_temp.current = 55.0
         mock_temps = {"coretemp": [mock_temp]}
 
-        with patch("main.psutil.cpu_percent", return_value=25.0), \
-             patch("main.psutil.sensors_temperatures", return_value=mock_temps), \
-             patch("main.psutil.virtual_memory", return_value=mock_mem), \
-             patch("main.psutil.disk_usage", side_effect=FileNotFoundError("no such path")):
+        with patch("routers.health.psutil.cpu_percent", return_value=25.0), \
+             patch("routers.health.psutil.sensors_temperatures", return_value=mock_temps), \
+             patch("routers.health.psutil.virtual_memory", return_value=mock_mem), \
+             patch("routers.health.psutil.disk_usage", side_effect=FileNotFoundError("no such path")):
             response = await ac.get("/system/stats")
             assert response.status_code == 200
             data = response.json()
@@ -280,17 +282,17 @@ class TestSystemStatsEndpoint:
     @pytest.mark.asyncio
     async def test_system_stats_no_temps(self, client):
         """Should handle missing temperature sensors gracefully."""
-        ac, _ = client
+        ac, app, *_rest = client
         mock_mem = MagicMock()
         mock_mem.total = 17179869184
         mock_mem.used = 8589934592
         mock_mem.available = 8589934592
         mock_mem.percent = 50.0
 
-        with patch("main.psutil.cpu_percent", return_value=10.0), \
-             patch("main.psutil.sensors_temperatures", side_effect=AttributeError), \
-             patch("main.psutil.virtual_memory", return_value=mock_mem), \
-             patch("main.psutil.disk_usage", side_effect=FileNotFoundError):
+        with patch("routers.health.psutil.cpu_percent", return_value=10.0), \
+             patch("routers.health.psutil.sensors_temperatures", side_effect=AttributeError), \
+             patch("routers.health.psutil.virtual_memory", return_value=mock_mem), \
+             patch("routers.health.psutil.disk_usage", side_effect=FileNotFoundError):
             response = await ac.get("/system/stats")
             assert response.status_code == 200
             data = response.json()
@@ -299,7 +301,7 @@ class TestSystemStatsEndpoint:
     @pytest.mark.asyncio
     async def test_system_stats_with_disk_usage(self, client):
         """Should return storage info when paths exist."""
-        ac, _ = client
+        ac, app, *_rest = client
         mock_mem = MagicMock()
         mock_mem.total = 17179869184
         mock_mem.used = 8589934592
@@ -312,10 +314,10 @@ class TestSystemStatsEndpoint:
         mock_disk.free = 300 * 1073741824
         mock_disk.percent = 40.0
 
-        with patch("main.psutil.cpu_percent", return_value=10.0), \
-             patch("main.psutil.sensors_temperatures", return_value={}), \
-             patch("main.psutil.virtual_memory", return_value=mock_mem), \
-             patch("main.psutil.disk_usage", return_value=mock_disk):
+        with patch("routers.health.psutil.cpu_percent", return_value=10.0), \
+             patch("routers.health.psutil.sensors_temperatures", return_value={}), \
+             patch("routers.health.psutil.virtual_memory", return_value=mock_mem), \
+             patch("routers.health.psutil.disk_usage", return_value=mock_disk):
             response = await ac.get("/system/stats")
             data = response.json()
             assert len(data["storage"]) == 3
@@ -325,7 +327,7 @@ class TestSystemStatsEndpoint:
     @pytest.mark.asyncio
     async def test_system_stats_k10temp(self, client):
         """Should detect k10temp sensor (AMD)."""
-        ac, _ = client
+        ac, app, *_rest = client
         mock_mem = MagicMock()
         mock_mem.total = 17179869184
         mock_mem.used = 8589934592
@@ -336,10 +338,10 @@ class TestSystemStatsEndpoint:
         mock_temp.current = 42.0
         mock_temps = {"k10temp": [mock_temp]}
 
-        with patch("main.psutil.cpu_percent", return_value=10.0), \
-             patch("main.psutil.sensors_temperatures", return_value=mock_temps), \
-             patch("main.psutil.virtual_memory", return_value=mock_mem), \
-             patch("main.psutil.disk_usage", side_effect=FileNotFoundError):
+        with patch("routers.health.psutil.cpu_percent", return_value=10.0), \
+             patch("routers.health.psutil.sensors_temperatures", return_value=mock_temps), \
+             patch("routers.health.psutil.virtual_memory", return_value=mock_mem), \
+             patch("routers.health.psutil.disk_usage", side_effect=FileNotFoundError):
             response = await ac.get("/system/stats")
             data = response.json()
             assert data["cpu_temp"] == pytest.approx(42.0)
@@ -347,26 +349,30 @@ class TestSystemStatsEndpoint:
     @pytest.mark.asyncio
     async def test_system_stats_includes_gpu_null_when_no_monitor(self, client):
         """GPU field is null when no GPU monitor is configured."""
-        ac, _ = client
+        ac, app, *_rest = client
         mock_mem = MagicMock()
         mock_mem.total = 17179869184
         mock_mem.used = 8589934592
         mock_mem.available = 8589934592
         mock_mem.percent = 50.0
 
-        with patch("main.psutil.cpu_percent", return_value=10.0), \
-             patch("main.psutil.sensors_temperatures", return_value={}), \
-             patch("main.psutil.virtual_memory", return_value=mock_mem), \
-             patch("main.psutil.disk_usage", side_effect=FileNotFoundError), \
-             patch("main._gpu_monitor", None):
-            response = await ac.get("/system/stats")
-            data = response.json()
-            assert data["gpu"] is None
+        saved_monitor = getattr(app.state, 'gpu_monitor', None)
+        app.state.gpu_monitor = None
+        try:
+            with patch("routers.health.psutil.cpu_percent", return_value=10.0), \
+                 patch("routers.health.psutil.sensors_temperatures", return_value={}), \
+                 patch("routers.health.psutil.virtual_memory", return_value=mock_mem), \
+                 patch("routers.health.psutil.disk_usage", side_effect=FileNotFoundError):
+                response = await ac.get("/system/stats")
+                data = response.json()
+                assert data["gpu"] is None
+        finally:
+            app.state.gpu_monitor = saved_monitor
 
     @pytest.mark.asyncio
     async def test_system_stats_includes_gpu_snapshot(self, client):
         """GPU field contains snapshot when monitor is configured."""
-        ac, _ = client
+        ac, app, *_rest = client
         mock_mem = MagicMock()
         mock_mem.total = 17179869184
         mock_mem.used = 8589934592
@@ -384,21 +390,25 @@ class TestSystemStatsEndpoint:
         }
         mock_monitor.snapshot.return_value = MagicMock(to_dict=MagicMock(return_value=mock_snap))
 
-        with patch("main.psutil.cpu_percent", return_value=10.0), \
-             patch("main.psutil.sensors_temperatures", return_value={}), \
-             patch("main.psutil.virtual_memory", return_value=mock_mem), \
-             patch("main.psutil.disk_usage", side_effect=FileNotFoundError), \
-             patch("main._gpu_monitor", mock_monitor):
-            response = await ac.get("/system/stats")
-            data = response.json()
-            assert data["gpu"]["vendor"] == "nvidia"
-            assert data["gpu"]["utilization_percent"] == pytest.approx(45.0)
-            assert data["gpu"]["encoder_percent"] == pytest.approx(78.0)
+        saved_monitor = getattr(app.state, 'gpu_monitor', None)
+        app.state.gpu_monitor = mock_monitor
+        try:
+            with patch("routers.health.psutil.cpu_percent", return_value=10.0), \
+                 patch("routers.health.psutil.sensors_temperatures", return_value={}), \
+                 patch("routers.health.psutil.virtual_memory", return_value=mock_mem), \
+                 patch("routers.health.psutil.disk_usage", side_effect=FileNotFoundError):
+                response = await ac.get("/system/stats")
+                data = response.json()
+                assert data["gpu"]["vendor"] == "nvidia"
+                assert data["gpu"]["utilization_percent"] == pytest.approx(45.0)
+                assert data["gpu"]["encoder_percent"] == pytest.approx(78.0)
+        finally:
+            app.state.gpu_monitor = saved_monitor
 
     @pytest.mark.asyncio
     async def test_system_stats_gpu_snapshot_exception(self, client):
         """GPU field is null when monitor.snapshot() raises."""
-        ac, _ = client
+        ac, app, *_rest = client
         mock_mem = MagicMock()
         mock_mem.total = 17179869184
         mock_mem.used = 8589934592
@@ -408,13 +418,17 @@ class TestSystemStatsEndpoint:
         mock_monitor = MagicMock()
         mock_monitor.snapshot.side_effect = RuntimeError("GPU hung")
 
-        with patch("main.psutil.cpu_percent", return_value=10.0), \
-             patch("main.psutil.sensors_temperatures", return_value={}), \
-             patch("main.psutil.virtual_memory", return_value=mock_mem), \
-             patch("main.psutil.disk_usage", side_effect=FileNotFoundError), \
-             patch("main._gpu_monitor", mock_monitor):
-            response = await ac.get("/system/stats")
-            assert response.json()["gpu"] is None
+        saved_monitor = getattr(app.state, 'gpu_monitor', None)
+        app.state.gpu_monitor = mock_monitor
+        try:
+            with patch("routers.health.psutil.cpu_percent", return_value=10.0), \
+                 patch("routers.health.psutil.sensors_temperatures", return_value={}), \
+                 patch("routers.health.psutil.virtual_memory", return_value=mock_mem), \
+                 patch("routers.health.psutil.disk_usage", side_effect=FileNotFoundError):
+                response = await ac.get("/system/stats")
+                assert response.json()["gpu"] is None
+        finally:
+            app.state.gpu_monitor = saved_monitor
 
 
 # ─── Config Endpoints ───────────────────────────────────────────────────────
@@ -425,7 +439,7 @@ class TestGetConfigEndpoint:
 
     @pytest.mark.asyncio
     async def test_get_config(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         response = await ac.get("/config")
         assert response.status_code == 200
         data = response.json()
@@ -446,7 +460,7 @@ class TestPatchConfigEndpoint:
 
     @pytest.mark.asyncio
     async def test_update_valid_config(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         from config import settings
         original = settings.video_quality
         try:
@@ -460,34 +474,34 @@ class TestPatchConfigEndpoint:
 
     @pytest.mark.asyncio
     async def test_update_empty_body_rejected(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         response = await ac.patch("/config", json={})
         assert response.status_code == 400
 
     @pytest.mark.asyncio
     async def test_update_non_dict_rejected(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         response = await ac.patch("/config", content=b'"just a string"',
                                   headers={"content-type": "application/json"})
         assert response.status_code == 400
 
     @pytest.mark.asyncio
     async def test_update_invalid_key_rejected(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         response = await ac.patch("/config", json={"db_path": "/evil"})
         assert response.status_code == 400
         assert "Non-updatable" in response.json()["detail"]
 
     @pytest.mark.asyncio
     async def test_update_invalid_value_rejected(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         response = await ac.patch("/config", json={"video_encoder": "nonexistent"})
         assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_update_persists_to_db(self, client):
         """Config update should persist override to database."""
-        ac, session_factory = client
+        ac, app, session_factory = client
         from config import settings
         original = settings.max_concurrent
         try:
@@ -509,7 +523,7 @@ class TestPatchConfigEndpoint:
     @pytest.mark.asyncio
     async def test_update_existing_override(self, client):
         """Updating an already-overridden key should update the DB record."""
-        ac, session_factory = client
+        ac, app, session_factory = client
         from config import settings
         original = settings.video_quality
 
@@ -534,7 +548,7 @@ class TestRetryWithJob:
 
     @pytest.mark.asyncio
     async def test_retry_failed_job(self, client, mock_worker):
-        ac, session_factory = client
+        ac, app, session_factory = client
 
         # Insert a failed job
         async with session_factory() as session:
@@ -560,7 +574,7 @@ class TestRetryWithJob:
 
     @pytest.mark.asyncio
     async def test_retry_non_failed_job_rejected(self, client):
-        ac, session_factory = client
+        ac, app, session_factory = client
 
         async with session_factory() as session:
             job = TranscodeJobDB(
@@ -578,7 +592,7 @@ class TestRetryWithJob:
 
     @pytest.mark.asyncio
     async def test_retry_exceeds_limit(self, client):
-        ac, session_factory = client
+        ac, app, session_factory = client
         from config import settings
 
         async with session_factory() as session:
@@ -605,7 +619,7 @@ class TestDeleteWithJob:
 
     @pytest.mark.asyncio
     async def test_delete_completed_job(self, client):
-        ac, session_factory = client
+        ac, app, session_factory = client
 
         async with session_factory() as session:
             job = TranscodeJobDB(
@@ -625,7 +639,7 @@ class TestDeleteWithJob:
 
     @pytest.mark.asyncio
     async def test_delete_processing_job_rejected(self, client):
-        ac, session_factory = client
+        ac, app, session_factory = client
 
         async with session_factory() as session:
             job = TranscodeJobDB(
@@ -643,7 +657,7 @@ class TestDeleteWithJob:
 
     @pytest.mark.asyncio
     async def test_delete_failed_job(self, client):
-        ac, session_factory = client
+        ac, app, session_factory = client
 
         async with session_factory() as session:
             job = TranscodeJobDB(
@@ -667,7 +681,7 @@ class TestJobsListWithData:
 
     @pytest.mark.asyncio
     async def test_list_jobs_with_data(self, client):
-        ac, session_factory = client
+        ac, app, session_factory = client
 
         async with session_factory() as session:
             for i in range(3):
@@ -687,7 +701,7 @@ class TestJobsListWithData:
 
     @pytest.mark.asyncio
     async def test_filter_by_status(self, client):
-        ac, session_factory = client
+        ac, app, session_factory = client
 
         async with session_factory() as session:
             session.add(TranscodeJobDB(
@@ -703,7 +717,7 @@ class TestJobsListWithData:
 
     @pytest.mark.asyncio
     async def test_filter_by_job_id(self, client):
-        ac, session_factory = client
+        ac, app, session_factory = client
 
         async with session_factory() as session:
             session.add(TranscodeJobDB(
@@ -719,7 +733,7 @@ class TestJobsListWithData:
 
     @pytest.mark.asyncio
     async def test_limit_below_1_clamped(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         response = await ac.get("/jobs?limit=0")
         data = response.json()
         assert data["limit"] == 1
@@ -727,7 +741,7 @@ class TestJobsListWithData:
     @pytest.mark.asyncio
     async def test_job_serialization_fields(self, client):
         """Verify all job fields are serialized correctly."""
-        ac, session_factory = client
+        ac, app, session_factory = client
         import json as json_module
 
         async with session_factory() as session:
@@ -770,7 +784,7 @@ class TestStatsWithData:
 
     @pytest.mark.asyncio
     async def test_stats_counts(self, client):
-        ac, session_factory = client
+        ac, app, session_factory = client
 
         async with session_factory() as session:
             session.add(TranscodeJobDB(
@@ -801,11 +815,11 @@ class TestLogsEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_logs(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         mock_logs = [
             {"filename": "transcoder.log", "size": 1024, "modified": "2024-01-01T00:00:00+00:00"},
         ]
-        with patch("main.list_logs", return_value=mock_logs) as mock_fn:
+        with patch("routers.logs.list_logs", return_value=mock_logs) as mock_fn:
             # The import inside the endpoint uses `from log_reader import list_logs as _list_logs`
             # We need to patch what the endpoint actually calls
             pass
@@ -817,7 +831,7 @@ class TestLogsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_log_found(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         mock_result = {
             "filename": "transcoder.log",
             "content": "some log content\n",
@@ -832,14 +846,14 @@ class TestLogsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_log_not_found(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         with patch("log_reader.read_log", return_value=None):
             response = await ac.get("/logs/nonexistent.log")
             assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_structured_log_found(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         mock_result = {
             "filename": "transcoder.log",
             "entries": [{"timestamp": "2024-01-01", "level": "info", "event": "test"}],
@@ -854,14 +868,14 @@ class TestLogsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_structured_log_not_found(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         with patch("log_reader.read_structured_log", return_value=None):
             response = await ac.get("/logs/nonexistent.log/structured")
             assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_structured_log_with_filters(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         mock_result = {
             "filename": "transcoder.log",
             "entries": [],
@@ -878,7 +892,7 @@ class TestLogsEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_log_with_params(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         mock_result = {"filename": "test.log", "content": "line\n", "lines": 1}
         with patch("log_reader.read_log", return_value=mock_result) as mock_fn:
             response = await ac.get("/logs/test.log?mode=full&lines=200")
@@ -895,7 +909,7 @@ class TestWebhookEdgeCases:
     @pytest.mark.asyncio
     async def test_payload_too_large(self, client):
         """Should reject payloads over 10KB via content-length header."""
-        ac, _ = client
+        ac, app, *_rest = client
         response = await ac.post(
             "/webhook/arm",
             json={"title": "test"},
@@ -906,7 +920,7 @@ class TestWebhookEdgeCases:
     @pytest.mark.asyncio
     async def test_webhook_absolute_path_normalization(self, client, mock_worker):
         """Should normalize absolute ARM host paths to relative."""
-        ac, _ = client
+        ac, app, *_rest = client
         payload = {
             "title": "Rip complete",
             "path": "/home/arm/media/raw/Movie Title (2024)",
@@ -922,7 +936,7 @@ class TestWebhookEdgeCases:
     @pytest.mark.asyncio
     async def test_webhook_already_queued(self, client, mock_worker):
         """Should return already_queued when queue_job returns created=False."""
-        ac, _ = client
+        ac, app, *_rest = client
         mock_worker.queue_job = AsyncMock(return_value=(1, False))
         payload = {
             "title": "Rip complete",
@@ -938,7 +952,7 @@ class TestWebhookEdgeCases:
     @pytest.mark.asyncio
     async def test_webhook_with_all_metadata(self, client, mock_worker):
         """Should pass all metadata fields through to queue_job."""
-        ac, _ = client
+        ac, app, *_rest = client
         payload = {
             "title": "Rip complete",
             "path": "Movie Title (2024)",
@@ -971,7 +985,7 @@ class TestWebhookEdgeCases:
     @pytest.mark.asyncio
     async def test_webhook_worker_not_running(self, client, mock_worker):
         """Should return 503 when worker exists but is_running is False."""
-        ac, _ = client
+        ac, app, *_rest = client
         mock_worker.is_running = False
         try:
             payload = {
@@ -994,7 +1008,7 @@ class TestHealthCheckDetails:
 
     @pytest.mark.asyncio
     async def test_health_includes_config(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         response = await ac.get("/health")
         data = response.json()
         assert "config" in data
@@ -1009,7 +1023,7 @@ class TestHealthCheckDetails:
 
     @pytest.mark.asyncio
     async def test_health_includes_auth_info(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         response = await ac.get("/health")
         data = response.json()
         assert "require_api_auth" in data
@@ -1017,7 +1031,7 @@ class TestHealthCheckDetails:
 
     @pytest.mark.asyncio
     async def test_health_includes_gpu_support(self, client, mock_worker):
-        ac, _ = client
+        ac, app, *_rest = client
         response = await ac.get("/health")
         data = response.json()
         assert data["gpu_support"] == {"handbrake_nvenc": True}
@@ -1025,10 +1039,10 @@ class TestHealthCheckDetails:
 
     @pytest.mark.asyncio
     async def test_health_no_worker(self, client):
-        ac, _ = client
+        ac, app, *_rest = client
         import main as main_module
-        saved = main_module.worker
-        main_module.worker = None
+        saved = main_module.app.state.worker
+        main_module.app.state.worker = None
         try:
             response = await ac.get("/health")
             data = response.json()
@@ -1036,7 +1050,7 @@ class TestHealthCheckDetails:
             assert data["queue_size"] == 0
             assert data["gpu_support"] == {}
         finally:
-            main_module.worker = saved
+            main_module.app.state.worker = saved
 
 
 # ─── Lifespan ───────────────────────────────────────────────────────────────

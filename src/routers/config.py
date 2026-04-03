@@ -1,0 +1,87 @@
+"""Configuration endpoints."""
+
+import logging
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from auth import get_current_user, require_admin
+from config import (
+    settings, UPDATABLE_KEYS, VALID_LOG_LEVELS, get_available_presets,
+    get_preset_files, get_presets_by_file,
+)
+from constants import VALID_VIDEO_ENCODERS, VALID_AUDIO_ENCODERS, VALID_SUBTITLE_MODES
+from database import get_db
+from models import ConfigOverrideDB
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+@router.get("/config")
+async def get_config(_role: str = Depends(get_current_user)):
+    """Return current updatable settings and valid option lists."""
+    config = {key: getattr(settings, key) for key in UPDATABLE_KEYS}
+    return {
+        "config": config,
+        "updatable_keys": sorted(UPDATABLE_KEYS),
+        "paths": {
+            "raw_path": settings.raw_path,
+            "completed_path": settings.completed_path,
+            "work_path": settings.work_path,
+        },
+        "valid_video_encoders": VALID_VIDEO_ENCODERS,
+        "valid_audio_encoders": VALID_AUDIO_ENCODERS,
+        "valid_subtitle_modes": VALID_SUBTITLE_MODES,
+        "valid_log_levels": VALID_LOG_LEVELS,
+        "valid_handbrake_presets": get_available_presets(),
+        "valid_preset_files": get_preset_files(),
+        "presets_by_file": get_presets_by_file(),
+    }
+
+
+@router.patch("/config", responses={400: {"description": "Invalid or non-updatable keys"}, 422: {"description": "Validation error"}})
+async def update_config(
+    request: Request,
+    _role: str = Depends(require_admin),
+):
+    """Update runtime settings. Validates, persists to DB, patches singleton."""
+    data = await request.json()
+    if not isinstance(data, dict) or not data:
+        raise HTTPException(status_code=400, detail="Request body must be a non-empty JSON object")
+
+    # Reject unknown keys
+    invalid_keys = set(data.keys()) - UPDATABLE_KEYS
+    if invalid_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Non-updatable keys: {', '.join(sorted(invalid_keys))}",
+        )
+
+    # Validate values by building a partial Settings with overrides
+    current_vals = {key: getattr(settings, key) for key in UPDATABLE_KEYS}
+    current_vals.update(data)
+    try:
+        from config import Settings as SettingsClass
+        validated = SettingsClass.model_validate({**settings.model_dump(), **current_vals})
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    # Persist to DB and update in-memory singleton
+    async with get_db() as db:
+        for key, value in data.items():
+            coerced = getattr(validated, key)
+            override = await db.get(ConfigOverrideDB, key)
+            if override:
+                override.value = str(coerced)
+                override.updated_at = datetime.now(timezone.utc)
+            else:
+                db.add(ConfigOverrideDB(key=key, value=str(coerced)))
+            setattr(settings, key, coerced)
+        await db.commit()
+
+    return {
+        "success": True,
+        "applied": {key: getattr(settings, key) for key in data},
+    }
