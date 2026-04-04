@@ -696,7 +696,7 @@ class TranscodeWorker:
             await asyncio.get_event_loop().run_in_executor(None, work_output_dir.mkdir)
 
             logger.info(f"Copying source to local scratch: {work_source_dir}")
-            if source.is_file():
+            if await asyncio.get_event_loop().run_in_executor(None, source.is_file):
                 await asyncio.get_event_loop().run_in_executor(None, work_source_dir.mkdir)
                 await async_copy_file(str(source), str(work_source_dir / source.name))
             else:
@@ -934,12 +934,13 @@ class TranscodeWorker:
     async def _wait_for_stable(self, path: str, timeout: int = 3600):
         """Wait for directory to stop receiving new files."""
         path = Path(path)
-        if not path.exists():
+        loop = asyncio.get_event_loop()
+        if not await loop.run_in_executor(None, path.exists):
             # NFS mounts may lag behind — wait up to 60s for the path to appear
             logger.info(f"Source path not yet visible, waiting for NFS propagation: {path}")
             for _ in range(12):
                 await asyncio.sleep(5)
-                if path.exists():
+                if await loop.run_in_executor(None, path.exists):
                     break
             else:
                 raise ValueError(f"Source path does not exist: {path}")
