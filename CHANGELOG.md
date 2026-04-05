@@ -1,5 +1,27 @@
 # Changelog
 
+## [16.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v15.0.2...v16.0.0) (2026-04-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* Worker API changed — run() now requires worker_id parameter, _current_job replaced with _active_jobs dict, sentinel-based shutdown replaces shutdown_event-only pattern. Health and stats endpoints now include active_count and max_concurrent fields. New /workers endpoint. main.py restructured into routers/ package.
+
+### Features
+
+* multi-worker concurrency with per-worker tracking ([8004886](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/80048868926400bdd9a57dd22aaedc7456a14b1f))
+
+
+### Bug Fixes
+
+* add fallback for killpg failure in restart endpoint ([21f1333](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/21f13334a7aa32cda2659ea59dd4dd95962f27d8))
+* align default UID to 1000 to match ARM ripper ([5ac7b6b](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/5ac7b6b434d677d8f71ff79f457caa8650a7e12f))
+* increase asyncio StreamReader limit for HandBrake/FFmpeg output ([1bfda8b](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/1bfda8b0b688c1d379e551f469c84be413d4c37c))
+* move blocking filesystem ops off event loop ([0a627fb](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/0a627fbf57c8612e4bbf615cc5e00df9c25ec255))
+* reorder Dockerfile COPY so VERSION layer is never stale ([08e97f3](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/08e97f38736222f580fc785243fc9447ede3691b))
+* resolve SonarCloud issues — Annotated DI, redundant exception, unused vars ([0650180](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/065018004bb5ebdee2b8afdac522c5e52458b6f1))
+* wrap remaining NFS path.exists calls in run_in_executor ([2e8e808](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/2e8e808de0f2d28cc49860afa757e9d1f966814f))
+
 ## [15.0.2](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v15.0.1...v15.0.2) (2026-03-30)
 
 
