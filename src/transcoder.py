@@ -1225,6 +1225,7 @@ class TranscodeWorker:
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            limit=1024 * 1024,  # 1 MiB line limit (HandBrake can emit long lines)
         )
 
         async for line in process.stdout:
@@ -1354,6 +1355,7 @@ class TranscodeWorker:
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            limit=1024 * 1024,  # 1 MiB line limit
         )
 
         # Get duration for progress calculation
