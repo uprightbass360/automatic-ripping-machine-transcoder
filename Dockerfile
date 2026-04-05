@@ -22,12 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=handbrake /HandBrakeCLI /usr/local/bin/HandBrakeCLI
 
-# App user — UID 1001 / GID 1000 to match ARM's runtime identity.
-# ARM writes NFS files as 1001:1000 (ARM_UID=1001, ARM_GID=1000),
-# so the transcoder must use the same UID to read/write shared storage.
+# App user — defaults to UID 1000 / GID 1000 to match ARM's default identity.
+# The entrypoint remaps UID/GID at runtime via TRANSCODER_UID/TRANSCODER_GID
+# env vars (set automatically by docker-compose from ARM_UID/ARM_GID).
 # ubuntu:24.04 ships a default 'ubuntu' user at 1000:1000 which we
 # remove first so our UID/GID assignments are clean.
-ARG TRANSCODER_UID=1001
+ARG TRANSCODER_UID=1000
 ARG TRANSCODER_GID=1000
 RUN (userdel -r ubuntu 2>/dev/null; groupdel ubuntu 2>/dev/null; true) \
     && groupadd -g ${TRANSCODER_GID} transcoder \
