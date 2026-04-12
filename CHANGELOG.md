@@ -1,5 +1,12 @@
 # Changelog
 
+## [16.0.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v16.0.0...v16.0.1) (2026-04-12)
+
+
+### Bug Fixes
+
+* Intel QSV broken — missing oneVPL runtime and driver permissions ([5d06cb4](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/5d06cb4c9585457a12887cb1ad0487e42fd9a9ca))
+
 ## [16.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v15.0.2...v16.0.0) (2026-04-05)
 
 
