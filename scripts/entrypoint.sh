@@ -43,6 +43,23 @@ if [ "$(id -u)" = "0" ]; then
         fi
     done
 
+    # ── GPU device access ────────────────────────────────────────────
+    # Add the transcoder user to whatever groups own /dev/dri/* devices
+    # so VAAPI/QSV/AMF can open the render node. Docker's --group-add
+    # is lost when gosu drops privileges, so we detect and add the
+    # groups here. Handles renderD128, renderD129, card0, etc.
+    for dev in /dev/dri/renderD* /dev/dri/card*; do
+        [ -c "$dev" ] || continue
+        DEV_GID=$(stat -c '%g' "$dev")
+        if ! id -G transcoder | tr ' ' '\n' | grep -qx "$DEV_GID"; then
+            if ! getent group "$DEV_GID" >/dev/null 2>&1; then
+                groupadd -g "$DEV_GID" "hostgpu${DEV_GID}"
+            fi
+            DEV_GROUP=$(getent group "$DEV_GID" | cut -d: -f1)
+            usermod -aG "$DEV_GROUP" transcoder
+        fi
+    done
+
     exec gosu transcoder "$@"
 else
     exec "$@"
