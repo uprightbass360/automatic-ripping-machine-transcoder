@@ -324,7 +324,16 @@ GPU_PRESET_DEFAULTS: dict[str, dict[str, str]] = {
 
 
 def detect_best_gpu(gpu_support: dict) -> str:
-    """Determine the best available GPU family from probe results."""
+    """Determine the best available GPU family from probe results.
+
+    The CPU-only image does not set GPU_VENDOR. If it's absent, skip
+    hardware detection entirely — the host may expose /dev/dri with an
+    iGPU that FFmpeg detects as QSV-capable, but the CPU image lacks
+    the Intel media drivers to actually use it.
+    """
+    import os
+    if not os.environ.get("GPU_VENDOR"):
+        return "software"
     if gpu_support.get("handbrake_nvenc") or gpu_support.get("ffmpeg_nvenc_h265"):
         return "nvenc"
     if gpu_support.get("ffmpeg_qsv_h265"):
