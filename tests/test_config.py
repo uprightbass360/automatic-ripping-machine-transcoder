@@ -202,19 +202,29 @@ class TestGetPresetFiles:
 class TestDetectBestGpu:
     """Tests for detect_best_gpu()."""
 
-    def test_detects_nvenc_via_handbrake(self):
+    def test_cpu_only_image_skips_gpu_detection(self, monkeypatch):
+        """CPU-only image (no GPU_VENDOR) always returns software."""
+        monkeypatch.delenv("GPU_VENDOR", raising=False)
+        gpu = {"handbrake_nvenc": True, "ffmpeg_nvenc_h265": True}
+        assert detect_best_gpu(gpu) == "software"
+
+    def test_detects_nvenc_via_handbrake(self, monkeypatch):
+        monkeypatch.setenv("GPU_VENDOR", "nvidia")
         gpu = {"handbrake_nvenc": True, "ffmpeg_nvenc_h265": False}
         assert detect_best_gpu(gpu) == "nvenc"
 
-    def test_detects_nvenc_via_ffmpeg(self):
+    def test_detects_nvenc_via_ffmpeg(self, monkeypatch):
+        monkeypatch.setenv("GPU_VENDOR", "nvidia")
         gpu = {"handbrake_nvenc": False, "ffmpeg_nvenc_h265": True}
         assert detect_best_gpu(gpu) == "nvenc"
 
-    def test_detects_qsv(self):
+    def test_detects_qsv(self, monkeypatch):
+        monkeypatch.setenv("GPU_VENDOR", "intel")
         gpu = {"handbrake_nvenc": False, "ffmpeg_nvenc_h265": False, "ffmpeg_qsv_h265": True}
         assert detect_best_gpu(gpu) == "qsv"
 
-    def test_detects_vcn_via_amf(self):
+    def test_detects_vcn_via_amf(self, monkeypatch):
+        monkeypatch.setenv("GPU_VENDOR", "amd")
         gpu = {
             "handbrake_nvenc": False,
             "ffmpeg_nvenc_h265": False,
@@ -223,7 +233,8 @@ class TestDetectBestGpu:
         }
         assert detect_best_gpu(gpu) == "vcn"
 
-    def test_detects_vcn_via_vaapi(self):
+    def test_detects_vcn_via_vaapi(self, monkeypatch):
+        monkeypatch.setenv("GPU_VENDOR", "amd")
         gpu = {
             "handbrake_nvenc": False,
             "ffmpeg_nvenc_h265": False,
@@ -233,7 +244,8 @@ class TestDetectBestGpu:
         }
         assert detect_best_gpu(gpu) == "vcn"
 
-    def test_falls_back_to_software(self):
+    def test_falls_back_to_software(self, monkeypatch):
+        monkeypatch.setenv("GPU_VENDOR", "nvidia")
         gpu = {
             "handbrake_nvenc": False,
             "ffmpeg_nvenc_h265": False,
@@ -243,10 +255,12 @@ class TestDetectBestGpu:
         }
         assert detect_best_gpu(gpu) == "software"
 
-    def test_empty_dict_falls_back_to_software(self):
+    def test_empty_dict_falls_back_to_software(self, monkeypatch):
+        monkeypatch.setenv("GPU_VENDOR", "nvidia")
         assert detect_best_gpu({}) == "software"
 
-    def test_nvenc_takes_priority_over_qsv(self):
+    def test_nvenc_takes_priority_over_qsv(self, monkeypatch):
+        monkeypatch.setenv("GPU_VENDOR", "nvidia")
         gpu = {
             "handbrake_nvenc": True,
             "ffmpeg_qsv_h265": True,
@@ -439,7 +453,8 @@ class TestAutoResolveGpuDefaults:
         await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_applies_nvenc_defaults(self, gpu_db):
+    async def test_applies_nvenc_defaults(self, gpu_db, monkeypatch):
+        monkeypatch.setenv("GPU_VENDOR", "nvidia")
         engine, session_factory = gpu_db
         from config import settings, auto_resolve_gpu_defaults
 
@@ -469,7 +484,8 @@ class TestAutoResolveGpuDefaults:
                 setattr(settings, key, val)
 
     @pytest.mark.asyncio
-    async def test_respects_user_overrides(self, gpu_db):
+    async def test_respects_user_overrides(self, gpu_db, monkeypatch):
+        monkeypatch.setenv("GPU_VENDOR", "nvidia")
         engine, session_factory = gpu_db
         from config import settings, auto_resolve_gpu_defaults
 
@@ -502,7 +518,8 @@ class TestAutoResolveGpuDefaults:
                 setattr(settings, key, val)
 
     @pytest.mark.asyncio
-    async def test_software_fallback(self, gpu_db):
+    async def test_software_fallback(self, gpu_db, monkeypatch):
+        monkeypatch.setenv("GPU_VENDOR", "nvidia")
         engine, session_factory = gpu_db
         from config import settings, auto_resolve_gpu_defaults
 
