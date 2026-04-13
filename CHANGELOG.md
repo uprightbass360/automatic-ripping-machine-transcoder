@@ -1,5 +1,12 @@
 # Changelog
 
+## [16.0.2](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v16.0.1...v16.0.2) (2026-04-13)
+
+
+### Bug Fixes
+
+* CPU-only image skips GPU detection to prevent false QSV selection ([9ce1acc](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/9ce1acca716b4071117014a1e7904831d8c1a1e6))
+
 ## [16.0.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v16.0.0...v16.0.1) (2026-04-12)
 
 
