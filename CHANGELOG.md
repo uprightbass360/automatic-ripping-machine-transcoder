@@ -1,5 +1,12 @@
 # Changelog
 
+## [16.0.3](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v16.0.2...v16.0.3) (2026-04-14)
+
+
+### Bug Fixes
+
+* default ARM_CALLBACK_URL to arm-rippers:8080 in .env.example ([eaef695](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/eaef695cc6bcdac6b42f8c598d41574398d9d66a))
+
 ## [16.0.2](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v16.0.1...v16.0.2) (2026-04-13)
 
 
