@@ -56,3 +56,6 @@ Thumbs.db
 # Claude Code
 .claude/
 .superpowers/
+
+# Playwright MCP session artifacts
+.playwright-mcp/
