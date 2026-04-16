@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from config import settings, load_config_overrides, auto_resolve_gpu_defaults
 from constants import SHUTDOWN_TIMEOUT
 from database import init_db
+from presets import load_active_scheme
 from log_format import _foreign_pre_chain, json_formatter, console_formatter
 from gpu_monitor import create_gpu_monitor
 from transcoder import TranscodeWorker
@@ -70,15 +71,28 @@ def _configure_logging():
 _configure_logging()
 logger = logging.getLogger(__name__)
 
+# Module-level singleton for the active scheme, set during startup
+active_scheme = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
+    global active_scheme
+
     # Initialize database
     await init_db()
 
     # Apply any persisted config overrides
     await load_config_overrides()
+
+    # Load the active GPU scheme
+    try:
+        active_scheme = load_active_scheme()
+        logger.info(f"Loaded scheme: {active_scheme.name} ({active_scheme.slug})")
+    except ImportError as e:
+        logger.critical(f"Failed to load scheme for GPU_VENDOR={os.environ.get('GPU_VENDOR', '')}: {e}")
+        raise SystemExit(1)
 
     # Probe GPU, auto-resolve defaults, then start worker with resolved settings
     from transcoder import check_gpu_support

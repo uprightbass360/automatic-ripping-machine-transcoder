@@ -2,9 +2,13 @@
 Tests for presets module - Encoder, Preset, Scheme, resolve_preset, load_active_scheme.
 """
 
+import json
 import os
 import pytest
+import pytest_asyncio
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from models import Base, CustomPresetDB
 
 from presets import Encoder, Preset, Scheme, resolve_preset, load_active_scheme
 
@@ -402,3 +406,61 @@ class TestLoadActiveScheme:
                             f"Encoder {enc!r} in tier {tier_name!r} of preset "
                             f"{preset.slug!r} not in scheme {scheme.slug!r} supported encoders"
                         )
+
+
+# ─── TestCustomPresetDB ──────────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture
+async def db_session():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with session_factory() as session:
+        yield session
+    await engine.dispose()
+
+
+class TestCustomPresetDB:
+    @pytest.mark.asyncio
+    async def test_create_and_read(self, db_session):
+        preset = CustomPresetDB(
+            slug="my_anime",
+            name="My Anime Preset",
+            scheme="nvidia",
+            parent_slug="nvidia_balanced",
+            overrides_json=json.dumps({
+                "shared": {"subtitle_mode": "all"},
+                "tiers": {"bluray": {"video_quality": 18}},
+            }),
+        )
+        db_session.add(preset)
+        await db_session.commit()
+
+        loaded = await db_session.get(CustomPresetDB, "my_anime")
+        assert loaded is not None
+        assert loaded.name == "My Anime Preset"
+        assert loaded.scheme == "nvidia"
+        assert loaded.parent_slug == "nvidia_balanced"
+        overrides = json.loads(loaded.overrides_json)
+        assert overrides["tiers"]["bluray"]["video_quality"] == 18
+        assert loaded.created_at is not None
+        assert loaded.updated_at is not None
+
+    @pytest.mark.asyncio
+    async def test_update(self, db_session):
+        preset = CustomPresetDB(
+            slug="my_preset", name="V1", scheme="nvidia",
+            parent_slug="nvidia_balanced", overrides_json="{}",
+        )
+        db_session.add(preset)
+        await db_session.commit()
+
+        preset.name = "V2"
+        preset.overrides_json = json.dumps({"shared": {"audio_encoder": "aac"}})
+        await db_session.commit()
+
+        loaded = await db_session.get(CustomPresetDB, "my_preset")
+        assert loaded.name == "V2"
+        assert "aac" in loaded.overrides_json
