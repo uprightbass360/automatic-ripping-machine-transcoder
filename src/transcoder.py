@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import httpx
 import structlog
@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from file_transfer import async_copy, async_copy_file, async_move_file, async_rmtree
 from config import settings
+from presets import Preset, resolve_preset
 from constants import (
     AUDIO_FILE_EXTENSIONS,
     PROGRESS_UPDATE_MIN_INTERVAL,
@@ -146,18 +147,110 @@ class TranscodeWorker:
 
         logger.info(f"GPU support: {self._gpu_support}")
 
-        # Determine encoder family from settings (read after auto-resolve has run)
-        encoder = settings.video_encoder
-        self._encoder_family = self._detect_encoder_family(encoder)
-        self._encoder_backend = self._select_backend(encoder, self._encoder_family)
+        # Determine default encoder from the active scheme's default preset
+        from main import active_scheme
+        default_preset = active_scheme.default_preset
+        default_encoder = default_preset.shared.get("video_encoder", "x265")
+        self._encoder_family = self._detect_encoder_family(default_encoder)
+        self._encoder_backend = self._select_backend(default_encoder, self._encoder_family)
 
         logger.info(f"Encoder family: {self._encoder_family}, backend: {self._encoder_backend}")
 
     def _effective(self, key: str, overrides: dict | None) -> object:
-        """Return per-job override if set, otherwise global setting."""
+        """Return per-job override if set, otherwise global setting.
+
+        Used for non-encoding fields (delete_source, output_extension, etc.).
+        Encoding fields (video_encoder, video_quality, audio_encoder,
+        subtitle_mode, handbrake_preset, etc.) are resolved via
+        _resolve_effective_settings() and the scheme/preset system.
+        """
         if overrides and key in overrides:
             return overrides[key]
         return getattr(settings, key)
+
+    async def _resolve_effective_settings(
+        self, resolution: tuple[int, int] | None, overrides: dict | None,
+    ) -> dict[str, Any]:
+        """Resolve effective transcode settings from scheme + preset + overrides.
+
+        Merge order (later wins):
+          1. preset.shared
+          2. preset.tiers[tier]
+          3. global_overrides (from settings)
+          4. job-level overrides
+        """
+        from main import active_scheme
+        import json as _json
+
+        # Determine tier from resolution
+        if resolution and resolution[1] > 1080:
+            tier = "uhd"
+        elif resolution and resolution[1] < 720:
+            tier = "dvd"
+        else:
+            tier = "bluray"
+
+        # Determine preset: job override > global > scheme default
+        preset_slug = None
+        if overrides and "preset_slug" in overrides:
+            preset_slug = overrides["preset_slug"]
+        if not preset_slug:
+            preset_slug = settings.selected_preset_slug
+
+        preset = None
+        if preset_slug:
+            preset = active_scheme.get_preset(preset_slug)
+            if not preset:
+                # Check custom presets in DB
+                from models import CustomPresetDB
+                async with get_db() as db:
+                    custom = await db.get(CustomPresetDB, preset_slug)
+                if custom and custom.scheme == active_scheme.slug:
+                    parent = active_scheme.get_preset(custom.parent_slug)
+                    if parent:
+                        custom_overrides = _json.loads(custom.overrides_json) if custom.overrides_json else {}
+                        preset = Preset(
+                            slug=custom.slug, name=custom.name, scheme=custom.scheme,
+                            description="", shared={**parent.shared, **custom_overrides.get("shared", {})},
+                            tiers={
+                                t: {**parent.tiers.get(t, {}), **custom_overrides.get("tiers", {}).get(t, {})}
+                                for t in ("dvd", "bluray", "uhd")
+                            },
+                        )
+
+        if preset_slug and not preset:
+            logger.error(f"Preset '{preset_slug}' not found for scheme '{active_scheme.slug}', using default")
+
+        if not preset:
+            preset = active_scheme.default_preset
+
+        # Merge global overrides
+        global_overrides = _json.loads(settings.global_overrides) if settings.global_overrides else None
+
+        # Merge job overrides (new shape: overrides["overrides"] is the diff)
+        job_overrides = overrides.get("overrides") if overrides else None
+
+        # Also handle legacy flat overrides (old shape: {"video_encoder": "...", "video_quality": 22, ...})
+        if overrides and "preset_slug" not in overrides and "video_encoder" in overrides:
+            legacy = {k: v for k, v in overrides.items() if k not in ("preset_slug", "overrides")}
+            job_overrides = {"shared": legacy}
+
+        # Chain: preset -> global -> job
+        combined_overrides: dict[str, Any] = {}
+        for layer in [global_overrides, job_overrides]:
+            if layer:
+                for section in ["shared", "tiers"]:
+                    if section in layer:
+                        combined_overrides.setdefault(section, {})
+                        if section == "shared":
+                            combined_overrides[section].update(layer[section])
+                        else:
+                            for t, fields in layer[section].items():
+                                combined_overrides[section].setdefault(t, {}).update(fields)
+
+        effective = resolve_preset(preset, tier, combined_overrides or None)
+        logger.info(f"Resolved settings: tier={tier}, preset={preset.slug}, encoder={effective.get('video_encoder')}")
+        return effective
 
     def _detect_encoder_family(self, encoder: str) -> str:
         """Determine encoder family from encoder name."""
@@ -1097,8 +1190,17 @@ class TranscodeWorker:
         return f"{height}p"
 
     def _get_codec_name(self, overrides: dict | None = None) -> str:
-        """Map settings.video_encoder to a display name."""
-        encoder = str(self._effective("video_encoder", overrides)).lower()
+        """Map video encoder to a display name for folder naming.
+
+        Uses the active scheme's default preset to determine the encoder,
+        with legacy override support for backward compatibility.
+        """
+        from main import active_scheme
+        if overrides and "video_encoder" in overrides:
+            encoder = str(overrides["video_encoder"]).lower()
+        else:
+            default_preset = active_scheme.default_preset
+            encoder = str(default_preset.shared.get("video_encoder", "x265")).lower()
         h265_names = {
             "nvenc_h265", "hevc_nvenc", "vaapi_h265", "hevc_vaapi",
             "amf_h265", "hevc_amf", "qsv_h265", "hevc_qsv", "x265",
@@ -1162,20 +1264,6 @@ class TranscodeWorker:
         folder_name = self._build_folder_name(clean_title, year, resolution, overrides)
         return base / folder_name
 
-    def _select_handbrake_preset(
-        self, resolution: tuple[int, int] | None, overrides: dict | None,
-    ) -> tuple[str | None, list[str]]:
-        """Select HandBrake preset and extra args based on source resolution."""
-        if resolution and resolution[1] > 1080:
-            preset = self._effective("handbrake_preset_4k", overrides)
-            logger.info(f"4K source ({resolution[0]}x{resolution[1]}), using preset: {preset}")
-            return preset, []
-        if resolution and resolution[1] < 720:
-            preset = self._effective("handbrake_preset_dvd", overrides) or self._effective("handbrake_preset", overrides)
-            logger.info(f"Low-res source ({resolution[0]}x{resolution[1]}), using preset: {preset}, upscaling to 720p")
-            return preset, ["--width", "1280"]
-        return self._effective("handbrake_preset", overrides), []
-
     async def _transcode_file_handbrake(
         self,
         source: Path,
@@ -1185,26 +1273,26 @@ class TranscodeWorker:
     ):
         """Transcode a single file using HandBrake."""
         resolution = await self._get_video_resolution(source)
-        preset, extra_args = self._select_handbrake_preset(resolution, overrides)
+        effective = await self._resolve_effective_settings(resolution, overrides)
 
         cmd = ["HandBrakeCLI", "-i", str(source), "-o", str(output)]
 
-        video_encoder = self._effective("video_encoder", overrides)
+        video_encoder = effective.get("video_encoder")
         if video_encoder:
             cmd.extend(["--encoder", str(video_encoder)])
 
-        cmd.extend(["-q", str(self._effective("video_quality", overrides))])
+        cmd.extend(["-q", str(effective.get("video_quality", 22))])
 
-        preset_file = self._effective("handbrake_preset_file", overrides)
-        if preset_file:
-            cmd.extend(["--preset-import-file", str(preset_file)])
-        if preset:
-            cmd.extend(["--preset", str(preset)])
+        handbrake_preset = effective.get("handbrake_preset")
+        if handbrake_preset:
+            cmd.extend(["--preset", str(handbrake_preset)])
 
-        cmd.extend(extra_args)
+        extra_args = effective.get("handbrake_extra_args")
+        if extra_args:
+            cmd.extend(extra_args)
 
         # Audio handling
-        audio_encoder = self._effective("audio_encoder", overrides)
+        audio_encoder = effective.get("audio_encoder", "copy")
         if audio_encoder == "copy":
             cmd.extend(["--aencoder", "copy",
                          "--audio-copy-mask", "aac,ac3,eac3,dts,dtshd,truehd,flac,mp2,mp3",
@@ -1213,11 +1301,12 @@ class TranscodeWorker:
             cmd.extend(["--aencoder", str(audio_encoder)])
 
         # Subtitle handling
-        subtitle_mode = self._effective("subtitle_mode", overrides)
+        subtitle_mode = effective.get("subtitle_mode", "all")
         if subtitle_mode == "all":
             cmd.extend(["--all-subtitles"])
         elif subtitle_mode == "first":
             cmd.extend(["--subtitle", "1"])
+        # "none" = no subtitle flags
 
         logger.debug(f"HandBrake command: {' '.join(cmd)}")
 
@@ -1301,13 +1390,13 @@ class TranscodeWorker:
 
     def _build_ffmpeg_command(
         self, source: Path, output: Path,
+        effective: dict[str, Any],
         resolution: Optional[tuple[int, int]] = None,
-        overrides: dict | None = None,
     ) -> list[str]:
-        """Build FFmpeg command based on encoder family."""
-        encoder_name = str(self._effective("video_encoder", overrides))
-        family = self._detect_encoder_family(encoder_name) if overrides and "video_encoder" in overrides else self._encoder_family
-        quality = self._effective("video_quality", overrides)
+        """Build FFmpeg command from resolved effective settings."""
+        encoder_name = str(effective.get("video_encoder", "x265"))
+        family = self._detect_encoder_family(encoder_name)
+        quality = effective.get("video_quality", 22)
 
         ffmpeg_encoder = self._resolve_ffmpeg_encoder(family, encoder_name)
 
@@ -1316,7 +1405,7 @@ class TranscodeWorker:
         cmd.extend(["-i", str(source)])
 
         # Stream mapping
-        subtitle_mode = self._effective("subtitle_mode", overrides)
+        subtitle_mode = effective.get("subtitle_mode", "all")
         cmd.extend(["-map", "0:v:0", "-map", "0:a?"])
         if subtitle_mode == "all":
             cmd.extend(["-map", "0:s?"])
@@ -1328,7 +1417,7 @@ class TranscodeWorker:
         cmd.extend(self._ffmpeg_upscale_filter(family, resolution))
 
         # Audio handling
-        audio_encoder = self._effective("audio_encoder", overrides)
+        audio_encoder = effective.get("audio_encoder", "copy")
         cmd.extend(["-c:a", "copy"] if audio_encoder == "copy" else ["-c:a", str(audio_encoder)])
 
         if subtitle_mode in ("all", "first"):
@@ -1346,7 +1435,8 @@ class TranscodeWorker:
     ):
         """Transcode a single file using FFmpeg."""
         resolution = await self._get_video_resolution(source)
-        cmd = self._build_ffmpeg_command(source, output, resolution, overrides)
+        effective = await self._resolve_effective_settings(resolution, overrides)
+        cmd = self._build_ffmpeg_command(source, output, effective, resolution)
 
         logger.debug(f"FFmpeg command: {' '.join(cmd)}")
 
