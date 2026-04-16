@@ -29,6 +29,7 @@ from routers.jobs import router as jobs_router
 from routers.stats import router as stats_router
 from routers.logs import router as logs_router
 from routers.workers import router as workers_router
+from routers.presets import router as presets_router
 
 
 def _configure_logging():
@@ -168,3 +169,4 @@ app.include_router(jobs_router)
 app.include_router(stats_router)
 app.include_router(logs_router)
 app.include_router(workers_router)
+app.include_router(presets_router, prefix="/api/v1", tags=["presets"])
