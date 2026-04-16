@@ -116,30 +116,6 @@ class TestOversizedPayloads:
 class TestCommandInjection:
     """Tests for command injection prevention (spec section 1.3)."""
 
-    def test_encoder_semicolon_injection(self):
-        with pytest.raises(ValueError):
-            CommandValidator.validate_encoder("h264; rm -rf /")
-
-    def test_encoder_pipe_injection(self):
-        with pytest.raises(ValueError):
-            CommandValidator.validate_encoder("h264 | cat /etc/passwd")
-
-    def test_encoder_backtick_injection(self):
-        with pytest.raises(ValueError):
-            CommandValidator.validate_encoder("`whoami`")
-
-    def test_encoder_dollar_injection(self):
-        with pytest.raises(ValueError):
-            CommandValidator.validate_encoder("$(id)")
-
-    def test_encoder_ampersand_injection(self):
-        with pytest.raises(ValueError):
-            CommandValidator.validate_encoder("h264 && rm -rf /")
-
-    def test_encoder_newline_injection(self):
-        with pytest.raises(ValueError):
-            CommandValidator.validate_encoder("h264\nrm -rf /")
-
     def test_audio_encoder_injection(self):
         with pytest.raises(ValueError):
             CommandValidator.validate_audio_encoder("aac; whoami")

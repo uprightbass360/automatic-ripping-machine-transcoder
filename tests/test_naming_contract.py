@@ -33,8 +33,30 @@ def _gpu_support_all():
     }
 
 
+def _mock_scheme():
+    """Build a mock active_scheme for test fixtures."""
+    from presets import Preset, Scheme, Encoder
+    preset = Preset(
+        slug="test", name="Test", scheme="test",
+        shared={"video_encoder": "x265", "audio_encoder": "copy", "subtitle_mode": "all"},
+        tiers={
+            "dvd": {"handbrake_preset": "Test 720p", "video_quality": 22},
+            "bluray": {"handbrake_preset": "Test 1080p", "video_quality": 22},
+            "uhd": {"handbrake_preset": "Test 2160p 4K", "video_quality": 22},
+        },
+    )
+    return Scheme(
+        slug="test", name="Test",
+        supported_encoders=[Encoder(slug="x265", name="x265")],
+        supported_audio_encoders=["copy", "aac"],
+        supported_subtitle_modes=["all", "first", "none"],
+        built_in_presets=[preset],
+    )
+
+
 def _make_worker():
-    with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+    with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+         patch("main.active_scheme", _mock_scheme()):
         from transcoder import TranscodeWorker
         return TranscodeWorker()
 

@@ -266,22 +266,41 @@ class TestConfigDirectCoverage:
 
             # First update — creates override
             req1 = MagicMock()
-            req1.json = AsyncMock(return_value={"video_quality": 20})
+            req1.json = AsyncMock(return_value={"max_retry_count": 5})
             result1 = await update_config(request=req1, _role="admin")
             assert result1["success"] is True
 
             # Second update — hits the 'if override:' branch
             req2 = MagicMock()
-            req2.json = AsyncMock(return_value={"video_quality": 18})
+            req2.json = AsyncMock(return_value={"max_retry_count": 7})
             result2 = await update_config(request=req2, _role="admin")
             assert result2["success"] is True
-            assert result2["applied"]["video_quality"] == 18
+            assert result2["applied"]["max_retry_count"] == 7
 
 
 # ─── main.py lifespan ──────────────────────────────────────────────────────
 
 
 class TestLifespanCoverage:
+    @staticmethod
+    def _mock_scheme():
+        from presets import Preset, Scheme, Encoder
+        preset = Preset(
+            slug="test", name="Test", scheme="test",
+            shared={"video_encoder": "x265", "audio_encoder": "copy", "subtitle_mode": "all"},
+            tiers={
+                "dvd": {"handbrake_preset": "Test 720p", "video_quality": 22},
+                "bluray": {"handbrake_preset": "Test 1080p", "video_quality": 22},
+                "uhd": {"handbrake_preset": "Test 2160p 4K", "video_quality": 22},
+            },
+        )
+        return Scheme(
+            slug="test", name="Test",
+            supported_encoders=[Encoder(slug="x265", name="x265")],
+            supported_audio_encoders=["copy"], supported_subtitle_modes=["all"],
+            built_in_presets=[preset],
+        )
+
     @pytest.mark.asyncio
     async def test_lifespan_startup_shutdown(self, tmp_path):
         """Cover lifespan startup and shutdown paths."""
@@ -294,10 +313,11 @@ class TestLifespanCoverage:
         mock_worker.queue_sentinel = AsyncMock()
 
         mock_gpu_monitor = MagicMock()
+        mock_scheme = self._mock_scheme()
 
         with patch("main.init_db", AsyncMock()), \
              patch("main.load_config_overrides", AsyncMock()), \
-             patch("main.auto_resolve_gpu_defaults", AsyncMock()), \
+             patch("main.load_active_scheme", return_value=mock_scheme), \
              patch("main.TranscodeWorker", return_value=mock_worker), \
              patch("transcoder.check_gpu_support", return_value={}), \
              patch("main.create_gpu_monitor", return_value=mock_gpu_monitor), \
@@ -333,10 +353,11 @@ class TestLifespanCoverage:
             await asyncio.sleep(9999)
 
         mock_worker.run = AsyncMock(side_effect=hang_forever)
+        mock_scheme = self._mock_scheme()
 
         with patch("main.init_db", AsyncMock()), \
              patch("main.load_config_overrides", AsyncMock()), \
-             patch("main.auto_resolve_gpu_defaults", AsyncMock()), \
+             patch("main.load_active_scheme", return_value=mock_scheme), \
              patch("main.TranscodeWorker", return_value=mock_worker), \
              patch("transcoder.check_gpu_support", return_value={}), \
              patch("main.create_gpu_monitor", return_value=None), \
@@ -363,10 +384,11 @@ class TestLifespanCoverage:
         mock_worker.run = AsyncMock(return_value=None)
         mock_worker.shutdown = MagicMock()
         mock_worker.queue_sentinel = AsyncMock()
+        mock_scheme = self._mock_scheme()
 
         with patch("main.init_db", AsyncMock()), \
              patch("main.load_config_overrides", AsyncMock()), \
-             patch("main.auto_resolve_gpu_defaults", AsyncMock()), \
+             patch("main.load_active_scheme", return_value=mock_scheme), \
              patch("main.TranscodeWorker", return_value=mock_worker), \
              patch("transcoder.check_gpu_support", return_value={}), \
              patch("main.create_gpu_monitor", return_value=None), \

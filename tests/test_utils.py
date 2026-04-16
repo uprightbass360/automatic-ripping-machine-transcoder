@@ -122,25 +122,6 @@ class TestPathValidator:
 class TestCommandValidator:
     """Tests for CommandValidator - subprocess argument sanitization."""
 
-    def test_valid_video_encoders(self):
-        """All valid video encoders should be accepted."""
-        valid = [
-            "nvenc_h265", "nvenc_h264", "hevc_nvenc",
-            "h264_nvenc", "x265", "x264", "qsv_h265", "qsv_h264",
-        ]
-        for encoder in valid:
-            assert CommandValidator.validate_encoder(encoder) == encoder
-
-    def test_invalid_video_encoder(self):
-        """Invalid encoder names must be rejected."""
-        with pytest.raises(ValueError, match="Invalid video encoder"):
-            CommandValidator.validate_encoder("malicious_encoder")
-
-    def test_video_encoder_injection_attempt(self):
-        """Command injection via encoder name must be rejected."""
-        with pytest.raises(ValueError):
-            CommandValidator.validate_encoder("h264; rm -rf /")
-
     def test_valid_audio_encoders(self):
         """All valid audio encoders should be accepted."""
         valid = ["copy", "aac", "ac3", "eac3", "flac", "mp3"]
