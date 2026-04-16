@@ -21,7 +21,7 @@ SCHEME = Scheme(
     ],
     supported_audio_encoders=["copy", "aac", "ac3", "eac3", "flac", "mp3"],
     supported_subtitle_modes=["all", "none", "first"],
-    advanced_fields=[],
+    advanced_fields={},
     built_in_presets=[
         Preset(
             slug="balanced",

@@ -59,7 +59,7 @@ class Scheme(BaseModel):
     supported_encoders: list[Encoder]
     supported_audio_encoders: list[str]
     supported_subtitle_modes: list[str]
-    advanced_fields: list[str] = []
+    advanced_fields: dict[str, dict[str, Any]] = {}
     built_in_presets: list[Preset]
 
     @property

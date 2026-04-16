@@ -266,7 +266,7 @@ class TestScheme:
             supported_encoders=self._make_encoders(),
             supported_audio_encoders=["copy", "aac"],
             supported_subtitle_modes=["all", "none", "first"],
-            advanced_fields=[],
+            advanced_fields={},
             built_in_presets=self._make_presets(),
         )
         defaults.update(overrides)
@@ -318,7 +318,7 @@ class TestScheme:
                 supported_encoders=[],
                 supported_audio_encoders=[],
                 supported_subtitle_modes=[],
-                advanced_fields=[],
+                advanced_fields={},
                 built_in_presets=[],
             )
 
@@ -332,7 +332,7 @@ class TestScheme:
             supported_subtitle_modes=[],
             built_in_presets=[],
         )
-        assert scheme.advanced_fields == []
+        assert scheme.advanced_fields == {}
 
 
 # ─── TestLoadActiveScheme ────────────────────────────────────────────────────
