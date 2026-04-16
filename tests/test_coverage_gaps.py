@@ -87,6 +87,31 @@ def _gpu_support_none():
     }
 
 
+def _mock_scheme_software():
+    """Build a mock software scheme for test fixtures."""
+    from presets import Preset, Scheme, Encoder
+    preset = Preset(
+        slug="test_sw", name="Test Software", scheme="software",
+        shared={"video_encoder": "x265", "audio_encoder": "copy", "subtitle_mode": "all"},
+        tiers={
+            "dvd": {"handbrake_preset": "H.265 MKV 720p30", "video_quality": 22},
+            "bluray": {"handbrake_preset": "H.265 MKV 1080p30", "video_quality": 22},
+            "uhd": {"handbrake_preset": "H.265 MKV 2160p60 4K", "video_quality": 22},
+        },
+    )
+    return Scheme(
+        slug="software", name="Software (CPU)",
+        supported_encoders=[Encoder(slug="x265", name="Software x265")],
+        supported_audio_encoders=["copy", "aac"],
+        supported_subtitle_modes=["all", "first", "none"],
+        built_in_presets=[preset],
+    )
+
+
+def _scheme_patch():
+    return patch("main.active_scheme", _mock_scheme_software())
+
+
 # ── database.py ──────────────────────────────────────────────────────────────
 
 class TestDatabaseGaps:
@@ -221,42 +246,6 @@ class TestConfigGaps:
 
         await engine.dispose()
 
-    @pytest.mark.asyncio
-    async def test_auto_resolve_all_keys_overridden(self, tmp_dirs):
-        """Cover config.py line 355."""
-        from config import auto_resolve_gpu_defaults, settings
-        from models import Base
-
-        db_path = tmp_dirs["db_path"]
-        engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
-
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
-        session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-        @asynccontextmanager
-        async def fake_get_db():
-            async with session_factory() as session:
-                yield session
-
-        gpu = {
-            "nvidia": True, "amd": False, "intel": False,
-            "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
-            "handbrake_nvenc": True, "vaapi_device": False,
-            "handbrake_qsv": False,
-        }
-
-        import database as db_module
-        original = settings.video_encoder
-        settings.video_encoder = "hevc_nvenc"
-        try:
-            with patch.object(db_module, "get_db", fake_get_db):
-                await auto_resolve_gpu_defaults(gpu)
-        finally:
-            settings.video_encoder = original
-
-        await engine.dispose()
 
 
 # ── auth.py ──────────────────────────────────────────────────────────────────
@@ -285,39 +274,46 @@ class TestAuthGaps:
 class TestTranscoderEncoderGaps:
     def test_detect_amf_family(self):
         from transcoder import TranscodeWorker
-        worker = TranscodeWorker(gpu_support=_gpu_support_none())
+        with _scheme_patch():
+            worker = TranscodeWorker(gpu_support=_gpu_support_none())
         assert worker._detect_encoder_family("hevc_amf") == "amf"
 
     def test_detect_unknown_family(self):
         from transcoder import TranscodeWorker
-        worker = TranscodeWorker(gpu_support=_gpu_support_none())
+        with _scheme_patch():
+            worker = TranscodeWorker(gpu_support=_gpu_support_none())
         assert worker._detect_encoder_family("weird_encoder") == "unknown"
 
     def test_select_backend_nvenc_no_support(self):
         from transcoder import TranscodeWorker
-        worker = TranscodeWorker(gpu_support=_gpu_support_none())
+        with _scheme_patch():
+            worker = TranscodeWorker(gpu_support=_gpu_support_none())
         assert worker._select_backend("hevc_nvenc", "nvenc") == "ffmpeg"
 
     def test_select_backend_vaapi_no_device(self):
         from transcoder import TranscodeWorker
-        worker = TranscodeWorker(gpu_support=_gpu_support_none())
+        with _scheme_patch():
+            worker = TranscodeWorker(gpu_support=_gpu_support_none())
         assert worker._select_backend("hevc_vaapi", "vaapi") == "ffmpeg"
 
     def test_select_backend_qsv_handbrake(self):
         from transcoder import TranscodeWorker
         gpu = _gpu_support_none()
         gpu["handbrake_qsv"] = True
-        worker = TranscodeWorker(gpu_support=gpu)
+        with _scheme_patch():
+            worker = TranscodeWorker(gpu_support=gpu)
         assert worker._select_backend("hevc_qsv", "qsv") == "handbrake"
 
     def test_select_backend_unknown_defaults_handbrake(self):
         from transcoder import TranscodeWorker
-        worker = TranscodeWorker(gpu_support=_gpu_support_none())
+        with _scheme_patch():
+            worker = TranscodeWorker(gpu_support=_gpu_support_none())
         assert worker._select_backend("weird", "unknown") == "handbrake"
 
     def test_select_backend_amf(self):
         from transcoder import TranscodeWorker
-        worker = TranscodeWorker(gpu_support=_gpu_support_none())
+        with _scheme_patch():
+            worker = TranscodeWorker(gpu_support=_gpu_support_none())
         assert worker._select_backend("hevc_amf", "amf") == "ffmpeg"
 
 
@@ -329,7 +325,8 @@ class TestTranscoderFFmpegGaps:
         from transcoder import TranscodeWorker
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(return_value=(b"3600.5", b""))
-        worker = TranscodeWorker(gpu_support=_gpu_support_none())
+        with _scheme_patch():
+            worker = TranscodeWorker(gpu_support=_gpu_support_none())
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             result = await worker._get_video_duration(Path("/test/video.mkv"))
             assert result == pytest.approx(3600.5)
@@ -337,7 +334,8 @@ class TestTranscoderFFmpegGaps:
     @pytest.mark.asyncio
     async def test_get_video_duration_exception(self):
         from transcoder import TranscodeWorker
-        worker = TranscodeWorker(gpu_support=_gpu_support_none())
+        with _scheme_patch():
+            worker = TranscodeWorker(gpu_support=_gpu_support_none())
         with patch("asyncio.create_subprocess_exec", side_effect=OSError("no ffprobe")):
             result = await worker._get_video_duration(Path("/test/video.mkv"))
             assert result is None
@@ -347,7 +345,8 @@ class TestTranscoderFFmpegGaps:
         from transcoder import TranscodeWorker
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(return_value=(b"not_a_number", b""))
-        worker = TranscodeWorker(gpu_support=_gpu_support_none())
+        with _scheme_patch():
+            worker = TranscodeWorker(gpu_support=_gpu_support_none())
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             result = await worker._get_video_duration(Path("/test/video.mkv"))
             assert result is None

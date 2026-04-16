@@ -168,25 +168,9 @@ class TestSettingsValidation:
     def test_default_settings(self):
         """Default settings should be valid."""
         s = self._make_settings(log_level="INFO")
-        assert s.video_encoder == "x265"
-        assert s.audio_encoder == "copy"
-        assert s.subtitle_mode == "all"
+        assert s.selected_preset_slug == ""
+        assert s.global_overrides == "{}"
         assert s.log_level == "INFO"
-
-    def test_invalid_video_encoder(self):
-        """Invalid video encoder should be rejected."""
-        with pytest.raises(ValidationError):
-            self._make_settings(video_encoder="bad_encoder")
-
-    def test_invalid_audio_encoder(self):
-        """Invalid audio encoder should be rejected."""
-        with pytest.raises(ValidationError):
-            self._make_settings(audio_encoder="bad_audio")
-
-    def test_invalid_subtitle_mode(self):
-        """Invalid subtitle mode should be rejected."""
-        with pytest.raises(ValidationError):
-            self._make_settings(subtitle_mode="invalid")
 
     def test_invalid_log_level(self):
         """Invalid log level should be rejected."""
@@ -197,18 +181,6 @@ class TestSettingsValidation:
         """Log level should be case-insensitive."""
         s = self._make_settings(log_level="debug")
         assert s.log_level == "DEBUG"
-
-    def test_video_quality_bounds(self):
-        """Video quality must be 0-51."""
-        s = self._make_settings(video_quality=0)
-        assert s.video_quality == 0
-        s = self._make_settings(video_quality=51)
-        assert s.video_quality == 51
-
-        with pytest.raises(ValidationError):
-            self._make_settings(video_quality=-1)
-        with pytest.raises(ValidationError):
-            self._make_settings(video_quality=52)
 
     def test_max_concurrent_bounds(self):
         """Max concurrent must be 1-10."""

@@ -446,13 +446,7 @@ class TestGetConfigEndpoint:
         assert "config" in data
         assert "updatable_keys" in data
         assert "paths" in data
-        assert "valid_video_encoders" in data
-        assert "valid_audio_encoders" in data
-        assert "valid_subtitle_modes" in data
         assert "valid_log_levels" in data
-        assert "valid_handbrake_presets" in data
-        assert "valid_preset_files" in data
-        assert "presets_by_file" in data
 
 
 class TestPatchConfigEndpoint:
@@ -462,15 +456,15 @@ class TestPatchConfigEndpoint:
     async def test_update_valid_config(self, client):
         ac, app, *_rest = client
         from config import settings
-        original = settings.video_quality
+        original = settings.max_retry_count
         try:
-            response = await ac.patch("/config", json={"video_quality": 20})
+            response = await ac.patch("/config", json={"max_retry_count": 5})
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
-            assert data["applied"]["video_quality"] == 20
+            assert data["applied"]["max_retry_count"] == 5
         finally:
-            settings.video_quality = original
+            settings.max_retry_count = original
 
     @pytest.mark.asyncio
     async def test_update_empty_body_rejected(self, client):
@@ -495,7 +489,7 @@ class TestPatchConfigEndpoint:
     @pytest.mark.asyncio
     async def test_update_invalid_value_rejected(self, client):
         ac, app, *_rest = client
-        response = await ac.patch("/config", json={"video_encoder": "nonexistent"})
+        response = await ac.patch("/config", json={"max_concurrent": 999})
         assert response.status_code == 422
 
     @pytest.mark.asyncio
@@ -525,19 +519,19 @@ class TestPatchConfigEndpoint:
         """Updating an already-overridden key should update the DB record."""
         ac, app, session_factory = client
         from config import settings
-        original = settings.video_quality
+        original = settings.max_retry_count
 
         # Insert initial override
         async with session_factory() as session:
-            session.add(ConfigOverrideDB(key="video_quality", value="22"))
+            session.add(ConfigOverrideDB(key="max_retry_count", value="3"))
             await session.commit()
 
         try:
-            response = await ac.patch("/config", json={"video_quality": 18})
+            response = await ac.patch("/config", json={"max_retry_count": 7})
             assert response.status_code == 200
-            assert response.json()["applied"]["video_quality"] == 18
+            assert response.json()["applied"]["max_retry_count"] == 7
         finally:
-            settings.video_quality = original
+            settings.max_retry_count = original
 
 
 # ─── Retry with real DB job ─────────────────────────────────────────────────
@@ -1012,10 +1006,7 @@ class TestHealthCheckDetails:
         response = await ac.get("/health")
         data = response.json()
         assert "config" in data
-        assert "video_encoder" in data["config"]
-        assert "video_quality" in data["config"]
-        assert "audio_encoder" in data["config"]
-        assert "subtitle_mode" in data["config"]
+        assert "selected_preset_slug" in data["config"]
         assert "delete_source" in data["config"]
         assert "output_extension" in data["config"]
         assert "max_concurrent" in data["config"]
