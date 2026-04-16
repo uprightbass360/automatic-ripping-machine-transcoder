@@ -37,7 +37,34 @@ def _gpu_support_none():
     return {k: False for k in _gpu_support_all()}
 
 
-# ─── check_gpu_support ──────────────────────────────────────────────────────
+def _mock_scheme(video_encoder="x265"):
+    """Build a mock active_scheme with the given default video_encoder."""
+    from presets import Preset, Scheme, Encoder
+
+    preset = Preset(
+        slug="test_preset", name="Test Preset", scheme="test",
+        shared={
+            "video_encoder": video_encoder,
+            "audio_encoder": "copy",
+            "subtitle_mode": "all",
+        },
+        tiers={
+            "dvd": {"handbrake_preset": "Test 720p", "video_quality": 22, "handbrake_extra_args": ["--width", "1280"]},
+            "bluray": {"handbrake_preset": "Test 1080p", "video_quality": 22},
+            "uhd": {"handbrake_preset": "Test 2160p 4K", "video_quality": 22},
+        },
+    )
+    scheme = Scheme(
+        slug="test", name="Test",
+        supported_encoders=[Encoder(slug=video_encoder, name=video_encoder)],
+        supported_audio_encoders=["copy", "aac"],
+        supported_subtitle_modes=["all", "first", "none"],
+        built_in_presets=[preset],
+    )
+    return scheme
+
+
+# --- check_gpu_support ---
 
 
 class TestCheckGpuSupport:
@@ -187,7 +214,7 @@ class TestCheckGpuSupport:
         assert check_nvenc_support is check_gpu_support
 
 
-# ─── Encoder family detection ────────────────────────────────────────────────
+# --- Encoder family detection ---
 
 
 class TestEncoderFamilyDetection:
@@ -196,9 +223,9 @@ class TestEncoderFamilyDetection:
     def _make_worker(self, gpu_support=None, video_encoder="nvenc_h265"):
         if gpu_support is None:
             gpu_support = _gpu_support_all()
+        scheme = _mock_scheme(video_encoder)
         with patch("transcoder.check_gpu_support", return_value=gpu_support), \
-             patch("transcoder.settings") as mock_settings:
-            mock_settings.video_encoder = video_encoder
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -249,48 +276,57 @@ class TestEncoderFamilyDetection:
         assert worker._encoder_backend == "ffmpeg"
 
 
-# ─── FFmpeg command building ─────────────────────────────────────────────────
+# --- FFmpeg command building ---
 
 
 class TestBuildFfmpegCommand:
     """Tests for _build_ffmpeg_command with different encoder families."""
 
     def _make_worker(self, video_encoder="nvenc_h265"):
+        scheme = _mock_scheme(video_encoder)
         with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
-             patch("transcoder.settings") as mock_settings:
-            mock_settings.video_encoder = video_encoder
-            mock_settings.video_quality = 22
-            mock_settings.audio_encoder = "copy"
-            mock_settings.subtitle_mode = "all"
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
-            worker = TranscodeWorker()
-            # Re-patch settings for command building
-            with patch("transcoder.settings", mock_settings):
-                return worker, mock_settings
+            return TranscodeWorker()
+
+    def _effective(self, video_encoder="nvenc_h265", video_quality=22,
+                   audio_encoder="copy", subtitle_mode="all"):
+        """Build an effective settings dict for _build_ffmpeg_command."""
+        return {
+            "video_encoder": video_encoder,
+            "video_quality": video_quality,
+            "audio_encoder": audio_encoder,
+            "subtitle_mode": subtitle_mode,
+        }
 
     def test_nvenc_h265_command(self):
-        worker, settings = self._make_worker("nvenc_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        worker = self._make_worker("nvenc_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("nvenc_h265"),
+        )
         assert "-hwaccel" in cmd
         assert "cuda" in cmd
         assert "hevc_nvenc" in cmd
         assert "-cq" in cmd
-        # Explicit stream mapping
         assert "-map" in cmd
         assert "0:v:0" in cmd
         assert "0:a?" in cmd
 
     def test_nvenc_h264_command(self):
-        worker, settings = self._make_worker("nvenc_h264")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        worker = self._make_worker("nvenc_h264")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("nvenc_h264"),
+        )
         assert "h264_nvenc" in cmd
 
     def test_vaapi_h265_command(self):
-        worker, settings = self._make_worker("vaapi_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        worker = self._make_worker("vaapi_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("vaapi_h265"),
+        )
         assert "-hwaccel" in cmd
         assert "vaapi" in cmd
         assert "hevc_vaapi" in cmd
@@ -299,181 +335,227 @@ class TestBuildFfmpegCommand:
         assert "-qp" in cmd
 
     def test_vaapi_h264_command(self):
-        worker, settings = self._make_worker("vaapi_h264")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        worker = self._make_worker("vaapi_h264")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("vaapi_h264"),
+        )
         assert "h264_vaapi" in cmd
 
     def test_amf_h265_command(self):
-        worker, settings = self._make_worker("amf_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        worker = self._make_worker("amf_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("amf_h265"),
+        )
         assert "hevc_amf" in cmd
         assert "-rc" in cmd
         assert "cqp" in cmd
         assert "-qp_i" in cmd
 
     def test_qsv_h265_command(self):
-        worker, settings = self._make_worker("qsv_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        worker = self._make_worker("qsv_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("qsv_h265"),
+        )
         assert "-hwaccel" in cmd
         assert "qsv" in cmd
         assert "hevc_qsv" in cmd
         assert "-global_quality" in cmd
 
     def test_qsv_h264_command(self):
-        worker, settings = self._make_worker("qsv_h264")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        worker = self._make_worker("qsv_h264")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("qsv_h264"),
+        )
         assert "h264_qsv" in cmd
         assert "-global_quality" in cmd
 
     def test_software_x265_command(self):
-        worker, settings = self._make_worker("x265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        worker = self._make_worker("x265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("x265"),
+        )
         assert "libx265" in cmd
         assert "-crf" in cmd
         assert "-hwaccel" not in cmd
 
     def test_software_x264_command(self):
-        worker, settings = self._make_worker("x264")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        worker = self._make_worker("x264")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("x264"),
+        )
         assert "libx264" in cmd
         assert "-crf" in cmd
         assert "-hwaccel" not in cmd
 
     def test_audio_copy(self):
-        worker, settings = self._make_worker("nvenc_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        worker = self._make_worker("nvenc_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("nvenc_h265"),
+        )
         idx = cmd.index("-c:a")
         assert cmd[idx + 1] == "copy"
 
     def test_subtitle_all(self):
-        worker, settings = self._make_worker("nvenc_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
-        # Should map all subtitles and copy them
+        worker = self._make_worker("nvenc_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("nvenc_h265", subtitle_mode="all"),
+        )
         assert "0:s?" in cmd
         idx = cmd.index("-c:s")
         assert cmd[idx + 1] == "copy"
 
     def test_subtitle_none(self):
-        worker, settings = self._make_worker("nvenc_h265")
-        settings.subtitle_mode = "none"
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
-        # Should not map any subtitle streams
+        worker = self._make_worker("nvenc_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("nvenc_h265", subtitle_mode="none"),
+        )
         assert "0:s?" not in cmd
         assert "0:s:0?" not in cmd
         assert "-c:s" not in cmd
 
     def test_subtitle_first(self):
-        worker, settings = self._make_worker("nvenc_h265")
-        settings.subtitle_mode = "first"
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
-        # Should map only first subtitle stream
+        worker = self._make_worker("nvenc_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("nvenc_h265", subtitle_mode="first"),
+        )
         assert "0:s:0?" in cmd
         idx = cmd.index("-c:s")
         assert cmd[idx + 1] == "copy"
 
     def test_vaapi_includes_device_path(self):
-        worker, settings = self._make_worker("vaapi_h265")
-        with patch("transcoder.settings", settings), \
-             patch.dict("os.environ", {"VAAPI_DEVICE": "/dev/dri/renderD128"}):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"))
+        worker = self._make_worker("vaapi_h265")
+        with patch.dict("os.environ", {"VAAPI_DEVICE": "/dev/dri/renderD128"}):
+            cmd = worker._build_ffmpeg_command(
+                Path("/in.mkv"), Path("/out.mkv"),
+                self._effective("vaapi_h265"),
+            )
         assert "-hwaccel_device" in cmd
         device_idx = cmd.index("-hwaccel_device")
         assert cmd[device_idx + 1] == "/dev/dri/renderD128"
 
     def test_nvenc_480p_upscale(self):
         """NVENC FFmpeg should use scale_cuda for DVD upscale."""
-        worker, settings = self._make_worker("nvenc_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 480))
+        worker = self._make_worker("nvenc_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("nvenc_h265"),
+            resolution=(720, 480),
+        )
         assert "-vf" in cmd
         vf_idx = cmd.index("-vf")
         assert "scale_cuda=1280:-2" in cmd[vf_idx + 1]
 
     def test_vaapi_480p_upscale(self):
         """VAAPI FFmpeg should use scale_vaapi for DVD upscale."""
-        worker, settings = self._make_worker("vaapi_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 480))
+        worker = self._make_worker("vaapi_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("vaapi_h265"),
+            resolution=(720, 480),
+        )
         assert "-vf" in cmd
         vf_idx = cmd.index("-vf")
         assert "scale_vaapi=w=1280:h=-2" in cmd[vf_idx + 1]
 
     def test_qsv_480p_upscale(self):
         """QSV FFmpeg should use vpp_qsv for DVD upscale."""
-        worker, settings = self._make_worker("qsv_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 480))
+        worker = self._make_worker("qsv_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("qsv_h265"),
+            resolution=(720, 480),
+        )
         assert "-vf" in cmd
         vf_idx = cmd.index("-vf")
         assert "vpp_qsv=w=1280:h=-2" in cmd[vf_idx + 1]
 
     def test_amf_480p_upscale(self):
         """AMF FFmpeg should use software scale for DVD upscale."""
-        worker, settings = self._make_worker("amf_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 480))
+        worker = self._make_worker("amf_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("amf_h265"),
+            resolution=(720, 480),
+        )
         assert "-vf" in cmd
         vf_idx = cmd.index("-vf")
         assert "scale=1280:-2" in cmd[vf_idx + 1]
 
     def test_software_480p_upscale(self):
         """Software FFmpeg should use software scale for DVD upscale."""
-        worker, settings = self._make_worker("x265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 480))
+        worker = self._make_worker("x265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("x265"),
+            resolution=(720, 480),
+        )
         assert "-vf" in cmd
         vf_idx = cmd.index("-vf")
         assert "scale=1280:-2" in cmd[vf_idx + 1]
 
     def test_1080p_no_scale(self):
         """1080p source should not add any scale filter."""
-        worker, settings = self._make_worker("nvenc_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(1920, 1080))
+        worker = self._make_worker("nvenc_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("nvenc_h265"),
+            resolution=(1920, 1080),
+        )
         assert "-vf" not in cmd
 
     def test_4k_no_scale(self):
         """4K source should not add any scale filter."""
-        worker, settings = self._make_worker("nvenc_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(3840, 2160))
+        worker = self._make_worker("nvenc_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("nvenc_h265"),
+            resolution=(3840, 2160),
+        )
         assert "-vf" not in cmd
 
     def test_no_resolution_no_scale(self):
         """No resolution info should not add any scale filter."""
-        worker, settings = self._make_worker("nvenc_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=None)
+        worker = self._make_worker("nvenc_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("nvenc_h265"),
+            resolution=None,
+        )
         assert "-vf" not in cmd
 
     def test_576p_pal_dvd_upscale(self):
         """PAL DVD (576p) should also be upscaled."""
-        worker, settings = self._make_worker("nvenc_h265")
-        with patch("transcoder.settings", settings):
-            cmd = worker._build_ffmpeg_command(Path("/in.mkv"), Path("/out.mkv"), resolution=(720, 576))
+        worker = self._make_worker("nvenc_h265")
+        cmd = worker._build_ffmpeg_command(
+            Path("/in.mkv"), Path("/out.mkv"),
+            self._effective("nvenc_h265"),
+            resolution=(720, 576),
+        )
         assert "-vf" in cmd
         vf_idx = cmd.index("-vf")
         assert "scale_cuda=1280:-2" in cmd[vf_idx + 1]
 
 
-# ─── TranscodeWorker._resolve_source_path ─────────────────────────────────────
+# --- TranscodeWorker._resolve_source_path ---
 
 
 class TestResolveSourcePath:
     """Tests for _resolve_source_path method."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        scheme = _mock_scheme("x265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -491,11 +573,9 @@ class TestResolveSourcePath:
 
     def test_empty_direct_path_finds_subdirectory(self, tmp_dirs):
         """When direct path is empty, find files in subdirectory matching title."""
-        # Direct path exists but is empty
         movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
         movie_dir.mkdir()
 
-        # ARM moved files here
         actual_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_177059407232"
         actual_dir.mkdir(parents=True)
         (actual_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
@@ -509,7 +589,6 @@ class TestResolveSourcePath:
     def test_missing_direct_path_finds_subdirectory(self, tmp_dirs):
         """When direct path doesn't exist, find files in subdirectory."""
         movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
-        # Don't create the direct path
 
         actual_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_177059407232"
         actual_dir.mkdir(parents=True)
@@ -524,7 +603,6 @@ class TestResolveSourcePath:
     def test_finds_in_movies_subfolder(self, tmp_dirs):
         """ARM may put identified movies in a 'movies' subfolder."""
         movie_dir = tmp_dirs["raw"] / "THE_MATRIX"
-        # No direct path
 
         actual_dir = tmp_dirs["raw"] / "movies" / "THE_MATRIX"
         actual_dir.mkdir(parents=True)
@@ -545,7 +623,7 @@ class TestResolveSourcePath:
         old_dir.mkdir(parents=True)
         (old_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
 
-        time.sleep(0.05)  # Ensure different mtime
+        time.sleep(0.05)
 
         new_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_200"
         new_dir.mkdir(parents=True)
@@ -585,7 +663,6 @@ class TestResolveSourcePath:
         """Ignores subdirectories that don't contain media files."""
         movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
 
-        # Directory matches title but has no media files
         no_media_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_100"
         no_media_dir.mkdir(parents=True)
         (no_media_dir / "readme.txt").write_text("no media here")
@@ -594,17 +671,19 @@ class TestResolveSourcePath:
         with patch("transcoder.settings") as mock_settings:
             mock_settings.raw_path = str(tmp_dirs["raw"])
             result = worker._resolve_source_path(str(movie_dir))
-        assert result == str(movie_dir)  # Falls back to original
+        assert result == str(movie_dir)
 
 
-# ─── TranscodeWorker._discover_source_files ──────────────────────────────────
+# --- TranscodeWorker._discover_source_files ---
 
 
 class TestDiscoverSourceFiles:
     """Tests for _discover_source_files method."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        scheme = _mock_scheme("x265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -652,14 +731,16 @@ class TestDiscoverSourceFiles:
         assert files[0].suffix == ".mkv"
 
 
-# ─── TranscodeWorker._discover_audio_files ────────────────────────────────────
+# --- TranscodeWorker._discover_audio_files ---
 
 
 class TestDiscoverAudioFiles:
     """Tests for _discover_audio_files method."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        scheme = _mock_scheme("x265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -727,14 +808,16 @@ class TestDiscoverAudioFiles:
         assert [f.name for f in files] == ["track01.flac", "track02.flac", "track03.flac"]
 
 
-# ─── TranscodeWorker._detect_video_type ───────────────────────────────────────
+# --- TranscodeWorker._detect_video_type ---
 
 
 class TestDetectVideoType:
     """Tests for _detect_video_type method."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        scheme = _mock_scheme("x265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -772,14 +855,16 @@ class TestDetectVideoType:
         assert worker._detect_video_type("Spider-Man", "/data/raw/Spider-Man") == "movie"
 
 
-# ─── TranscodeWorker._determine_output_path ──────────────────────────────────
+# --- TranscodeWorker._determine_output_path ---
 
 
 class TestDetermineOutputPath:
     """Tests for _determine_output_path method."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        scheme = _mock_scheme("x265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -807,7 +892,7 @@ class TestDetermineOutputPath:
         assert settings.tv_subdir in str(result)
 
 
-# ─── TranscodeWorker._classify_media_type ─────────────────────────────────────
+# --- TranscodeWorker._classify_media_type ---
 
 
 class TestClassifyMediaType:
@@ -838,7 +923,7 @@ class TestClassifyMediaType:
         assert TranscodeWorker._classify_media_type(4320) == "UHD Blu-ray"
 
 
-# ─── TranscodeWorker._format_resolution ──────────────────────────────────────
+# --- TranscodeWorker._format_resolution ---
 
 
 class TestFormatResolution:
@@ -869,188 +954,126 @@ class TestFormatResolution:
         assert TranscodeWorker._format_resolution(900) == "900p"
 
 
-# ─── TranscodeWorker._get_codec_name ─────────────────────────────────────────
+# --- TranscodeWorker._get_codec_name ---
 
 
 class TestGetCodecName:
     """Tests for _get_codec_name method."""
 
-    def _make_worker(self, video_encoder="nvenc_h265"):
+    def _make_and_test(self, video_encoder, overrides=None, expected=None):
+        """Create worker and call _get_codec_name within the same patch scope."""
+        scheme = _mock_scheme(video_encoder)
         with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
-             patch("transcoder.settings") as mock_settings:
-            mock_settings.video_encoder = video_encoder
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
-            return TranscodeWorker()
+            worker = TranscodeWorker()
+            result = worker._get_codec_name(overrides)
+        assert result == expected
 
     def test_nvenc_h265(self):
-        worker = self._make_worker("nvenc_h265")
-        with patch("transcoder.settings") as s:
-            s.video_encoder = "nvenc_h265"
-            assert worker._get_codec_name() == "HEVC"
+        self._make_and_test("nvenc_h265", expected="HEVC")
 
     def test_hevc_nvenc(self):
-        worker = self._make_worker("nvenc_h265")
-        with patch("transcoder.settings") as s:
-            s.video_encoder = "hevc_nvenc"
-            assert worker._get_codec_name() == "HEVC"
+        self._make_and_test("nvenc_h265", overrides={"video_encoder": "hevc_nvenc"}, expected="HEVC")
 
     def test_x265(self):
-        worker = self._make_worker("x265")
-        with patch("transcoder.settings") as s:
-            s.video_encoder = "x265"
-            assert worker._get_codec_name() == "HEVC"
+        self._make_and_test("x265", expected="HEVC")
 
     def test_nvenc_h264(self):
-        worker = self._make_worker("nvenc_h264")
-        with patch("transcoder.settings") as s:
-            s.video_encoder = "nvenc_h264"
-            assert worker._get_codec_name() == "H264"
+        self._make_and_test("nvenc_h264", expected="H264")
 
     def test_x264(self):
-        worker = self._make_worker("x264")
-        with patch("transcoder.settings") as s:
-            s.video_encoder = "x264"
-            assert worker._get_codec_name() == "H264"
+        self._make_and_test("x264", expected="H264")
 
     def test_vaapi_h265(self):
-        worker = self._make_worker("vaapi_h265")
-        with patch("transcoder.settings") as s:
-            s.video_encoder = "vaapi_h265"
-            assert worker._get_codec_name() == "HEVC"
+        self._make_and_test("vaapi_h265", expected="HEVC")
 
     def test_qsv_h264(self):
-        worker = self._make_worker("qsv_h264")
-        with patch("transcoder.settings") as s:
-            s.video_encoder = "qsv_h264"
-            assert worker._get_codec_name() == "H264"
+        self._make_and_test("qsv_h264", expected="H264")
 
     def test_amf_h265(self):
-        worker = self._make_worker("amf_h265")
-        with patch("transcoder.settings") as s:
-            s.video_encoder = "amf_h265"
-            assert worker._get_codec_name() == "HEVC"
+        self._make_and_test("amf_h265", expected="HEVC")
 
 
-# ─── TranscodeWorker._determine_output_path with resolution ──────────────────
+# --- TranscodeWorker._determine_output_path with resolution ---
 
 
 class TestDetermineOutputPathWithMetadata:
     """Tests for _determine_output_path with resolution metadata."""
 
-    def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+    def _run_test(self, video_encoder, title, source, resolution, expected_name,
+                  subdir_key="movies_subdir", subdir_val="movies"):
+        scheme = _mock_scheme(video_encoder)
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
-            return TranscodeWorker()
+            worker = TranscodeWorker()
+            with patch("transcoder.settings") as s:
+                s.completed_path = "/data/completed"
+                setattr(s, subdir_key, subdir_val)
+                result = worker._determine_output_path(
+                    title, source, resolution=resolution
+                )
+        assert result.name == expected_name
 
     def test_dvd_with_year(self):
-        worker = self._make_worker()
-        with patch("transcoder.settings") as s:
-            s.completed_path = "/data/completed"
-            s.movies_subdir = "movies"
-            s.video_encoder = "nvenc_h265"
-            result = worker._determine_output_path(
-                "Serial-Mom", "/data/raw/Serial-Mom (1994)", resolution=(720, 480)
-            )
-        assert result.name == "Serial-Mom (1994) 480p DVD HEVC"
+        self._run_test("nvenc_h265", "Serial-Mom", "/data/raw/Serial-Mom (1994)",
+                        (720, 480), "Serial-Mom (1994) 480p DVD HEVC")
 
     def test_bluray_1080p_with_year(self):
-        worker = self._make_worker()
-        with patch("transcoder.settings") as s:
-            s.completed_path = "/data/completed"
-            s.movies_subdir = "movies"
-            s.video_encoder = "nvenc_h265"
-            result = worker._determine_output_path(
-                "Some Movie", "/data/raw/Some Movie (2020)", resolution=(1920, 1080)
-            )
-        assert result.name == "Some Movie (2020) 1080p Blu-ray HEVC"
+        self._run_test("nvenc_h265", "Some Movie", "/data/raw/Some Movie (2020)",
+                        (1920, 1080), "Some Movie (2020) 1080p Blu-ray HEVC")
 
     def test_uhd_2160p_with_year(self):
-        worker = self._make_worker()
-        with patch("transcoder.settings") as s:
-            s.completed_path = "/data/completed"
-            s.movies_subdir = "movies"
-            s.video_encoder = "nvenc_h265"
-            result = worker._determine_output_path(
-                "Big Film", "/data/raw/Big Film (2023)", resolution=(3840, 2160)
-            )
-        assert result.name == "Big Film (2023) 2160p UHD Blu-ray HEVC"
+        self._run_test("nvenc_h265", "Big Film", "/data/raw/Big Film (2023)",
+                        (3840, 2160), "Big Film (2023) 2160p UHD Blu-ray HEVC")
 
     def test_no_year_in_source(self):
-        worker = self._make_worker()
-        with patch("transcoder.settings") as s:
-            s.completed_path = "/data/completed"
-            s.movies_subdir = "movies"
-            s.video_encoder = "nvenc_h265"
-            result = worker._determine_output_path(
-                "Unknown Movie", "/data/raw/Unknown Movie", resolution=(1920, 1080)
-            )
-        assert result.name == "Unknown Movie 1080p Blu-ray HEVC"
+        self._run_test("nvenc_h265", "Unknown Movie", "/data/raw/Unknown Movie",
+                        (1920, 1080), "Unknown Movie 1080p Blu-ray HEVC")
 
     def test_no_resolution_with_year(self):
-        worker = self._make_worker()
-        with patch("transcoder.settings") as s:
-            s.completed_path = "/data/completed"
-            s.movies_subdir = "movies"
-            s.video_encoder = "nvenc_h265"
-            result = worker._determine_output_path(
-                "Fallback Movie", "/data/raw/Fallback Movie (2021)", resolution=None
-            )
-        assert result.name == "Fallback Movie (2021)"
+        self._run_test("nvenc_h265", "Fallback Movie", "/data/raw/Fallback Movie (2021)",
+                        None, "Fallback Movie (2021)")
 
     def test_no_resolution_no_year(self):
-        worker = self._make_worker()
-        with patch("transcoder.settings") as s:
-            s.completed_path = "/data/completed"
-            s.movies_subdir = "movies"
-            s.video_encoder = "nvenc_h265"
-            result = worker._determine_output_path(
-                "Plain Movie", "/data/raw/Plain Movie", resolution=None
-            )
-        assert result.name == "Plain Movie"
+        self._run_test("nvenc_h265", "Plain Movie", "/data/raw/Plain Movie",
+                        None, "Plain Movie")
 
     def test_h264_codec(self):
-        worker = self._make_worker()
-        with patch("transcoder.settings") as s:
-            s.completed_path = "/data/completed"
-            s.movies_subdir = "movies"
-            s.video_encoder = "nvenc_h264"
-            result = worker._determine_output_path(
-                "H264 Movie", "/data/raw/H264 Movie (2022)", resolution=(1920, 1080)
-            )
-        assert result.name == "H264 Movie (2022) 1080p Blu-ray H264"
+        self._run_test("nvenc_h264", "H264 Movie", "/data/raw/H264 Movie (2022)",
+                        (1920, 1080), "H264 Movie (2022) 1080p Blu-ray H264")
 
     def test_tv_show_with_resolution(self):
-        worker = self._make_worker()
-        with patch("transcoder.settings") as s:
-            s.completed_path = "/data/completed"
-            s.tv_subdir = "tv"
-            s.video_encoder = "nvenc_h265"
-            result = worker._determine_output_path(
-                "Show S01E05", "/data/raw/Show S01E05 (2023)", resolution=(1920, 1080)
-            )
+        scheme = _mock_scheme("nvenc_h265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
+            from transcoder import TranscodeWorker
+            worker = TranscodeWorker()
+            with patch("transcoder.settings") as s:
+                s.completed_path = "/data/completed"
+                s.tv_subdir = "tv"
+                result = worker._determine_output_path(
+                    "Show S01E05", "/data/raw/Show S01E05 (2023)", resolution=(1920, 1080)
+                )
         assert "tv" in str(result)
         assert result.name == "Show S01E05 (2023) 1080p Blu-ray HEVC"
 
     def test_720p_resolution(self):
-        worker = self._make_worker()
-        with patch("transcoder.settings") as s:
-            s.completed_path = "/data/completed"
-            s.movies_subdir = "movies"
-            s.video_encoder = "x265"
-            result = worker._determine_output_path(
-                "HD Movie", "/data/raw/HD Movie (2019)", resolution=(1280, 720)
-            )
-        assert result.name == "HD Movie (2019) 720p Blu-ray HEVC"
+        self._run_test("x265", "HD Movie", "/data/raw/HD Movie (2019)",
+                        (1280, 720), "HD Movie (2019) 720p Blu-ray HEVC")
 
 
-# ─── TranscodeWorker._cleanup_source ─────────────────────────────────────────
+# --- TranscodeWorker._cleanup_source ---
 
 
 class TestCleanupSource:
     """Tests for _cleanup_source method."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        scheme = _mock_scheme("x265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -1078,14 +1101,16 @@ class TestCleanupSource:
         await worker._cleanup_source(path)  # Should not raise
 
 
-# ─── TranscodeWorker properties ──────────────────────────────────────────────
+# --- TranscodeWorker properties ---
 
 
 class TestWorkerProperties:
     """Tests for TranscodeWorker properties."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        scheme = _mock_scheme("x265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -1102,14 +1127,16 @@ class TestWorkerProperties:
         assert worker._shutdown_event.is_set()
 
 
-# ─── TranscodeWorker._get_video_resolution ────────────────────────────────
+# --- TranscodeWorker._get_video_resolution ---
 
 
 class TestGetVideoResolution:
     """Tests for _get_video_resolution method."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        scheme = _mock_scheme("x265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -1184,237 +1211,91 @@ class TestGetVideoResolution:
         assert result is None
 
 
-# ─── HandBrake preset selection by resolution ─────────────────────────────
+# --- HandBrake preset selection by resolution ---
 
 
 class TestHandBrakePresetSelection:
     """Tests for resolution-based preset selection in _transcode_file_handbrake."""
 
-    def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
-            from transcoder import TranscodeWorker
-            return TranscodeWorker()
-
-    def _run_handbrake_test(self, resolution, tmp_path):
-        """Helper: run _transcode_file_handbrake with mocked resolution, return captured cmd."""
-        worker = self._make_worker()
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.stdout = AsyncMock()
-        mock_proc.stdout.__aiter__ = lambda self: self
-        mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
-        mock_proc.wait = AsyncMock(return_value=0)
-
+    async def _run_handbrake(self, resolution, tmp_path):
+        """Create worker and run _transcode_file_handbrake within active_scheme patch."""
+        scheme = _mock_scheme("nvenc_h265")
         output = tmp_path / "test_out.mkv"
+        captured = []
 
-        async def fake_exec(*args, **kwargs):
+        async def capturing_exec(*args, **kwargs):
+            captured.append(args)
             output.touch()
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = AsyncMock()
+            mock_proc.stdout.__aiter__ = lambda self: self
+            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+            mock_proc.wait = AsyncMock(return_value=0)
             return mock_proc
 
-        return worker, resolution, fake_exec, output
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
+            from transcoder import TranscodeWorker
+            worker = TranscodeWorker()
+            with patch.object(worker, "_get_video_resolution", AsyncMock(return_value=resolution)), \
+                 patch("transcoder.asyncio.create_subprocess_exec", capturing_exec):
+                await worker._transcode_file_handbrake(
+                    Path("/fake/video.mkv"), output, 1
+                )
+
+        return captured[0]
 
     @pytest.mark.asyncio
     async def test_4k_source_uses_4k_preset(self, tmp_path):
-        """4K source (>1080p) should use handbrake_preset_4k."""
-        worker, resolution, fake_exec, output = self._run_handbrake_test((3840, 2160), tmp_path)
-
-        captured = []
-
-        async def capturing_exec(*args, **kwargs):
-            captured.append(args)
-            output.touch()
-            mock_proc = AsyncMock()
-            mock_proc.returncode = 0
-            mock_proc.stdout = AsyncMock()
-            mock_proc.stdout.__aiter__ = lambda self: self
-            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
-            mock_proc.wait = AsyncMock(return_value=0)
-            return mock_proc
-
-        with patch.object(worker, "_get_video_resolution", AsyncMock(return_value=resolution)), \
-             patch("transcoder.asyncio.create_subprocess_exec", capturing_exec), \
-             patch("transcoder.settings") as mock_settings:
-            mock_settings.handbrake_preset = "NVENC H.265 1080p"
-            mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
-            mock_settings.handbrake_preset_file = ""
-            mock_settings.video_encoder = "nvenc_h265"
-            mock_settings.video_quality = 22
-            mock_settings.audio_encoder = "copy"
-            mock_settings.subtitle_mode = "all"
-
-            await worker._transcode_file_handbrake(
-                Path("/fake/video.mkv"), output, 1
-            )
-
-        cmd = captured[0]
+        """4K source (>1080p) should use the uhd tier preset."""
+        cmd = await self._run_handbrake((3840, 2160), tmp_path)
         preset_idx = cmd.index("--preset")
-        assert cmd[preset_idx + 1] == "H.265 NVENC 2160p 4K"
-        assert "--width" not in cmd
+        assert cmd[preset_idx + 1] == "Test 2160p 4K"
 
     @pytest.mark.asyncio
     async def test_1080p_source_uses_standard_preset(self, tmp_path):
-        """1080p source should use standard handbrake_preset."""
-        worker = self._make_worker()
-        output = tmp_path / "test_out.mkv"
-        captured = []
-
-        async def capturing_exec(*args, **kwargs):
-            captured.append(args)
-            output.touch()
-            mock_proc = AsyncMock()
-            mock_proc.returncode = 0
-            mock_proc.stdout = AsyncMock()
-            mock_proc.stdout.__aiter__ = lambda self: self
-            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
-            mock_proc.wait = AsyncMock(return_value=0)
-            return mock_proc
-
-        with patch.object(worker, "_get_video_resolution", AsyncMock(return_value=(1920, 1080))), \
-             patch("transcoder.asyncio.create_subprocess_exec", capturing_exec), \
-             patch("transcoder.settings") as mock_settings:
-            mock_settings.handbrake_preset = "NVENC H.265 1080p"
-            mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
-            mock_settings.handbrake_preset_file = ""
-            mock_settings.video_encoder = "nvenc_h265"
-            mock_settings.video_quality = 22
-            mock_settings.audio_encoder = "copy"
-            mock_settings.subtitle_mode = "all"
-
-            await worker._transcode_file_handbrake(
-                Path("/fake/video.mkv"), output, 1
-            )
-
-        cmd = captured[0]
+        """1080p source should use the bluray tier preset."""
+        cmd = await self._run_handbrake((1920, 1080), tmp_path)
         preset_idx = cmd.index("--preset")
-        assert cmd[preset_idx + 1] == "NVENC H.265 1080p"
-        assert "--width" not in cmd
+        assert cmd[preset_idx + 1] == "Test 1080p"
 
     @pytest.mark.asyncio
     async def test_480p_source_adds_upscale(self, tmp_path):
-        """DVD source (<720p) should use standard preset with --width 1280."""
-        worker = self._make_worker()
-        output = tmp_path / "test_out.mkv"
-        captured = []
-
-        async def capturing_exec(*args, **kwargs):
-            captured.append(args)
-            output.touch()
-            mock_proc = AsyncMock()
-            mock_proc.returncode = 0
-            mock_proc.stdout = AsyncMock()
-            mock_proc.stdout.__aiter__ = lambda self: self
-            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
-            mock_proc.wait = AsyncMock(return_value=0)
-            return mock_proc
-
-        with patch.object(worker, "_get_video_resolution", AsyncMock(return_value=(720, 480))), \
-             patch("transcoder.asyncio.create_subprocess_exec", capturing_exec), \
-             patch("transcoder.settings") as mock_settings:
-            mock_settings.handbrake_preset = "NVENC H.265 1080p"
-            mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
-            mock_settings.handbrake_preset_dvd = ""
-            mock_settings.handbrake_preset_file = ""
-            mock_settings.video_encoder = "nvenc_h265"
-            mock_settings.video_quality = 22
-            mock_settings.audio_encoder = "copy"
-            mock_settings.subtitle_mode = "all"
-
-            await worker._transcode_file_handbrake(
-                Path("/fake/video.mkv"), output, 1
-            )
-
-        cmd = captured[0]
+        """DVD source (<720p) should use dvd tier preset with --width 1280."""
+        cmd = await self._run_handbrake((720, 480), tmp_path)
         preset_idx = cmd.index("--preset")
-        assert cmd[preset_idx + 1] == "NVENC H.265 1080p"
+        assert cmd[preset_idx + 1] == "Test 720p"
         assert "--width" in cmd
         width_idx = cmd.index("--width")
         assert cmd[width_idx + 1] == "1280"
 
     @pytest.mark.asyncio
     async def test_ffprobe_failure_uses_standard_preset(self, tmp_path):
-        """When resolution detection fails, should fall back to standard preset."""
-        worker = self._make_worker()
-        output = tmp_path / "test_out.mkv"
-        captured = []
-
-        async def capturing_exec(*args, **kwargs):
-            captured.append(args)
-            output.touch()
-            mock_proc = AsyncMock()
-            mock_proc.returncode = 0
-            mock_proc.stdout = AsyncMock()
-            mock_proc.stdout.__aiter__ = lambda self: self
-            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
-            mock_proc.wait = AsyncMock(return_value=0)
-            return mock_proc
-
-        with patch.object(worker, "_get_video_resolution", AsyncMock(return_value=None)), \
-             patch("transcoder.asyncio.create_subprocess_exec", capturing_exec), \
-             patch("transcoder.settings") as mock_settings:
-            mock_settings.handbrake_preset = "NVENC H.265 1080p"
-            mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
-            mock_settings.handbrake_preset_file = ""
-            mock_settings.video_encoder = "nvenc_h265"
-            mock_settings.video_quality = 22
-            mock_settings.audio_encoder = "copy"
-            mock_settings.subtitle_mode = "all"
-
-            await worker._transcode_file_handbrake(
-                Path("/fake/video.mkv"), output, 1
-            )
-
-        cmd = captured[0]
+        """When resolution detection fails, should fall back to bluray tier preset."""
+        cmd = await self._run_handbrake(None, tmp_path)
         preset_idx = cmd.index("--preset")
-        assert cmd[preset_idx + 1] == "NVENC H.265 1080p"
-        assert "--width" not in cmd
+        assert cmd[preset_idx + 1] == "Test 1080p"
 
     @pytest.mark.asyncio
     async def test_720p_source_uses_standard_preset(self, tmp_path):
-        """720p source (boundary) should use standard preset without upscale."""
-        worker = self._make_worker()
-        output = tmp_path / "test_out.mkv"
-        captured = []
-
-        async def capturing_exec(*args, **kwargs):
-            captured.append(args)
-            output.touch()
-            mock_proc = AsyncMock()
-            mock_proc.returncode = 0
-            mock_proc.stdout = AsyncMock()
-            mock_proc.stdout.__aiter__ = lambda self: self
-            mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
-            mock_proc.wait = AsyncMock(return_value=0)
-            return mock_proc
-
-        with patch.object(worker, "_get_video_resolution", AsyncMock(return_value=(1280, 720))), \
-             patch("transcoder.asyncio.create_subprocess_exec", capturing_exec), \
-             patch("transcoder.settings") as mock_settings:
-            mock_settings.handbrake_preset = "NVENC H.265 1080p"
-            mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
-            mock_settings.handbrake_preset_file = ""
-            mock_settings.video_encoder = "nvenc_h265"
-            mock_settings.video_quality = 22
-            mock_settings.audio_encoder = "copy"
-            mock_settings.subtitle_mode = "all"
-
-            await worker._transcode_file_handbrake(
-                Path("/fake/video.mkv"), output, 1
-            )
-
-        cmd = captured[0]
+        """720p source (boundary) should use bluray tier preset without upscale."""
+        cmd = await self._run_handbrake((1280, 720), tmp_path)
         preset_idx = cmd.index("--preset")
-        assert cmd[preset_idx + 1] == "NVENC H.265 1080p"
+        assert cmd[preset_idx + 1] == "Test 1080p"
         assert "--width" not in cmd
 
 
-# ─── Disk space pre-check in _process_job ──────────────────────────────────
+# --- Disk space pre-check in _process_job ---
 
 
 class TestDiskSpacePreCheck:
     """Tests for disk space pre-check in _process_job."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        scheme = _mock_scheme("x265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -1425,7 +1306,6 @@ class TestDiskSpacePreCheck:
         from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
         from models import Base, TranscodeJobDB
 
-        # Set up test DB
         db_path = str(tmp_dirs["db_dir"] / "disktest.db")
         engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -1442,12 +1322,10 @@ class TestDiskSpacePreCheck:
                     await session.rollback()
                     raise
 
-        # Create source directory with MKV file
         source_dir = tmp_dirs["raw"] / "TestMovie"
         source_dir.mkdir()
         (source_dir / "movie.mkv").write_bytes(b"\x00" * 10000)
 
-        # Create job in DB
         async with session_factory() as session:
             from models import JobStatus
             job_db = TranscodeJobDB(
@@ -1468,11 +1346,10 @@ class TestDiskSpacePreCheck:
 
         worker = self._make_worker()
 
-        # Mock disk_usage to return very low free space
         mock_disk = MagicMock()
         mock_disk.total = 20 * 1024**3
         mock_disk.used = 19.5 * 1024**3
-        mock_disk.free = 0.5 * 1024**3  # Only 0.5GB free
+        mock_disk.free = 0.5 * 1024**3
 
         with patch("transcoder.get_db", test_get_db), \
              patch("transcoder.settings") as mock_settings, \
@@ -1483,10 +1360,10 @@ class TestDiskSpacePreCheck:
             mock_settings.delete_source = False
             mock_settings.stabilize_seconds = 0
             mock_settings.minimum_free_space_gb = 10.0
+            mock_settings.log_path = str(tmp_dirs["work"])
 
             await worker._process_job(job)
 
-        # Verify job was marked as failed with disk space error
         async with session_factory() as session:
             from sqlalchemy import select
             result = await session.execute(
@@ -1499,14 +1376,16 @@ class TestDiskSpacePreCheck:
         await engine.dispose()
 
 
-# ─── _load_track_metadata ──────────────────────────────────────────────────
+# --- _load_track_metadata ---
 
 
 class TestLoadTrackMetadata:
     """Tests for TranscodeWorker._load_track_metadata."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        scheme = _mock_scheme("x265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -1542,7 +1421,6 @@ class TestLoadTrackMetadata:
 
         engine, session_factory, test_get_db = await self._setup_db(tmp_path)
 
-        # Create a job with multi_title=0 but track_metadata present
         async with session_factory() as session:
             job_db = TranscodeJobDB(
                 id=802, title="SingleTitle",
@@ -1560,7 +1438,6 @@ class TestLoadTrackMetadata:
         with patch("transcoder.get_db", test_get_db):
             result = await worker._load_track_metadata(job_id)
 
-        # Track metadata is always used when present — ARM is the naming authority
         assert result is not None
         assert "t01" in result
         await engine.dispose()
@@ -1661,12 +1538,10 @@ class TestLoadTrackMetadata:
             result = await worker._load_track_metadata(job_id)
 
         assert result is not None
-        # Keyed by filename stem (without extension)
         assert "title_t01" in result
         assert "title_t02" in result
         assert result["title_t01"]["title"] == "Episode 1"
         assert result["title_t02"]["title"] == "Episode 2"
-        # Also keyed by track number
         assert "_track_1" in result
         assert "_track_2" in result
         await engine.dispose()
@@ -1700,14 +1575,16 @@ class TestLoadTrackMetadata:
         await engine.dispose()
 
 
-# ─── queue_job multi-title support ─────────────────────────────────────────
+# --- queue_job multi-title support ---
 
 
 class TestQueueJobMultiTitle:
     """Tests for queue_job() storing multi_title and track_metadata in DB."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        scheme = _mock_scheme("x265")
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -1860,9 +1737,7 @@ class TestQueueJobMultiTitle:
                 select(TranscodeJobDB).where(TranscodeJobDB.id == job_id)
             )
             job_db = result.scalar_one()
-            # multi_title defaults to 0 since not passed
             assert job_db.multi_title == 0
-            # But tracks are still serialized
             assert job_db.track_metadata is not None
             stored = json.loads(job_db.track_metadata)
             assert len(stored) == 1
