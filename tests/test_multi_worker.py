@@ -19,6 +19,27 @@ from models import Base, TranscodeJobDB, JobStatus
 from transcoder import TranscodeWorker, WorkerStatus
 
 
+def _mock_scheme_software():
+    """Build a mock software scheme for test fixtures."""
+    from presets import Preset, Scheme, Encoder
+    preset = Preset(
+        slug="test_sw", name="Test Software", scheme="software",
+        shared={"video_encoder": "x265", "audio_encoder": "copy", "subtitle_mode": "all"},
+        tiers={
+            "dvd": {"handbrake_preset": "H.265 MKV 720p30", "video_quality": 22},
+            "bluray": {"handbrake_preset": "H.265 MKV 1080p30", "video_quality": 22},
+            "uhd": {"handbrake_preset": "H.265 MKV 2160p60 4K", "video_quality": 22},
+        },
+    )
+    return Scheme(
+        slug="software", name="Software (CPU)",
+        supported_encoders=[Encoder(slug="x265", name="Software x265")],
+        supported_audio_encoders=["copy", "aac"],
+        supported_subtitle_modes=["all", "first", "none"],
+        built_in_presets=[preset],
+    )
+
+
 # ─── Unit tests for WorkerStatus ────────────────────────────────────────────
 
 
@@ -73,7 +94,7 @@ class TestWorkerProperties:
             "ffmpeg_vaapi_h264": False, "ffmpeg_amf_h265": False,
             "ffmpeg_amf_h264": False, "ffmpeg_qsv_h265": False,
             "ffmpeg_qsv_h264": False, "vaapi_device": False,
-        }):
+        }), patch("main.active_scheme", _mock_scheme_software()):
             return TranscodeWorker()
 
     def test_active_count_empty(self, worker):
@@ -149,7 +170,7 @@ class TestMultiWorkerRunLoop:
                  "ffmpeg_vaapi_h264": False, "ffmpeg_amf_h265": False,
                  "ffmpeg_amf_h264": False, "ffmpeg_qsv_h265": False,
                  "ffmpeg_qsv_h264": False, "vaapi_device": False,
-             }):
+             }), patch("main.active_scheme", _mock_scheme_software()):
             worker = TranscodeWorker()
             yield worker, sf
 

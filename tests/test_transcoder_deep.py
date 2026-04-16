@@ -28,6 +28,27 @@ def _gpu_support_none():
     }
 
 
+def _mock_scheme_software():
+    """Build a mock software scheme for test fixtures."""
+    from presets import Preset, Scheme, Encoder
+    preset = Preset(
+        slug="test_sw", name="Test Software", scheme="software",
+        shared={"video_encoder": "x265", "audio_encoder": "copy", "subtitle_mode": "all"},
+        tiers={
+            "dvd": {"handbrake_preset": "H.265 MKV 720p30", "video_quality": 22},
+            "bluray": {"handbrake_preset": "H.265 MKV 1080p30", "video_quality": 22},
+            "uhd": {"handbrake_preset": "H.265 MKV 2160p60 4K", "video_quality": 22},
+        },
+    )
+    return Scheme(
+        slug="software", name="Software (CPU)",
+        supported_encoders=[Encoder(slug="x265", name="Software x265")],
+        supported_audio_encoders=["copy", "aac"],
+        supported_subtitle_modes=["all", "first", "none"],
+        built_in_presets=[preset],
+    )
+
+
 @pytest_asyncio.fixture
 async def worker_with_db(tmp_path):
     """Create a TranscodeWorker with a real test DB."""
@@ -51,7 +72,8 @@ async def worker_with_db(tmp_path):
 
     import database as db_module
     with patch.object(db_module, "get_db", test_get_db), \
-         patch("transcoder.get_db", test_get_db):
+         patch("transcoder.get_db", test_get_db), \
+         patch("main.active_scheme", _mock_scheme_software()):
         worker = TranscodeWorker(gpu_support=_gpu_support_none())
         yield worker, session_factory
 
@@ -448,20 +470,19 @@ class TestEffectiveHelper:
     def test_effective_returns_override(self, worker_with_db):
         """Cover _effective line 133: override takes precedence."""
         worker, _ = worker_with_db
-        result = worker._effective("video_encoder", {"video_encoder": "hevc_nvenc"})
-        assert result == "hevc_nvenc"
+        result = worker._effective("delete_source", {"delete_source": False})
+        assert result is False
 
     def test_effective_returns_global(self, worker_with_db):
         """Cover _effective line 134: falls back to settings."""
         worker, _ = worker_with_db
-        result = worker._effective("video_encoder", None)
-        # Should return settings.video_encoder
+        result = worker._effective("delete_source", None)
         from config import settings
-        assert result == settings.video_encoder
+        assert result == settings.delete_source
 
     def test_effective_key_not_in_overrides(self, worker_with_db):
         """Cover _effective: key not in overrides dict."""
         worker, _ = worker_with_db
-        result = worker._effective("video_encoder", {"audio_encoder": "aac"})
+        result = worker._effective("delete_source", {"output_extension": "mp4"})
         from config import settings
-        assert result == settings.video_encoder
+        assert result == settings.delete_source

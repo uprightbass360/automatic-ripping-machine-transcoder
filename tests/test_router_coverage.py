@@ -234,12 +234,12 @@ class TestConfigUpdateCoverage:
     async def test_update_existing_override(self, router_client):
         ac, app, sf, _ = router_client
         # First update — creates the override
-        response = await ac.patch("/config", json={"video_quality": 20})
+        response = await ac.patch("/config", json={"max_retry_count": 5})
         assert response.status_code == 200
         # Second update — updates existing override (the uncovered branch)
-        response = await ac.patch("/config", json={"video_quality": 18})
+        response = await ac.patch("/config", json={"max_retry_count": 7})
         assert response.status_code == 200
-        assert response.json()["applied"]["video_quality"] == 18
+        assert response.json()["applied"]["max_retry_count"] == 7
 
 
 # ─── health.py — FAKE_GPU_STATS and restart fallback ───────────────────────

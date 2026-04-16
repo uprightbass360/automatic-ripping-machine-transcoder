@@ -36,6 +36,27 @@ def _gpu_support_none():
     return {k: False for k in _gpu_support_all()}
 
 
+def _mock_scheme(video_encoder="x265"):
+    """Build a mock active_scheme with the given default video_encoder."""
+    from presets import Preset, Scheme, Encoder
+    preset = Preset(
+        slug="test", name="Test", scheme="test",
+        shared={"video_encoder": video_encoder, "audio_encoder": "copy", "subtitle_mode": "all"},
+        tiers={
+            "dvd": {"handbrake_preset": "Test 720p", "video_quality": 22},
+            "bluray": {"handbrake_preset": "Test 1080p", "video_quality": 22},
+            "uhd": {"handbrake_preset": "Test 2160p 4K", "video_quality": 22},
+        },
+    )
+    return Scheme(
+        slug="test", name="Test",
+        supported_encoders=[Encoder(slug=video_encoder, name=video_encoder)],
+        supported_audio_encoders=["copy", "aac"],
+        supported_subtitle_modes=["all", "first", "none"],
+        built_in_presets=[preset],
+    )
+
+
 # ─── _match_track_metadata ──────────────────────────────────────────────────
 
 
@@ -43,7 +64,8 @@ class TestMatchTrackMetadata:
     """Tests for TranscodeWorker._match_track_metadata."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", _mock_scheme()):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
@@ -129,12 +151,14 @@ class TestTranscodeFilesMultiTitle:
     """Tests for _transcode_files with multi_title flag."""
 
     def _make_worker(self, video_encoder="x265"):
+        scheme = _mock_scheme(video_encoder)
         with patch("transcoder.check_gpu_support", return_value=_gpu_support_none()), \
-             patch("transcoder.settings") as mock_settings:
-            mock_settings.video_encoder = video_encoder
-            mock_settings.output_extension = "mkv"
+             patch("main.active_scheme", scheme):
             from transcoder import TranscodeWorker
-            return TranscodeWorker(), mock_settings
+            worker = TranscodeWorker()
+        mock_settings = MagicMock()
+        mock_settings.output_extension = "mkv"
+        return worker, mock_settings
 
     @pytest.mark.asyncio
     async def test_all_tracks_succeed(self, tmp_path):
@@ -235,7 +259,8 @@ class TestNotifyArmCallback:
     """Tests for _notify_arm_callback track_results parameter."""
 
     def _make_worker(self):
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()):
+        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
+             patch("main.active_scheme", _mock_scheme()):
             from transcoder import TranscodeWorker
             return TranscodeWorker()
 
