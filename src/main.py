@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
     try:
         active_scheme = load_active_scheme()
         logger.info(f"Loaded scheme: {active_scheme.name} ({active_scheme.slug})")
-    except ImportError as e:
+    except (ImportError, AttributeError) as e:
         logger.critical(f"Failed to load scheme for GPU_VENDOR={os.environ.get('GPU_VENDOR', '')}: {e}")
         raise SystemExit(1)
 
