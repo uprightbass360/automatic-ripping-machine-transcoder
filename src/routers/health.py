@@ -40,10 +40,7 @@ async def health_check(request: Request):
         "max_concurrent": settings.max_concurrent,
         "gpu_support": gpu_support,
         "config": {
-            "video_encoder": settings.video_encoder,
-            "video_quality": settings.video_quality,
-            "audio_encoder": settings.audio_encoder,
-            "subtitle_mode": settings.subtitle_mode,
+            "selected_preset_slug": settings.selected_preset_slug,
             "delete_source": settings.delete_source,
             "output_extension": settings.output_extension,
             "max_concurrent": settings.max_concurrent,
