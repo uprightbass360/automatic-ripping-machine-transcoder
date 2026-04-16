@@ -341,32 +341,64 @@ class TestScheme:
 class TestLoadActiveScheme:
     """Tests for load_active_scheme() function."""
 
-    def test_returns_scheme_instance(self, monkeypatch):
-        """load_active_scheme returns a Scheme instance."""
-        monkeypatch.setenv("GPU_VENDOR", "")
-        scheme = load_active_scheme()
-        assert isinstance(scheme, Scheme)
-
-    def test_software_scheme_for_empty_vendor(self, monkeypatch):
-        """Empty GPU_VENDOR loads the software scheme."""
-        monkeypatch.setenv("GPU_VENDOR", "")
+    def test_load_software_default(self, monkeypatch):
+        """Missing GPU_VENDOR loads the software scheme with x265/x264 encoders."""
+        monkeypatch.delenv("GPU_VENDOR", raising=False)
         scheme = load_active_scheme()
         assert scheme.slug == "software"
+        assert len(scheme.built_in_presets) >= 1
+        for enc in scheme.supported_encoders:
+            assert enc.slug in ("x265", "x264")
 
-    def test_nvidia_scheme_for_nvidia_vendor(self, monkeypatch):
-        """GPU_VENDOR=nvidia loads the nvidia scheme."""
+    def test_load_nvidia(self, monkeypatch):
+        """GPU_VENDOR=nvidia loads nvidia scheme with NVENC encoders only."""
         monkeypatch.setenv("GPU_VENDOR", "nvidia")
         scheme = load_active_scheme()
         assert scheme.slug == "nvidia"
+        assert "nvenc_h265" in scheme.encoder_slugs
+        assert "x265" not in scheme.encoder_slugs
 
-    def test_intel_scheme_for_intel_vendor(self, monkeypatch):
-        """GPU_VENDOR=intel loads the intel scheme."""
+    def test_load_intel(self, monkeypatch):
+        """GPU_VENDOR=intel loads intel scheme with QSV encoders."""
         monkeypatch.setenv("GPU_VENDOR", "intel")
         scheme = load_active_scheme()
         assert scheme.slug == "intel"
+        assert "qsv_h265" in scheme.encoder_slugs
 
-    def test_amd_scheme_for_amd_vendor(self, monkeypatch):
-        """GPU_VENDOR=amd loads the amd scheme."""
+    def test_load_amd(self, monkeypatch):
+        """GPU_VENDOR=amd loads amd scheme with VAAPI or AMF encoders."""
         monkeypatch.setenv("GPU_VENDOR", "amd")
         scheme = load_active_scheme()
         assert scheme.slug == "amd"
+        assert any(s.startswith("vaapi_") or s.startswith("amf_") for s in scheme.encoder_slugs)
+
+    def test_each_scheme_presets_have_all_tiers(self, monkeypatch):
+        """Every preset in every scheme defines all three tiers."""
+        for vendor in ["nvidia", "intel", "amd", ""]:
+            if vendor:
+                monkeypatch.setenv("GPU_VENDOR", vendor)
+            else:
+                monkeypatch.delenv("GPU_VENDOR", raising=False)
+            scheme = load_active_scheme()
+            for preset in scheme.built_in_presets:
+                assert set(preset.tiers.keys()) == {"dvd", "bluray", "uhd"}, (
+                    f"Preset {preset.slug!r} in scheme {scheme.slug!r} missing tiers"
+                )
+
+    def test_each_scheme_encoders_used_in_presets_are_supported(self, monkeypatch):
+        """video_encoder referenced in each tier belongs to the scheme's supported encoders."""
+        for vendor in ["nvidia", "intel", "amd", ""]:
+            if vendor:
+                monkeypatch.setenv("GPU_VENDOR", vendor)
+            else:
+                monkeypatch.delenv("GPU_VENDOR", raising=False)
+            scheme = load_active_scheme()
+            valid_slugs = set(scheme.encoder_slugs)
+            for preset in scheme.built_in_presets:
+                for tier_name, tier in preset.tiers.items():
+                    enc = tier.get("video_encoder")
+                    if enc:
+                        assert enc in valid_slugs, (
+                            f"Encoder {enc!r} in tier {tier_name!r} of preset "
+                            f"{preset.slug!r} not in scheme {scheme.slug!r} supported encoders"
+                        )
