@@ -22,6 +22,34 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from models import Base, JobStatus, TranscodeJobDB
 
 
+def _mock_scheme_software():
+    """Build a mock software scheme for test fixtures."""
+    from presets import Preset, Scheme, Encoder
+    preset = Preset(
+        slug="test_sw", name="Test Software", scheme="software",
+        shared={"video_encoder": "x265", "audio_encoder": "copy", "subtitle_mode": "all"},
+        tiers={
+            "dvd": {"handbrake_preset": "H.265 MKV 720p30", "video_quality": 22},
+            "bluray": {"handbrake_preset": "H.265 MKV 1080p30", "video_quality": 22},
+            "uhd": {"handbrake_preset": "H.265 MKV 2160p60 4K", "video_quality": 22},
+        },
+    )
+    return Scheme(
+        slug="software", name="Software (CPU)",
+        supported_encoders=[Encoder(slug="x265", name="Software x265")],
+        supported_audio_encoders=["copy", "aac"],
+        supported_subtitle_modes=["all", "first", "none"],
+        built_in_presets=[preset],
+    )
+
+
+@pytest.fixture(autouse=True)
+def _mock_active_scheme():
+    """Ensure main.active_scheme is always set for TranscodeWorker init."""
+    with patch("main.active_scheme", _mock_scheme_software()):
+        yield
+
+
 # ─── Mock async file transfer (use local shutil in tests, no rsync needed) ──
 
 @pytest.fixture(autouse=True)
@@ -1301,13 +1329,8 @@ class TestResolutionPresetSelection:
                 mock_settings.movies_subdir = "movies"
                 mock_settings.output_extension = "mkv"
                 mock_settings.delete_source = False
-                mock_settings.video_encoder = "nvenc_h265"
-                mock_settings.video_quality = 22
-                mock_settings.audio_encoder = "copy"
-                mock_settings.subtitle_mode = "all"
-                mock_settings.handbrake_preset = "NVENC H.265 1080p"
-                mock_settings.handbrake_preset_4k = "H.265 NVENC 2160p 4K"
-                mock_settings.handbrake_preset_file = ""
+                mock_settings.selected_preset_slug = ""
+                mock_settings.global_overrides = "{}"
                 mock_settings.work_path = str(tmp_path / "work")
                 mock_settings.minimum_free_space_gb = 10.0
 
@@ -1323,12 +1346,12 @@ class TestResolutionPresetSelection:
                 with patch("transcoder.asyncio.create_subprocess_exec", fake_exec):
                     await worker._process_job(job)
 
-        # Verify the HandBrake command used the 4K preset
+        # Verify the HandBrake command used the uhd tier preset
         assert len(handbrake_cmds) > 0
         cmd = handbrake_cmds[0]
         assert "--preset" in cmd
         preset_idx = cmd.index("--preset")
-        assert cmd[preset_idx + 1] == "H.265 NVENC 2160p 4K"
+        assert cmd[preset_idx + 1] == "H.265 MKV 2160p60 4K"
 
 
 # ─── 9. Multi-file Transcode ────────────────────────────────────────────────
