@@ -63,7 +63,7 @@ class TestPreset:
             description="Good balance of quality and speed",
             shared={"video_quality": 22, "audio_encoder": "copy"},
             tiers={
-                "dvd": {"handbrake_preset": "H.265 MKV 720p30", "handbrake_extra_args": "--crop auto"},
+                "dvd": {"handbrake_preset": "H.265 MKV 720p30", "handbrake_extra_args": ["--crop", "auto"]},
                 "bluray": {"handbrake_preset": "H.265 MKV 1080p30"},
                 "uhd": {"handbrake_preset": "H.265 MKV 2160p60 4K"},
             },
@@ -156,7 +156,7 @@ class TestResolvePreset:
             tiers={
                 "dvd": {
                     "handbrake_preset": "H.265 MKV 720p30",
-                    "handbrake_extra_args": "--crop auto",
+                    "handbrake_extra_args": ["--crop", "auto"],
                 },
                 "bluray": {
                     "handbrake_preset": "H.265 MKV 1080p30",
@@ -180,7 +180,7 @@ class TestResolvePreset:
         preset = self._make_preset()
         result = resolve_preset(preset, "dvd", overrides=None)
         assert result["handbrake_preset"] == "H.265 MKV 720p30"
-        assert result["handbrake_extra_args"] == "--crop auto"
+        assert result["handbrake_extra_args"] == ["--crop", "auto"]
 
     def test_bluray_has_no_extra_args(self):
         """bluray tier does not include handbrake_extra_args (not set in tier)."""
@@ -213,11 +213,11 @@ class TestResolvePreset:
             "dvd",
             overrides={
                 "shared": {"audio_encoder": "aac"},
-                "tiers": {"dvd": {"handbrake_extra_args": "--no-crop"}},
+                "tiers": {"dvd": {"handbrake_extra_args": ["--no-crop"]}},
             },
         )
         assert result["audio_encoder"] == "aac"
-        assert result["handbrake_extra_args"] == "--no-crop"
+        assert result["handbrake_extra_args"] == ["--no-crop"]
         assert result["handbrake_preset"] == "H.265 MKV 720p30"
         assert result["video_quality"] == 22
 
@@ -316,6 +316,8 @@ class TestScheme:
 
     def test_slug_required(self):
         """slug is required."""
+        _p = Preset(slug="p", name="P", scheme="s", shared={},
+                     tiers={"dvd": {}, "bluray": {}, "uhd": {}})
         with pytest.raises(ValidationError):
             Scheme(
                 name="Missing Slug",
@@ -323,20 +325,31 @@ class TestScheme:
                 supported_audio_encoders=[],
                 supported_subtitle_modes=[],
                 advanced_fields={},
-                built_in_presets=[],
+                built_in_presets=[_p],
             )
 
     def test_advanced_fields_defaults_to_empty(self):
-        """advanced_fields defaults to empty list when omitted."""
+        """advanced_fields defaults to empty dict when omitted."""
+        _p = Preset(slug="p", name="P", scheme="s", shared={},
+                     tiers={"dvd": {}, "bluray": {}, "uhd": {}})
         scheme = Scheme(
             slug="software",
             name="Software",
             supported_encoders=[],
             supported_audio_encoders=[],
             supported_subtitle_modes=[],
-            built_in_presets=[],
+            built_in_presets=[_p],
         )
         assert scheme.advanced_fields == {}
+
+    def test_empty_presets_rejected(self):
+        """Scheme with no built-in presets is rejected."""
+        with pytest.raises(ValueError, match="at least one"):
+            Scheme(
+                slug="s", name="S",
+                supported_encoders=[], supported_audio_encoders=[],
+                supported_subtitle_modes=[], built_in_presets=[],
+            )
 
 
 # ─── TestLoadActiveScheme ────────────────────────────────────────────────────

@@ -74,6 +74,13 @@ class Scheme(BaseModel):
                 return preset
         return None
 
+    @field_validator("built_in_presets")
+    @classmethod
+    def validate_built_in_presets(cls, v: list[Preset]) -> list[Preset]:
+        if not v:
+            raise ValueError("Scheme must have at least one built-in preset")
+        return v
+
     @property
     def default_preset(self) -> Preset:
         """Return the first built-in preset (the default)."""
@@ -102,12 +109,11 @@ def resolve_preset(
     Returns:
         Effective settings dict.
     """
+    if tier not in REQUIRED_TIERS:
+        raise ValueError(f"Invalid tier {tier!r}; must be one of {sorted(REQUIRED_TIERS)}")
+
     result: dict[str, Any] = {}
-
-    # 1. Start with shared fields
     result.update(preset.shared)
-
-    # 2. Apply tier-specific fields
     result.update(preset.tiers.get(tier, {}))
 
     if overrides:
@@ -123,13 +129,8 @@ def resolve_preset(
     return result
 
 
-# ---------------------------------------------------------------------------
-# Scheme module loaders
-# ---------------------------------------------------------------------------
-# Each GPU variant has its own scheme module under presets/schemes/.
-# The actual scheme module files don't exist yet - load_active_scheme()
-# is the loader function that will import them when they are implemented.
-# ---------------------------------------------------------------------------
+
+
 
 _VENDOR_TO_MODULE: dict[str, str] = {
     "nvidia": "presets.schemes.nvidia",
