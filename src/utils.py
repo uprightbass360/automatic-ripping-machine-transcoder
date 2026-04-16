@@ -12,7 +12,6 @@ from constants import (
     TRANSCODE_SPACE_MULTIPLIER,
     VALID_AUDIO_ENCODERS,
     VALID_SUBTITLE_MODES,
-    VALID_VIDEO_ENCODERS,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,27 +112,6 @@ class PathValidator:
 
 class CommandValidator:
     """Validates command arguments for subprocess calls."""
-
-    @staticmethod
-    def validate_encoder(encoder: str) -> str:
-        """
-        Validate video encoder name.
-
-        Args:
-            encoder: Encoder name to validate
-
-        Returns:
-            Validated encoder name
-
-        Raises:
-            ValueError: If encoder is invalid
-        """
-        if encoder not in VALID_VIDEO_ENCODERS:
-            raise ValueError(
-                f"Invalid video encoder: {encoder}. "
-                f"Valid options: {', '.join(VALID_VIDEO_ENCODERS)}"
-            )
-        return encoder
 
     @staticmethod
     def validate_audio_encoder(encoder: str) -> str:

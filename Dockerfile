@@ -41,9 +41,8 @@ COPY requirements.txt .
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 COPY src/ /app/
 COPY VERSION /app/
-COPY presets/ /config/presets/
 RUN mkdir -p /data/raw /data/completed /data/work /data/db /data/logs \
-    && chown -R transcoder:transcoder /data /app /config
+    && chown -R transcoder:transcoder /data /app
 
 COPY scripts/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

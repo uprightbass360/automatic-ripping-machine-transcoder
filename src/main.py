@@ -15,7 +15,7 @@ import structlog
 
 from fastapi import FastAPI
 
-from config import settings, load_config_overrides, auto_resolve_gpu_defaults
+from config import settings, load_config_overrides
 from constants import SHUTDOWN_TIMEOUT
 from database import init_db
 from presets import load_active_scheme
@@ -95,10 +95,9 @@ async def lifespan(app: FastAPI):
         logger.critical(f"Failed to load scheme for GPU_VENDOR={os.environ.get('GPU_VENDOR', '')}: {e}")
         raise SystemExit(1)
 
-    # Probe GPU, auto-resolve defaults, then start worker with resolved settings
+    # Probe GPU support, then start worker with resolved settings
     from transcoder import check_gpu_support
     gpu_support = check_gpu_support()
-    await auto_resolve_gpu_defaults(gpu_support)
 
     app.state.worker = TranscodeWorker(gpu_support=gpu_support)
 
