@@ -7,11 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from auth import get_current_user, require_admin
-from config import (
-    settings, UPDATABLE_KEYS, VALID_LOG_LEVELS, get_available_presets,
-    get_preset_files, get_presets_by_file,
-)
-from constants import VALID_VIDEO_ENCODERS, VALID_AUDIO_ENCODERS, VALID_SUBTITLE_MODES
+from config import settings, UPDATABLE_KEYS, VALID_LOG_LEVELS
 from database import get_db
 from models import ConfigOverrideDB
 
@@ -32,13 +28,7 @@ async def get_config(_role: Annotated[str, Depends(get_current_user)]):
             "completed_path": settings.completed_path,
             "work_path": settings.work_path,
         },
-        "valid_video_encoders": VALID_VIDEO_ENCODERS,
-        "valid_audio_encoders": VALID_AUDIO_ENCODERS,
-        "valid_subtitle_modes": VALID_SUBTITLE_MODES,
         "valid_log_levels": VALID_LOG_LEVELS,
-        "valid_handbrake_presets": get_available_presets(),
-        "valid_preset_files": get_preset_files(),
-        "presets_by_file": get_presets_by_file(),
     }
 
 
@@ -59,6 +49,19 @@ async def update_config(
             status_code=400,
             detail=f"Non-updatable keys: {', '.join(sorted(invalid_keys))}",
         )
+
+    # Validate preset slug exists (if provided)
+    if "selected_preset_slug" in data:
+        slug = data["selected_preset_slug"]
+        if slug:  # empty = use scheme default
+            from main import active_scheme
+            if not active_scheme.get_preset(slug):
+                from models import CustomPresetDB
+                async with get_db() as db_check:
+                    custom = await db_check.get(CustomPresetDB, slug)
+                if not custom:
+                    raise HTTPException(status_code=400,
+                        detail=f"Unknown preset slug: {slug}")
 
     # Validate values by building a partial Settings with overrides
     current_vals = {key: getattr(settings, key) for key in UPDATABLE_KEYS}
