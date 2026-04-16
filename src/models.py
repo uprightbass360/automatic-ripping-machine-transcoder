@@ -37,6 +37,20 @@ class ConfigOverrideDB(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class CustomPresetDB(Base):
+    """User-created preset stored as a diff against a built-in parent."""
+    __tablename__ = "custom_presets"
+
+    slug = Column(String(100), primary_key=True)
+    name = Column(String(200), nullable=False)
+    scheme = Column(String(50), nullable=False)
+    parent_slug = Column(String(100), nullable=False)
+    overrides_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
 class TranscodeJobDB(Base):
     """Database model for transcode jobs."""
     __tablename__ = "transcode_jobs"
