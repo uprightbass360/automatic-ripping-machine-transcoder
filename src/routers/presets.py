@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_RESP_SCHEME_UNLOADED = {503: {"description": "Scheme not loaded"}}
+_RESP_NOT_FOUND = {404: {"description": "Preset not found"}}
+_RESP_BAD_REQUEST = {400: {"description": "Validation error"}}
+_RESP_CONFLICT = {409: {"description": "Slug conflict"}}
+
 
 def _get_scheme():
     from main import active_scheme
@@ -30,26 +35,34 @@ def _slugify(name: str) -> str:
     return slug or "custom"
 
 
-def _validate_overrides(scheme, overrides: dict) -> list[str]:
+_VALID_TIERS = ("dvd", "bluray", "uhd")
+
+
+def _validate_shared_overrides(shared: dict, scheme) -> list[str]:
+    errors = []
+    if "audio_encoder" in shared and shared["audio_encoder"] not in scheme.supported_audio_encoders:
+        errors.append(f"Unsupported audio encoder: {shared['audio_encoder']}")
+    if "subtitle_mode" in shared and shared["subtitle_mode"] not in scheme.supported_subtitle_modes:
+        errors.append(f"Unsupported subtitle mode: {shared['subtitle_mode']}")
+    return errors
+
+
+def _validate_tier_overrides(tiers: dict, scheme) -> list[str]:
     errors = []
     valid_encoders = set(scheme.encoder_slugs)
-    valid_audio = set(scheme.supported_audio_encoders)
-    valid_subs = set(scheme.supported_subtitle_modes)
+    for tier_name, tier_fields in tiers.items():
+        if tier_name not in _VALID_TIERS:
+            errors.append(f"Unknown tier: {tier_name}")
+            continue
+        encoder = tier_fields.get("video_encoder")
+        if encoder and encoder not in valid_encoders:
+            errors.append(f"Unsupported encoder: {encoder}")
+    return errors
 
-    for section in ["shared", "tiers"]:
-        fields = overrides.get(section, {})
-        if section == "tiers":
-            for tier_name, tier_fields in fields.items():
-                if tier_name not in ("dvd", "bluray", "uhd"):
-                    errors.append(f"Unknown tier: {tier_name}")
-                    continue
-                if "video_encoder" in tier_fields and tier_fields["video_encoder"] not in valid_encoders:
-                    errors.append(f"Unsupported encoder: {tier_fields['video_encoder']}")
-        else:
-            if "audio_encoder" in fields and fields["audio_encoder"] not in valid_audio:
-                errors.append(f"Unsupported audio encoder: {fields['audio_encoder']}")
-            if "subtitle_mode" in fields and fields["subtitle_mode"] not in valid_subs:
-                errors.append(f"Unsupported subtitle mode: {fields['subtitle_mode']}")
+
+def _validate_overrides(scheme, overrides: dict) -> list[str]:
+    errors = _validate_shared_overrides(overrides.get("shared", {}), scheme)
+    errors.extend(_validate_tier_overrides(overrides.get("tiers", {}), scheme))
     return errors
 
 
@@ -123,7 +136,7 @@ def _custom_to_response(row: CustomPresetDB, scheme) -> dict[str, Any]:
 # ---- Scheme endpoint -------------------------------------------------------
 
 
-@router.get("/scheme")
+@router.get("/scheme", responses=_RESP_SCHEME_UNLOADED)
 async def get_scheme(_role: Annotated[str, Depends(get_current_user)]):
     """Return active scheme metadata."""
     scheme = _get_scheme()
@@ -142,7 +155,7 @@ async def get_scheme(_role: Annotated[str, Depends(get_current_user)]):
 # ---- Preset CRUD -----------------------------------------------------------
 
 
-@router.get("/presets")
+@router.get("/presets", responses=_RESP_SCHEME_UNLOADED)
 async def list_presets(_role: Annotated[str, Depends(get_current_user)]):
     """Return all presets: built-ins from the active scheme + custom from DB."""
     scheme = _get_scheme()
@@ -163,7 +176,7 @@ async def list_presets(_role: Annotated[str, Depends(get_current_user)]):
     return {"presets": results}
 
 
-@router.get("/presets/{slug}")
+@router.get("/presets/{slug}", responses={**_RESP_SCHEME_UNLOADED, **_RESP_NOT_FOUND})
 async def get_preset(
     slug: str,
     _role: Annotated[str, Depends(get_current_user)],
@@ -186,7 +199,8 @@ async def get_preset(
     return _custom_to_response(row, scheme)
 
 
-@router.post("/presets", status_code=201)
+@router.post("/presets", status_code=201,
+              responses={**_RESP_SCHEME_UNLOADED, **_RESP_BAD_REQUEST, **_RESP_CONFLICT})
 async def create_preset(
     request: dict[str, Any],
     _role: Annotated[str, Depends(require_admin)],
@@ -250,7 +264,8 @@ async def create_preset(
     return _custom_to_response(row, scheme)
 
 
-@router.patch("/presets/{slug}")
+@router.patch("/presets/{slug}",
+               responses={**_RESP_SCHEME_UNLOADED, **_RESP_BAD_REQUEST, **_RESP_NOT_FOUND})
 async def update_preset(
     slug: str,
     request: dict[str, Any],
@@ -289,7 +304,7 @@ async def update_preset(
     return _custom_to_response(row, scheme)
 
 
-@router.delete("/presets/{slug}")
+@router.delete("/presets/{slug}", responses={**_RESP_SCHEME_UNLOADED, **_RESP_NOT_FOUND})
 async def delete_preset(
     slug: str,
     _role: Annotated[str, Depends(require_admin)],

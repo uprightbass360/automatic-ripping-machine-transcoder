@@ -13,6 +13,9 @@ _SUBTITLE_MODES = ["all", "first", "none"]
 
 _QSV_SPEED_VALUES = ["veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]
 
+_HB_PRESET_1080P = "H.265 QSV 1080p"
+_HB_PRESET_4K = "H.265 QSV 2160p 4K"
+
 SCHEME = Scheme(
     slug="intel",
     name="Intel QSV",
@@ -51,16 +54,16 @@ SCHEME = Scheme(
             },
             tiers={
                 "dvd": {
-                    "handbrake_preset": "H.265 QSV 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 22,
                     "handbrake_extra_args": ["--width", "1280"],
                 },
                 "bluray": {
-                    "handbrake_preset": "H.265 QSV 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 22,
                 },
                 "uhd": {
-                    "handbrake_preset": "H.265 QSV 2160p 4K",
+                    "handbrake_preset": _HB_PRESET_4K,
                     "video_quality": 22,
                 },
             },
@@ -77,16 +80,16 @@ SCHEME = Scheme(
             },
             tiers={
                 "dvd": {
-                    "handbrake_preset": "H.265 QSV 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 18,
                     "handbrake_extra_args": ["--width", "1280"],
                 },
                 "bluray": {
-                    "handbrake_preset": "H.265 QSV 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 18,
                 },
                 "uhd": {
-                    "handbrake_preset": "H.265 QSV 2160p 4K",
+                    "handbrake_preset": _HB_PRESET_4K,
                     "video_quality": 20,
                 },
             },
