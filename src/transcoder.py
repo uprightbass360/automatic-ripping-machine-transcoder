@@ -41,8 +41,49 @@ logger = logging.getLogger(__name__)
 _MKV_GLOB = "*.mkv"
 
 
+def _ffmpeg_encoder_works(encoder: str, hwaccel: str | None = None) -> bool:
+    """Attempt a 1-frame null encode to verify the encoder actually functions.
+
+    The encoder name being compiled into ffmpeg (visible in `ffmpeg -encoders`)
+    does not mean the hardware or driver is present. Running a tiny encode
+    surfaces missing devices, missing drivers, or permission errors as a
+    non-zero exit code.
+    """
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+    if hwaccel:
+        cmd += ["-hwaccel", hwaccel]
+    cmd += [
+        "-f", "lavfi", "-i", "nullsrc=s=64x36:d=0.1",
+        "-c:v", encoder,
+        "-f", "null", "-",
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        return proc.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+
+
+def _ffmpeg_has_encoder(encoder: str) -> bool:
+    """Check if ffmpeg has the encoder compiled in (fast, no hardware test)."""
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return encoder in proc.stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+
+
 def check_gpu_support() -> dict:
-    """Check which GPU encoders are available (NVENC, VAAPI, AMF, QSV)."""
+    """Check which GPU encoders are actually functional.
+
+    For each ffmpeg encoder we check both: compiled in AND runs successfully
+    against available hardware. This avoids reporting encoders as available
+    when the hardware or driver is missing (common on CPU-only hosts where
+    ffmpeg ships with NVENC/VAAPI/QSV compiled in regardless).
+    """
     result = {
         "handbrake_nvenc": False,
         "handbrake_qsv": False,
@@ -57,11 +98,13 @@ def check_gpu_support() -> dict:
         "vaapi_device": False,
     }
 
-    # Check HandBrake encoder support (NVENC, QSV)
+    # HandBrake checks: --help listing is compile-time, still a hint not proof.
+    # HandBrake returns false correctly when hardware is absent because its
+    # --help output is gated on runtime probe results (unlike ffmpeg's).
     try:
         output = subprocess.run(
             ["HandBrakeCLI", "--help"],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
         )
         combined = output.stdout.lower() + output.stderr.lower()
         if "nvenc" in combined:
@@ -71,40 +114,32 @@ def check_gpu_support() -> dict:
     except Exception:
         pass
 
-    # Check FFmpeg encoders (NVENC, VAAPI, AMF, QSV)
-    try:
-        output = subprocess.run(
-            ["ffmpeg", "-encoders"],
-            capture_output=True, text=True, timeout=10
-        )
-        stdout = output.stdout
-        # NVENC (NVIDIA)
-        if "hevc_nvenc" in stdout:
-            result["ffmpeg_nvenc_h265"] = True
-        if "h264_nvenc" in stdout:
-            result["ffmpeg_nvenc_h264"] = True
-        # VAAPI (AMD/Intel on Linux)
-        if "hevc_vaapi" in stdout:
-            result["ffmpeg_vaapi_h265"] = True
-        if "h264_vaapi" in stdout:
-            result["ffmpeg_vaapi_h264"] = True
-        # AMF (AMD)
-        if "hevc_amf" in stdout:
-            result["ffmpeg_amf_h265"] = True
-        if "h264_amf" in stdout:
-            result["ffmpeg_amf_h264"] = True
-        # QSV (Intel Quick Sync)
-        if "hevc_qsv" in stdout:
-            result["ffmpeg_qsv_h265"] = True
-        if "h264_qsv" in stdout:
-            result["ffmpeg_qsv_h264"] = True
-    except Exception:
-        pass
-
-    # Check for VAAPI/QSV device (typically /dev/dri/renderD128)
+    # VAAPI/QSV device detection (needed before gated encoder probes)
     vaapi_device = os.environ.get("VAAPI_DEVICE", "/dev/dri/renderD128")
-    if os.path.exists(vaapi_device):
-        result["vaapi_device"] = True
+    result["vaapi_device"] = os.path.exists(vaapi_device)
+
+    # FFmpeg encoder probes: compiled-in check + functional test.
+    # The functional test is what catches the false-positive case.
+    ffmpeg_probes = [
+        ("ffmpeg_nvenc_h265", "hevc_nvenc", None),
+        ("ffmpeg_nvenc_h264", "h264_nvenc", None),
+        ("ffmpeg_amf_h265",   "hevc_amf",   None),
+        ("ffmpeg_amf_h264",   "h264_amf",   None),
+    ]
+    for key, encoder, hwaccel in ffmpeg_probes:
+        if _ffmpeg_has_encoder(encoder) and _ffmpeg_encoder_works(encoder, hwaccel):
+            result[key] = True
+
+    # VAAPI/QSV: skip functional test if no device node; saves ~10s timeout
+    if result["vaapi_device"]:
+        for key, encoder, hwaccel in [
+            ("ffmpeg_vaapi_h265", "hevc_vaapi", "vaapi"),
+            ("ffmpeg_vaapi_h264", "h264_vaapi", "vaapi"),
+            ("ffmpeg_qsv_h265",   "hevc_qsv",   "qsv"),
+            ("ffmpeg_qsv_h264",   "h264_qsv",   "qsv"),
+        ]:
+            if _ffmpeg_has_encoder(encoder) and _ffmpeg_encoder_works(encoder, hwaccel):
+                result[key] = True
 
     return result
 
