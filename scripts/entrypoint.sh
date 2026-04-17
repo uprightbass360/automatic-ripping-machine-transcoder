@@ -36,9 +36,10 @@ if [ "$(id -u)" = "0" ]; then
 
     # ── Fix ownership on writable bind-mounted dirs ───────────────────
     # Shallow chown (maxdepth 1) to avoid slow recursion on large media trees.
+    # NFS mounts with root_squash will reject root chown; tolerate those.
     for dir in $WRITABLE_DIRS; do
         if [ -d "$dir" ]; then
-            chown transcoder:transcoder "$dir"
+            chown transcoder:transcoder "$dir" 2>/dev/null || true
             find "$dir" -maxdepth 1 ! -type d -exec chown transcoder:transcoder {} + 2>/dev/null || true
         fi
     done
