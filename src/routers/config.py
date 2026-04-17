@@ -1,5 +1,6 @@
 """Configuration endpoints."""
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Annotated
@@ -20,6 +21,12 @@ router = APIRouter()
 async def get_config(_role: Annotated[str, Depends(get_current_user)]):
     """Return current updatable settings and valid option lists."""
     config = {key: getattr(settings, key) for key in UPDATABLE_KEYS}
+    # Deserialize JSON-stored overrides for clients that expect structured data.
+    if isinstance(config.get("global_overrides"), str):
+        try:
+            config["global_overrides"] = json.loads(config["global_overrides"])
+        except (ValueError, TypeError):
+            config["global_overrides"] = {}
     return {
         "config": config,
         "updatable_keys": sorted(UPDATABLE_KEYS),
@@ -49,6 +56,12 @@ async def update_config(
             status_code=400,
             detail=f"Non-updatable keys: {', '.join(sorted(invalid_keys))}",
         )
+
+    # global_overrides is stored as a JSON string internally. Accept a dict
+    # from clients (the UI sends the structured overrides object) and
+    # serialize it here so downstream validation sees a string.
+    if "global_overrides" in data and isinstance(data["global_overrides"], dict):
+        data["global_overrides"] = json.dumps(data["global_overrides"])
 
     # Validate preset slug exists (if provided)
     if "selected_preset_slug" in data:
