@@ -14,6 +14,9 @@ _SUBTITLE_MODES = ["all", "first", "none"]
 
 _NVENC_SPEED_VALUES = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"]
 
+_HB_PRESET_1080P = "H.265 NVENC 1080p"
+_HB_PRESET_4K = "H.265 NVENC 2160p 4K"
+
 SCHEME = Scheme(
     slug="nvidia",
     name="NVIDIA NVENC",
@@ -52,16 +55,16 @@ SCHEME = Scheme(
             },
             tiers={
                 "dvd": {
-                    "handbrake_preset": "H.265 NVENC 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 22,
                     "handbrake_extra_args": ["--width", "1280"],
                 },
                 "bluray": {
-                    "handbrake_preset": "H.265 NVENC 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 20,
                 },
                 "uhd": {
-                    "handbrake_preset": "H.265 NVENC 2160p 4K",
+                    "handbrake_preset": _HB_PRESET_4K,
                     "video_quality": 22,
                 },
             },
@@ -78,16 +81,16 @@ SCHEME = Scheme(
             },
             tiers={
                 "dvd": {
-                    "handbrake_preset": "H.265 NVENC 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 18,
                     "handbrake_extra_args": ["--width", "1280"],
                 },
                 "bluray": {
-                    "handbrake_preset": "H.265 NVENC 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 18,
                 },
                 "uhd": {
-                    "handbrake_preset": "H.265 NVENC 2160p 4K",
+                    "handbrake_preset": _HB_PRESET_4K,
                     "video_quality": 20,
                 },
             },
@@ -104,16 +107,16 @@ SCHEME = Scheme(
             },
             tiers={
                 "dvd": {
-                    "handbrake_preset": "H.265 NVENC 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 26,
                     "handbrake_extra_args": ["--width", "1280"],
                 },
                 "bluray": {
-                    "handbrake_preset": "H.265 NVENC 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 24,
                 },
                 "uhd": {
-                    "handbrake_preset": "H.265 NVENC 2160p 4K",
+                    "handbrake_preset": _HB_PRESET_4K,
                     "video_quality": 26,
                 },
             },

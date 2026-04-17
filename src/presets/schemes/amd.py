@@ -14,6 +14,9 @@ from presets import Encoder, Preset, Scheme
 _AUDIO_ENCODERS = ["copy", "aac", "ac3", "eac3", "flac", "mp3"]
 _SUBTITLE_MODES = ["all", "first", "none"]
 
+_HB_PRESET_1080P = "H.265 VCN 1080p"
+_HB_PRESET_4K = "H.265 VCN 2160p 4K"
+
 SCHEME = Scheme(
     slug="amd",
     name="AMD VAAPI/AMF",
@@ -39,16 +42,16 @@ SCHEME = Scheme(
             },
             tiers={
                 "dvd": {
-                    "handbrake_preset": "H.265 VCN 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 22,
                     "handbrake_extra_args": ["--width", "1280"],
                 },
                 "bluray": {
-                    "handbrake_preset": "H.265 VCN 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 22,
                 },
                 "uhd": {
-                    "handbrake_preset": "H.265 VCN 2160p 4K",
+                    "handbrake_preset": _HB_PRESET_4K,
                     "video_quality": 22,
                 },
             },
@@ -65,16 +68,16 @@ SCHEME = Scheme(
             },
             tiers={
                 "dvd": {
-                    "handbrake_preset": "H.265 VCN 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 18,
                     "handbrake_extra_args": ["--width", "1280"],
                 },
                 "bluray": {
-                    "handbrake_preset": "H.265 VCN 1080p",
+                    "handbrake_preset": _HB_PRESET_1080P,
                     "video_quality": 18,
                 },
                 "uhd": {
-                    "handbrake_preset": "H.265 VCN 2160p 4K",
+                    "handbrake_preset": _HB_PRESET_4K,
                     "video_quality": 20,
                 },
             },
