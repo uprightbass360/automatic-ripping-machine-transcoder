@@ -70,19 +70,33 @@ def _mock_scheme(video_encoder="x265"):
 class TestCheckGpuSupport:
     """Tests for check_gpu_support function."""
 
+    def _hb_help(self, *, nvenc=False, qsv=False):
+        """Build a mock HandBrakeCLI --help result."""
+        result = MagicMock()
+        bits = []
+        if nvenc:
+            bits.append("nvenc")
+        if qsv:
+            bits.append("qsv")
+        result.stdout = " ".join(bits)
+        result.stderr = ""
+        return result
+
     def test_all_available(self):
-        """Should detect all GPU encoders."""
+        """Should detect all GPU encoders when hardware probes succeed."""
         def mock_run(cmd, **kwargs):
-            result = MagicMock()
-            result.stdout = "nvenc hevc_nvenc h264_nvenc hevc_vaapi h264_vaapi hevc_amf h264_amf hevc_qsv h264_qsv"
-            result.stderr = ""
-            return result
+            if cmd[0] == "HandBrakeCLI":
+                return self._hb_help(nvenc=True, qsv=True)
+            return MagicMock()  # any ffmpeg subprocess call
 
         with patch("transcoder.subprocess.run", side_effect=mock_run), \
+             patch("transcoder._ffmpeg_has_encoder", return_value=True), \
+             patch("transcoder._ffmpeg_encoder_works", return_value=True), \
              patch("transcoder.os.path.exists", return_value=True):
             from transcoder import check_gpu_support
             support = check_gpu_support()
             assert support["handbrake_nvenc"] is True
+            assert support["handbrake_qsv"] is True
             assert support["ffmpeg_nvenc_h265"] is True
             assert support["ffmpeg_nvenc_h264"] is True
             assert support["ffmpeg_vaapi_h265"] is True
@@ -94,36 +108,59 @@ class TestCheckGpuSupport:
             assert support["vaapi_device"] is True
 
     def test_nothing_available(self):
-        """Should handle no GPU support."""
+        """Should handle no GPU support (probes fail, no device)."""
         def mock_run(cmd, **kwargs):
             raise FileNotFoundError("not found")
 
         with patch("transcoder.subprocess.run", side_effect=mock_run), \
+             patch("transcoder._ffmpeg_has_encoder", return_value=False), \
+             patch("transcoder._ffmpeg_encoder_works", return_value=False), \
              patch("transcoder.os.path.exists", return_value=False):
             from transcoder import check_gpu_support
             support = check_gpu_support()
             assert support["handbrake_nvenc"] is False
-            assert support["ffmpeg_nvenc_h265"] is False
-            assert support["ffmpeg_nvenc_h264"] is False
-            assert support["ffmpeg_vaapi_h265"] is False
-            assert support["ffmpeg_vaapi_h264"] is False
-            assert support["ffmpeg_amf_h265"] is False
-            assert support["ffmpeg_amf_h264"] is False
-            assert support["ffmpeg_qsv_h265"] is False
-            assert support["ffmpeg_qsv_h264"] is False
+            assert all(
+                support[k] is False
+                for k in support
+                if k.startswith("ffmpeg_")
+            )
             assert support["vaapi_device"] is False
 
-    def test_ffmpeg_only_nvenc(self):
-        """Should detect FFmpeg NVENC when HandBrake missing."""
+    def test_ffmpeg_encoder_compiled_but_hardware_missing(self):
+        """KEY REGRESSION: compiled-in ffmpeg encoder but no hardware must return false."""
         def mock_run(cmd, **kwargs):
-            result = MagicMock()
             if cmd[0] == "HandBrakeCLI":
                 raise FileNotFoundError()
-            result.stdout = "hevc_nvenc h264_nvenc"
-            result.stderr = ""
-            return result
+            return MagicMock()
+
+        # has_encoder returns True (compiled in); encoder_works returns False (no hw)
+        with patch("transcoder.subprocess.run", side_effect=mock_run), \
+             patch("transcoder._ffmpeg_has_encoder", return_value=True), \
+             patch("transcoder._ffmpeg_encoder_works", return_value=False), \
+             patch("transcoder.os.path.exists", return_value=False):
+            from transcoder import check_gpu_support
+            support = check_gpu_support()
+            assert support["ffmpeg_nvenc_h265"] is False
+            assert support["ffmpeg_nvenc_h264"] is False
+            assert support["ffmpeg_amf_h265"] is False
+            assert support["ffmpeg_amf_h264"] is False
+
+    def test_ffmpeg_only_nvenc(self):
+        """Should detect FFmpeg NVENC when HandBrake missing and hardware works."""
+        def mock_run(cmd, **kwargs):
+            if cmd[0] == "HandBrakeCLI":
+                raise FileNotFoundError()
+            return MagicMock()
+
+        def has_encoder(enc):
+            return enc in ("hevc_nvenc", "h264_nvenc")
+
+        def encoder_works(enc, hwaccel=None):
+            return enc in ("hevc_nvenc", "h264_nvenc")
 
         with patch("transcoder.subprocess.run", side_effect=mock_run), \
+             patch("transcoder._ffmpeg_has_encoder", side_effect=has_encoder), \
+             patch("transcoder._ffmpeg_encoder_works", side_effect=encoder_works), \
              patch("transcoder.os.path.exists", return_value=False):
             from transcoder import check_gpu_support
             support = check_gpu_support()
@@ -134,16 +171,21 @@ class TestCheckGpuSupport:
             assert support["ffmpeg_vaapi_h264"] is False
 
     def test_vaapi_only(self):
-        """Should detect VAAPI encoders for AMD GPU."""
+        """Should detect VAAPI encoders when device present and hardware works."""
         def mock_run(cmd, **kwargs):
-            result = MagicMock()
             if cmd[0] == "HandBrakeCLI":
                 raise FileNotFoundError()
-            result.stdout = "hevc_vaapi h264_vaapi"
-            result.stderr = ""
-            return result
+            return MagicMock()
+
+        def has_encoder(enc):
+            return enc in ("hevc_vaapi", "h264_vaapi")
+
+        def encoder_works(enc, hwaccel=None):
+            return enc in ("hevc_vaapi", "h264_vaapi")
 
         with patch("transcoder.subprocess.run", side_effect=mock_run), \
+             patch("transcoder._ffmpeg_has_encoder", side_effect=has_encoder), \
+             patch("transcoder._ffmpeg_encoder_works", side_effect=encoder_works), \
              patch("transcoder.os.path.exists", return_value=True):
             from transcoder import check_gpu_support
             support = check_gpu_support()
@@ -154,16 +196,21 @@ class TestCheckGpuSupport:
             assert support["vaapi_device"] is True
 
     def test_qsv_only(self):
-        """Should detect QSV encoders for Intel GPU."""
+        """Should detect QSV encoders when device present and hardware works."""
         def mock_run(cmd, **kwargs):
-            result = MagicMock()
             if cmd[0] == "HandBrakeCLI":
                 raise FileNotFoundError()
-            result.stdout = "hevc_qsv h264_qsv"
-            result.stderr = ""
-            return result
+            return MagicMock()
+
+        def has_encoder(enc):
+            return enc in ("hevc_qsv", "h264_qsv")
+
+        def encoder_works(enc, hwaccel=None):
+            return enc in ("hevc_qsv", "h264_qsv")
 
         with patch("transcoder.subprocess.run", side_effect=mock_run), \
+             patch("transcoder._ffmpeg_has_encoder", side_effect=has_encoder), \
+             patch("transcoder._ffmpeg_encoder_works", side_effect=encoder_works), \
              patch("transcoder.os.path.exists", return_value=True):
             from transcoder import check_gpu_support
             support = check_gpu_support()
@@ -186,32 +233,97 @@ class TestCheckGpuSupport:
             return result
 
         with patch("transcoder.subprocess.run", side_effect=mock_run), \
+             patch("transcoder._ffmpeg_has_encoder", return_value=False), \
+             patch("transcoder._ffmpeg_encoder_works", return_value=False), \
              patch("transcoder.os.path.exists", return_value=False):
             from transcoder import check_gpu_support
             support = check_gpu_support()
             assert support["handbrake_nvenc"] is True
 
-    def test_vaapi_device_not_found(self):
-        """Should report no VAAPI device when /dev/dri/renderD128 missing."""
+    def test_vaapi_device_not_found_skips_probe(self):
+        """When /dev/dri/renderD128 is missing, VAAPI/QSV probes are skipped entirely."""
         def mock_run(cmd, **kwargs):
-            result = MagicMock()
             if cmd[0] == "HandBrakeCLI":
                 raise FileNotFoundError()
-            result.stdout = "hevc_vaapi h264_vaapi"
-            result.stderr = ""
-            return result
+            return MagicMock()
 
+        # Even if encoders would work, skip them when no device
         with patch("transcoder.subprocess.run", side_effect=mock_run), \
+             patch("transcoder._ffmpeg_has_encoder", return_value=True), \
+             patch("transcoder._ffmpeg_encoder_works", return_value=True), \
              patch("transcoder.os.path.exists", return_value=False):
             from transcoder import check_gpu_support
             support = check_gpu_support()
-            assert support["ffmpeg_vaapi_h265"] is True
             assert support["vaapi_device"] is False
+            # VAAPI and QSV probes short-circuit when no device
+            assert support["ffmpeg_vaapi_h265"] is False
+            assert support["ffmpeg_vaapi_h264"] is False
+            assert support["ffmpeg_qsv_h265"] is False
+            assert support["ffmpeg_qsv_h264"] is False
 
     def test_backward_compat_alias(self):
         """check_nvenc_support should be an alias for check_gpu_support."""
         from transcoder import check_nvenc_support, check_gpu_support
         assert check_nvenc_support is check_gpu_support
+
+
+class TestFfmpegEncoderProbeHelpers:
+    """Tests for the probe helpers that back check_gpu_support."""
+
+    def test_has_encoder_true(self):
+        result = MagicMock()
+        result.stdout = "V..... hevc_nvenc          NVIDIA NVENC hevc encoder\n"
+        with patch("transcoder.subprocess.run", return_value=result):
+            from transcoder import _ffmpeg_has_encoder
+            assert _ffmpeg_has_encoder("hevc_nvenc") is True
+
+    def test_has_encoder_false(self):
+        result = MagicMock()
+        result.stdout = "V..... libx265          H.265 / HEVC (libx265)\n"
+        with patch("transcoder.subprocess.run", return_value=result):
+            from transcoder import _ffmpeg_has_encoder
+            assert _ffmpeg_has_encoder("hevc_nvenc") is False
+
+    def test_has_encoder_ffmpeg_missing(self):
+        with patch("transcoder.subprocess.run", side_effect=FileNotFoundError):
+            from transcoder import _ffmpeg_has_encoder
+            assert _ffmpeg_has_encoder("hevc_nvenc") is False
+
+    def test_encoder_works_success(self):
+        result = MagicMock()
+        result.returncode = 0
+        with patch("transcoder.subprocess.run", return_value=result):
+            from transcoder import _ffmpeg_encoder_works
+            assert _ffmpeg_encoder_works("libx265") is True
+
+    def test_encoder_works_failure(self):
+        """Non-zero exit code (e.g. no device available) returns False."""
+        result = MagicMock()
+        result.returncode = 1
+        with patch("transcoder.subprocess.run", return_value=result):
+            from transcoder import _ffmpeg_encoder_works
+            assert _ffmpeg_encoder_works("hevc_nvenc") is False
+
+    def test_encoder_works_timeout(self):
+        import subprocess as sp
+        with patch("transcoder.subprocess.run",
+                    side_effect=sp.TimeoutExpired(cmd="ffmpeg", timeout=10)):
+            from transcoder import _ffmpeg_encoder_works
+            assert _ffmpeg_encoder_works("hevc_nvenc") is False
+
+    def test_encoder_works_passes_hwaccel(self):
+        """hwaccel arg should appear in ffmpeg command when provided."""
+        captured = {}
+        def capture(cmd, **kwargs):
+            captured["cmd"] = cmd
+            r = MagicMock()
+            r.returncode = 0
+            return r
+        with patch("transcoder.subprocess.run", side_effect=capture):
+            from transcoder import _ffmpeg_encoder_works
+            _ffmpeg_encoder_works("hevc_vaapi", hwaccel="vaapi")
+            assert "-hwaccel" in captured["cmd"]
+            assert "vaapi" in captured["cmd"]
 
 
 # --- Encoder family detection ---
