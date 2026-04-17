@@ -48,12 +48,15 @@ def _ffmpeg_encoder_works(encoder: str, hwaccel: str | None = None) -> bool:
     does not mean the hardware or driver is present. Running a tiny encode
     surfaces missing devices, missing drivers, or permission errors as a
     non-zero exit code.
+
+    Frame size: NVENC requires at least ~132x136 for H.265 and 145x49 for H.264.
+    QSV and VAAPI have similar minimums. 256x256 is safely above all of them.
     """
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
     if hwaccel:
         cmd += ["-hwaccel", hwaccel]
     cmd += [
-        "-f", "lavfi", "-i", "nullsrc=s=64x36:d=0.1",
+        "-f", "lavfi", "-i", "nullsrc=s=256x256:d=0.1",
         "-c:v", encoder,
         "-f", "null", "-",
     ]
