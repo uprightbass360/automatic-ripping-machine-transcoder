@@ -72,7 +72,9 @@ async def client(mock_worker, tmp_path):
         main_module.app.state.worker = mock_worker
 
         transport = ASGITransport(app=main_module.app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # ASGITransport invokes the app in-process; base_url scheme is a placeholder
+        # never resolved on the network. Using https to satisfy static analysis.
+        async with AsyncClient(transport=transport, base_url="https://test") as ac:
             yield ac
 
         main_module.app.state.worker = None
