@@ -42,14 +42,12 @@ flowchart TB
     subgraph storage["Shared Storage"]
         RAW["/raw/ — MakeMKV output"]
         DONE["/completed/ — Transcoded output<br/>(movies, tv)"]
-        MUSIC["/music/ — Audio CD rips<br/>(abcde, ripper-side)"]
     end
 
     ARM -- "webhook<br/>(job + preset_slug)" --> TC
     TC -- "callback<br/>(status updates)" --> ARM
     UI -- "GET /scheme, /presets<br/>POST /presets" --> TC
-    ARM -- "writes MKV" --> RAW
-    ARM -- "writes audio" --> MUSIC
+    ARM -- "writes" --> RAW
     RAW -- "reads" --> TC
     TC -- "writes" --> DONE
 ```
