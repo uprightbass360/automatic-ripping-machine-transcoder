@@ -219,21 +219,6 @@ Insert a disc into your ARM ripper and let it rip. When the rip completes:
 4. Output is written to `completed/movies/` or `completed/tv/` (auto-detected)
 5. Source files are cleaned up (if `DELETE_SOURCE=true`)
 
-### Optional: Drive auto-restart
-
-If your Blu-ray drive isn't powered on 24/7, install a watcher on the ARM host
-to automatically restart the container when the drive connects:
-
-```bash
-sudo ./scripts/setup-drive-watcher.sh --mode udev
-
-# Monitor restart events
-journalctl -t arm-drive-watcher -f
-```
-
-See `./scripts/setup-drive-watcher.sh --help` for all options including
-docker-compose support and device-bound mode.
-
 
 ## Configuration
 
