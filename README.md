@@ -178,19 +178,19 @@ The script patches `arm.yaml`, deploys the notification script (when using `--se
 Edit your ARM `arm.yaml`:
 
 ```yaml
-# Enable external transcoding via arm-transcoder
+# Transcoder webhook — ARM notifies the transcoder when a rip completes
+TRANSCODER_URL: "http://TRANSCODER_IP:5000/webhook/arm"
+TRANSCODER_WEBHOOK_SECRET: ""   # optional, must match WEBHOOK_SECRET on transcoder
+
+# Keep transcoding enabled (false = send to transcoder, true = skip)
 SKIP_TRANSCODE: false
+
+# Rip settings
 RIPMETHOD: "mkv"
 DELRAWFILES: false
-MAX_CONCURRENT_TRANSCODES: 0
-
-# Send webhook when rip completes
-JSON_URL: "http://TRANSCODER_IP:5000/webhook/arm"
-NOTIFY_RIP: true
-NOTIFY_TRANSCODE: false
 ```
 
-Replace `TRANSCODER_IP` with the IP or hostname of your transcode server. For authenticated webhooks, use the `notify_transcoder.sh` script instead of `JSON_URL` — see [config/arm/arm.yaml](config/arm/arm.yaml) for both options.
+Replace `TRANSCODER_IP` with the IP or hostname of your transcode server.
 
 ### 4. Test the pipeline
 
