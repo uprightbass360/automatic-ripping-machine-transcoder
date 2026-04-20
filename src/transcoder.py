@@ -1104,12 +1104,25 @@ class TranscodeWorker:
 
         logger.info(f"Source stabilized at {last_size} bytes")
 
+    # Terminal statuses (completed/partial/failed) are critical — ARM job
+    # depends on them.  Informational statuses (transcoding) are best-effort.
+    _TERMINAL_RETRIES = 3
+    _TERMINAL_BACKOFF = (5, 30, 120)  # seconds between retries
+
     async def _notify_arm_callback(
         self, job: TranscodeJob, status: str, *,
         error: str | None = None,
         track_results: list[dict] | None = None,
     ):
-        """Send transcode result back to ARM so it can update the job status."""
+        """Send transcode result back to ARM so it can update the job status.
+
+        Terminal statuses (completed, partial, failed) retry up to 3 times
+        with 5s/30s/120s backoff — ARM needs these to unstick the job.
+
+        Informational statuses (transcoding) are fire-and-forget — a failure
+        just means the ARM UI won't show "transcoding" immediately, which
+        is acceptable.
+        """
         if not settings.arm_callback_url:
             return
         url = f"{settings.arm_callback_url.rstrip('/')}/api/v1/jobs/{job.id}/transcode-callback"
@@ -1118,12 +1131,37 @@ class TranscodeWorker:
             payload["error"] = error[:500]
         if track_results:
             payload["track_results"] = track_results
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.post(url, json=payload)
-            logger.info(f"ARM callback sent ({resp.status_code}): {status} for job {job.id}")
-        except Exception as e:
-            logger.warning(f"Failed to send ARM callback for job {job.id}: {e}")
+
+        is_terminal = status in ("completed", "partial", "failed")
+        max_attempts = self._TERMINAL_RETRIES if is_terminal else 1
+
+        for attempt in range(max_attempts):
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(url, json=payload)
+                if resp.status_code < 300:
+                    logger.info(f"ARM callback sent ({resp.status_code}): {status} for job {job.id}")
+                    return
+                logger.warning(
+                    f"ARM callback returned {resp.status_code} for job {job.id} "
+                    f"(attempt {attempt + 1}/{max_attempts})"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"ARM callback failed for job {job.id}: {e} "
+                    f"(attempt {attempt + 1}/{max_attempts})"
+                )
+
+            if attempt < max_attempts - 1:
+                delay = self._TERMINAL_BACKOFF[attempt]
+                logger.info(f"Retrying ARM callback for job {job.id} in {delay}s")
+                await asyncio.sleep(delay)
+
+        if is_terminal:
+            logger.error(
+                f"ARM callback exhausted {max_attempts} attempts for job {job.id} "
+                f"(status={status}). Job may be stuck in waiting_transcode on ARM."
+            )
 
     def _discover_source_files(self, source_path: str) -> list[Path]:
         """Find all MKV files in source directory."""
