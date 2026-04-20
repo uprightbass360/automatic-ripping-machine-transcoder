@@ -122,17 +122,10 @@ if [[ -n "$LOCAL_RAW_PATH" && -z "$SHARED_RAW_PATH" ]] || [[ -z "$LOCAL_RAW_PATH
     usage 1
 fi
 
-# Local scratch requires BASH_SCRIPT mode (needs the move logic in notify script)
-if [[ -n "$LOCAL_RAW_PATH" && -z "$WEBHOOK_SECRET" ]]; then
-    echo "ERROR: --local-raw/--shared-raw requires --secret (BASH_SCRIPT mode)" >&2
-    echo "       The notify script must be deployed to handle the local→shared move." >&2
-    usage 1
-fi
-
 echo "=== ARM Setup for arm-transcoder ==="
 echo "Transcoder URL: $TRANSCODER_URL"
 echo "ARM config:     $ARM_CONFIG_DIR"
-echo "Auth mode:      $(if [[ -n "$WEBHOOK_SECRET" ]]; then echo "BASH_SCRIPT (authenticated)"; else echo "JSON_URL (simple)"; fi)"
+echo "Webhook auth:   $(if [[ -n "$WEBHOOK_SECRET" ]]; then echo "yes (secret configured)"; else echo "none"; fi)"
 if [[ -n "$LOCAL_RAW_PATH" ]]; then
     echo "Local scratch:  $LOCAL_RAW_PATH → $SHARED_RAW_PATH"
 fi
@@ -165,66 +158,32 @@ echo "Patching arm.yaml..."
 patch_yaml "SKIP_TRANSCODE" "false"
 patch_yaml "RIPMETHOD" '"mkv"'
 patch_yaml "DELRAWFILES" "false"
-patch_yaml "MAX_CONCURRENT_TRANSCODES" "0"
-patch_yaml "NOTIFY_RIP" "true"
-patch_yaml "NOTIFY_TRANSCODE" "false"
 
 echo "  SKIP_TRANSCODE: false"
 echo "  RIPMETHOD: \"mkv\""
 echo "  DELRAWFILES: false"
-echo "  MAX_CONCURRENT_TRANSCODES: 0"
-echo "  NOTIFY_RIP: true"
-echo "  NOTIFY_TRANSCODE: false"
 
-# --- Configure notification method ---
+# --- Configure transcoder webhook ---
+echo ""
+echo "Configuring transcoder webhook..."
+
+patch_yaml "TRANSCODER_URL" "\"${TRANSCODER_URL}\""
+echo "  TRANSCODER_URL: \"$TRANSCODER_URL\""
+
 if [[ -n "$WEBHOOK_SECRET" ]]; then
-    # Authenticated mode: deploy notify_transcoder.sh + set BASH_SCRIPT
-    echo ""
-    echo "Deploying notify_transcoder.sh..."
-
-    # Determine script deploy location
-    SCRIPT_DEPLOY_DIR="/home/arm/scripts"
-    if [[ ! -d "$SCRIPT_DEPLOY_DIR" ]]; then
-        SCRIPT_DEPLOY_DIR="$ARM_CONFIG_DIR"
-    fi
-    DEPLOYED_SCRIPT="$SCRIPT_DEPLOY_DIR/notify_transcoder.sh"
-
-    if [[ ! -f "$NOTIFY_TEMPLATE" ]]; then
-        echo "ERROR: Template not found at $NOTIFY_TEMPLATE" >&2
-        echo "       Run this script from the arm-transcoder repository." >&2
-        exit 1
-    fi
-
-    # Copy and substitute values
-    mkdir -p "$SCRIPT_DEPLOY_DIR"
-    cp "$NOTIFY_TEMPLATE" "$DEPLOYED_SCRIPT"
-    sed -i "s|TRANSCODER_URL=\".*\"|TRANSCODER_URL=\"${TRANSCODER_URL}\"|" "$DEPLOYED_SCRIPT"
-    sed -i "s|WEBHOOK_SECRET=\".*\"|WEBHOOK_SECRET=\"${WEBHOOK_SECRET}\"|" "$DEPLOYED_SCRIPT"
-    if [[ -n "$LOCAL_RAW_PATH" ]]; then
-        sed -i "s|LOCAL_RAW_PATH=\".*\"|LOCAL_RAW_PATH=\"${LOCAL_RAW_PATH}\"|" "$DEPLOYED_SCRIPT"
-        sed -i "s|SHARED_RAW_PATH=\".*\"|SHARED_RAW_PATH=\"${SHARED_RAW_PATH}\"|" "$DEPLOYED_SCRIPT"
-    fi
-    chmod +x "$DEPLOYED_SCRIPT"
-
-    echo "  Deployed: $DEPLOYED_SCRIPT"
-    echo "  TRANSCODER_URL=$TRANSCODER_URL"
-    echo "  WEBHOOK_SECRET=****${WEBHOOK_SECRET: -4}"
-    if [[ -n "$LOCAL_RAW_PATH" ]]; then
-        echo "  LOCAL_RAW_PATH=$LOCAL_RAW_PATH"
-        echo "  SHARED_RAW_PATH=$SHARED_RAW_PATH"
-    fi
-
-    # Update arm.yaml: use BASH_SCRIPT, clear JSON_URL
-    patch_yaml "BASH_SCRIPT" "\"${DEPLOYED_SCRIPT}\""
-    patch_yaml "JSON_URL" '""'
-    echo "  BASH_SCRIPT: \"$DEPLOYED_SCRIPT\""
-    echo "  JSON_URL: \"\""
+    patch_yaml "TRANSCODER_WEBHOOK_SECRET" "\"${WEBHOOK_SECRET}\""
+    echo "  TRANSCODER_WEBHOOK_SECRET: ****${WEBHOOK_SECRET: -4}"
 else
-    # Simple mode: set JSON_URL, clear BASH_SCRIPT
-    patch_yaml "JSON_URL" "\"${TRANSCODER_URL}\""
-    patch_yaml "BASH_SCRIPT" '""'
-    echo "  JSON_URL: \"$TRANSCODER_URL\""
-    echo "  BASH_SCRIPT: \"\""
+    patch_yaml "TRANSCODER_WEBHOOK_SECRET" '""'
+    echo "  TRANSCODER_WEBHOOK_SECRET: \"\""
+fi
+
+# --- Configure shared storage paths ---
+if [[ -n "$LOCAL_RAW_PATH" ]]; then
+    patch_yaml "LOCAL_RAW_PATH" "\"${LOCAL_RAW_PATH}\""
+    patch_yaml "SHARED_RAW_PATH" "\"${SHARED_RAW_PATH}\""
+    echo "  LOCAL_RAW_PATH: \"$LOCAL_RAW_PATH\""
+    echo "  SHARED_RAW_PATH: \"$SHARED_RAW_PATH\""
 fi
 
 # --- Restart ARM if requested ---
