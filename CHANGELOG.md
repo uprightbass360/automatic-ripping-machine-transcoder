@@ -1,5 +1,42 @@
 # Changelog
 
+## [17.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v16.0.3...v17.0.0) (2026-04-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* Old flat config fields (video_encoder, video_quality, handbrake_preset, etc.) replaced by scheme/preset system. Clients must use GET /api/v1/scheme and GET /api/v1/presets instead.
+
+### Features
+
+* add CustomPresetDB model and wire up scheme loading at startup ([bab8019](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/bab80192f822f5092b09ab887dc38a456d1d75bc))
+* add preset CRUD API endpoints and integration tests ([ceabbc8](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/ceabbc89fe1c168f152667a3993d1ece903f70c3))
+* add Pydantic models for Scheme/Preset/Encoder + resolve_preset ([84a6cb8](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/84a6cb883c7b9fbbe3bc997a45392cfa2f45dd5f))
+* preset/scheme system replaces flat encoding config (breaking) ([d286b2d](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/d286b2d00bd294ae1b3c0dc8c33c917633888933))
+* **presets:** implement full scheme modules for nvidia, intel, amd, software ([b6fb114](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/b6fb114457be9627871f99b0b2990c3ffa3f2f33))
+* resolve encoding settings via scheme/preset system ([57d2964](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/57d2964ffe8624ef99b04c74cb05d627e635b7e1))
+
+
+### Bug Fixes
+
+* accept dict global_overrides in PATCH /config, decode in GET /config ([e4c28b5](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/e4c28b5f565bd2956cf2e457339e5f32ae6e77f4))
+* address code review - tier validation, empty presets guard, AttributeError catch, test fixture types ([2fa2067](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/2fa2067fc862661e3bc31b61095f1e57e225d04b))
+* advanced_fields type to dict, fix stubs and test assertions ([dbece2d](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/dbece2dcc309f9538b2e453630ee76e09f234065))
+* align Dockerfile.dev UID to 1000 matching production ([b414e42](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/b414e42c2ae3f90e4182d4019885842ab48c0a3c))
+* clean up stale comments and help text in setup-arm.sh ([1286899](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/128689960cad483fc4eb5250c11dab65c0c6787c))
+* **docs:** correct manual setup to use TRANSCODER_URL instead of JSON_URL ([326d854](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/326d854b9a230bcc65a06e336a0f527f8f242f47))
+* gate ffmpeg encoder probe on functional hardware test ([45c75ea](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/45c75eaa008d1881ab1006bf4befd8349f136a8a))
+* remove COPY presets/ from Dockerfile.dev (file-based presets retired) ([f157705](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/f157705c8cc0c3e42e249c809dafb2c679cab1cd))
+* setup-arm.sh uses TRANSCODER_URL instead of JSON_URL ([803fd10](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/803fd109785ee09cd48f632704b281c57c9c41b7))
+* **sonar:** extract HandBrake preset constants, document endpoint responses, split validation helper ([b2fc9a9](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/b2fc9a9902a635f3a16d088769584fed4c5f69e4))
+* **sonar:** use https scheme in ASGITransport test fixture base_url ([2d105bf](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/2d105bf1c740e6d4f3949bccc81f0ff91abffd4e))
+* tolerate NFS root_squash in entrypoint chown ([a625d71](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/a625d71693ca6de21bdd3ac5ebeb357bf92ea2eb))
+* update final test files for preset refactor ([6d66cce](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/6d66ccee5c7673665820ba6e4bc486b89c12473e))
+* update remaining test files for preset refactor ([f94c55f](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/f94c55f32655fcd8cdaf02b5a7731177080dddd6))
+* update test_config.py and health endpoint for preset refactor ([1856c52](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/1856c52c0a16239badb12b30799e6c55a2a6dcd9))
+* update test_transcoder.py for scheme/preset system ([a326ecf](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/a326ecf9d9babefd00aebe4281a556e4047210eb))
+* use 256x256 frame for GPU encoder probe (NVENC minimum size) ([30880a7](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/30880a7e6bd46ee2f9907e86c506a1f2a3c34704))
+
 ## [16.0.3](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v16.0.2...v16.0.3) (2026-04-14)
 
 
