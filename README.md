@@ -31,21 +31,27 @@ flowchart TB
         ARM["ARM Container<br/>(MakeMKV only)"]
     end
 
+    subgraph ui["ARM UI"]
+        UI["arm-ui<br/>(SvelteKit + FastAPI)"]
+    end
+
     subgraph transcoder["Transcode Machine"]
         TC["arm-transcoder<br/>(FFmpeg / HandBrake)"]
     end
 
     subgraph storage["Shared Storage"]
         RAW["/raw/ — MakeMKV output"]
-        DONE["/completed/movies/ — Transcoded video"]
-        AUDIO["/completed/audio/ — Audio CD rips"]
+        DONE["/completed/ — Transcoded output<br/>(movies, tv)"]
+        MUSIC["/music/ — Audio CD rips<br/>(abcde, ripper-side)"]
     end
 
-    ARM -- "webhook" --> TC
-    ARM -- "writes" --> RAW
+    ARM -- "webhook<br/>(job + preset_slug)" --> TC
+    TC -- "callback<br/>(status updates)" --> ARM
+    UI -- "GET /scheme, /presets<br/>POST /presets" --> TC
+    ARM -- "writes MKV" --> RAW
+    ARM -- "writes audio" --> MUSIC
     RAW -- "reads" --> TC
-    TC -- "transcodes" --> DONE
-    TC -- "copies" --> AUDIO
+    TC -- "writes" --> DONE
 ```
 
 ## Features
