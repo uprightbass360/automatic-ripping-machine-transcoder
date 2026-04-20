@@ -151,7 +151,7 @@ curl http://localhost:5000/health
 
 ### 3. Configure ARM
 
-On your ARM ripper, disable built-in transcoding and point webhooks at the transcoder.
+On your ARM ripper, configure the transcoder webhook so ARM notifies the transcoder when a rip completes.
 
 **Option A: Automated setup (recommended)**
 
