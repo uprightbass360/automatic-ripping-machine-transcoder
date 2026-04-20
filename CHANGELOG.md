@@ -605,3 +605,4 @@
 * Use Ubuntu universe repo for HandBrake instead of PPA ([912bcef](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/912bcef1b06f178d6d459e251abab503cc0d64c5))
 
 ## Changelog
+# Breaking change marker
