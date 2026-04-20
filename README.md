@@ -66,7 +66,6 @@ flowchart TB
 - REST API with modular router architecture for job monitoring, worker status, and management
 - API key authentication with role-based access (admin/readonly)
 - Input validation and path traversal protection
-- Audio CD passthrough — detects audio rips (FLAC/MP3/etc.) and copies them to an audio folder without transcoding
 - Local scratch storage to avoid heavy I/O on network shares (copy→transcode→move)
 - Automatic source cleanup after successful transcode
 - Per-worker status tracking with `/workers` endpoint for dashboard integration
@@ -116,7 +115,7 @@ Both machines need access to the same directories via NFS, SMB/CIFS, or any netw
 /mnt/media/completed   ← Transcoder writes finished files here
 ```
 
-ARM writes to `raw/`. The transcoder reads from `raw/` and writes to `completed/movies/`, `completed/tv/`, and `completed/audio/`.
+ARM writes to `raw/`. The transcoder reads from `raw/` and writes to `completed/movies/` and `completed/tv/`.
 
 ### 2. Start the transcoder
 
@@ -218,8 +217,7 @@ Insert a disc into your ARM ripper and let it rip. When the rip completes:
 2. The transcoder finds the raw MKV files on shared storage
 3. Files are transcoded with your GPU (resolution-aware — 4K preserved, DVDs upscaled to 720p)
 4. Output is written to `completed/movies/` or `completed/tv/` (auto-detected)
-5. Audio CD rips are copied to `completed/audio/` without transcoding
-6. Source files are cleaned up (if `DELETE_SOURCE=true`)
+5. Source files are cleaned up (if `DELETE_SOURCE=true`)
 
 ### Optional: Drive auto-restart
 
@@ -279,7 +277,6 @@ These variables are used across all `docker-compose*.yml` files:
 | `SUBTITLE_MODE` | all | Subtitle handling (`all`, `none`, `first`) |
 | `MOVIES_SUBDIR` | movies | Subdirectory under COMPLETED_PATH for movies |
 | `TV_SUBDIR` | tv | Subdirectory under COMPLETED_PATH for TV shows |
-| `AUDIO_SUBDIR` | audio | Subdirectory under COMPLETED_PATH for audio CD rips |
 | `OUTPUT_EXTENSION` | mkv | Output file extension |
 | `DELETE_SOURCE` | true | Remove source after successful transcode |
 | `MAX_CONCURRENT` | 1 | Max concurrent transcodes. NVIDIA: 3-5 sessions, AMD: 1-2, Intel: 2-3, CPU: 2-3. Default 1 unless verified. |
