@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # ARM Setup Script - Configure ARM for external transcoding via arm-transcoder
 #
-# Patches an existing ARM arm.yaml to disable built-in transcoding and
-# configure webhook notifications to arm-transcoder. Optionally deploys
-# the authenticated notify_transcoder.sh script.
+# Patches an existing ARM arm.yaml to configure the transcoder webhook
+# so ARM notifies arm-transcoder when a rip completes.
 #
 # Usage:
 #   ./setup-arm.sh --url URL --config DIR [--secret SECRET] [--local-raw PATH] [--shared-raw PATH] [--restart]
@@ -26,8 +25,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-NOTIFY_TEMPLATE="$REPO_DIR/config/arm/notify_transcoder.sh"
-
 # --- Defaults ---
 TRANSCODER_URL=""
 ARM_CONFIG_DIR=""
@@ -48,15 +45,14 @@ Required:
   --config DIR        Path to ARM config directory containing arm.yaml
 
 Optional:
-  --secret SECRET     Webhook secret — deploys notify_transcoder.sh for authenticated webhooks
+  --secret SECRET     Webhook secret (must match WEBHOOK_SECRET on the transcoder)
   --local-raw PATH    Local disk path where ARM rips to (e.g. /home/arm/media/raw)
-  --shared-raw PATH      Shared storage path for handoff to transcoder (e.g. /mnt/media/raw)
+  --shared-raw PATH   Shared storage path for handoff to transcoder (e.g. /mnt/media/raw)
   --restart           Restart ARM after setup (tries Docker first, then systemd)
   -h, --help          Show this help
 
-When --local-raw and --shared-raw are both provided, the notify script will move
-ripped files from local disk to shared storage before sending the webhook. This
-requires --secret mode (BASH_SCRIPT).
+When --local-raw and --shared-raw are both provided, ARM moves ripped files
+from local disk to shared storage before notifying the transcoder.
 EOF
     exit "${1:-0}"
 }
