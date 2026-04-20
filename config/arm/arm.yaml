@@ -7,11 +7,11 @@
 # ARM will use its built-in defaults for everything else.
 
 # ========== TRANSCODING ==========
-# Disable ARM's built-in HandBrake transcoding.
-# arm-transcoder will handle all transcoding externally.
-# RIPMETHOD must be "mkv" when SKIP_TRANSCODE is true.
+# SKIP_TRANSCODE controls whether ARM sends jobs to the transcoder.
+# When false (default), ARM sends ripped files to arm-transcoder for encoding.
+# When true, ARM finalizes raw MKV files directly without transcoding.
+SKIP_TRANSCODE: false
 RIPMETHOD: "mkv"
-SKIP_TRANSCODE: true
 
 # Keep raw files after rip. arm-transcoder will clean up
 # source files after successful transcode (controlled by DELETE_SOURCE).

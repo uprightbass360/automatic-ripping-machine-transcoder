@@ -162,14 +162,14 @@ patch_yaml() {
 # --- Patch transcoding settings ---
 echo "Patching arm.yaml..."
 
-patch_yaml "SKIP_TRANSCODE" "true"
+patch_yaml "SKIP_TRANSCODE" "false"
 patch_yaml "RIPMETHOD" '"mkv"'
 patch_yaml "DELRAWFILES" "false"
 patch_yaml "MAX_CONCURRENT_TRANSCODES" "0"
 patch_yaml "NOTIFY_RIP" "true"
 patch_yaml "NOTIFY_TRANSCODE" "false"
 
-echo "  SKIP_TRANSCODE: true"
+echo "  SKIP_TRANSCODE: false"
 echo "  RIPMETHOD: \"mkv\""
 echo "  DELRAWFILES: false"
 echo "  MAX_CONCURRENT_TRANSCODES: 0"

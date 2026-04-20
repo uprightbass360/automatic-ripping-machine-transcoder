@@ -87,7 +87,7 @@ For the full ecosystem quick start (ARM + UI + Transcoder), see the [ARM-neu REA
 
 - Docker
 - Shared storage between machines (NFS, SMB/CIFS, or any network/local mount)
-- ARM configured to skip transcoding (`SKIP_TRANSCODE: true`)
+- ARM configured for external transcoding (`SKIP_TRANSCODE: false` in `arm.yaml`)
 - One of the following for encoding:
 
 | Hardware | Requirements | Compose File | Encoder |
@@ -175,8 +175,8 @@ The script patches `arm.yaml`, deploys the notification script (when using `--se
 Edit your ARM `arm.yaml`:
 
 ```yaml
-# Disable ARM's built-in transcoding
-SKIP_TRANSCODE: true
+# Enable external transcoding via arm-transcoder
+SKIP_TRANSCODE: false
 RIPMETHOD: "mkv"
 DELRAWFILES: false
 MAX_CONCURRENT_TRANSCODES: 0
@@ -402,6 +402,16 @@ Example response:
 ```
 
 Fields are `null` when not available for a given vendor (e.g., Intel has no VRAM/temperature reporting).
+
+### SKIP_TRANSCODE
+
+When `true` in ARM's `arm.yaml`, ARM finalizes ripped files directly without sending them to the transcoder. The raw MKV files are moved to the completed directory as-is.
+
+- Global default: set in `arm.yaml`
+- Per-job override: toggle on the review panel before starting a rip
+- Stuck jobs: use "Skip & Finalize" button on the job detail page
+
+When using arm-transcoder, set `SKIP_TRANSCODE: false` so ARM sends ripped files to the transcoder for encoding.
 
 ## Troubleshooting
 
