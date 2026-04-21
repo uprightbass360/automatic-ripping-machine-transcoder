@@ -202,3 +202,66 @@ async def test_valid_json_string_in_db_loads(patched_db):
 
     assert isinstance(settings.global_overrides, str)
     assert json.loads(settings.global_overrides) == valid
+
+
+@pytest.mark.asyncio
+async def test_startup_lifespan_loads_global_overrides_from_db(patched_db):
+    """App startup (lifespan) reads global_overrides from DB as valid JSON.
+
+    This mirrors the production flow: lifespan calls load_config_overrides
+    against the real DB, and settings.global_overrides must end up as a
+    JSON string that downstream consumers can json.loads.
+
+    Everything else in the lifespan (worker, GPU probe, scheme loader) is
+    mocked - we only care that the persisted config override round-trips.
+    """
+    from fastapi import FastAPI
+    from config import settings
+    from models import ConfigOverrideDB
+    from presets import Preset, Scheme, Encoder
+
+    _, session_factory = patched_db
+
+    valid = {"shared": {"audio_encoder": "aac"}, "tiers": {"dvd": {"video_quality": 22}}}
+    async with session_factory() as session:
+        session.add(ConfigOverrideDB(key="global_overrides", value=json.dumps(valid)))
+        await session.commit()
+
+    # Reset the in-memory value so we know it really came from the DB.
+    settings.global_overrides = "{}"
+
+    # Minimal scheme so load_active_scheme has something to return.
+    mock_scheme = Scheme(
+        slug="test", name="Test",
+        supported_encoders=[Encoder(slug="x265", name="x265")],
+        supported_audio_encoders=["copy"], supported_subtitle_modes=["all"],
+        built_in_presets=[Preset(
+            slug="test", name="Test", scheme="test",
+            shared={"video_encoder": "x265", "audio_encoder": "copy", "subtitle_mode": "all"},
+            tiers={
+                "dvd": {"handbrake_preset": "Test 720p", "video_quality": 22},
+                "bluray": {"handbrake_preset": "Test 1080p", "video_quality": 22},
+                "uhd": {"handbrake_preset": "Test 2160p 4K", "video_quality": 22},
+            },
+        )],
+    )
+
+    mock_worker = MagicMock()
+    mock_worker.run = AsyncMock(return_value=None)
+    mock_worker.shutdown = MagicMock()
+    mock_worker.queue_sentinel = AsyncMock()
+
+    with (
+        patch("main.init_db", AsyncMock()),
+        patch("main.load_active_scheme", return_value=mock_scheme),
+        patch("main.TranscodeWorker", return_value=mock_worker),
+        patch("transcoder.check_gpu_support", return_value={}),
+        patch("main.create_gpu_monitor", return_value=None),
+    ):
+        from main import lifespan
+        app = FastAPI()
+        async with lifespan(app):
+            # Lifespan has finished its startup phase - load_config_overrides
+            # has already run against the patched DB.
+            assert isinstance(settings.global_overrides, str)
+            assert json.loads(settings.global_overrides) == valid
