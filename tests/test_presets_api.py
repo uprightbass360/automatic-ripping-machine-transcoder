@@ -386,6 +386,71 @@ class TestDeleteCustomPreset:
         resp = await client.delete("/api/v1/presets/no-such-preset")
         assert resp.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_delete_clears_selected_preset_slug_when_it_matches(self, client):
+        """Deleting the currently-active custom preset must null selected_preset_slug
+        in the same transaction so the next job falls through to the scheme default
+        instead of silently referencing a dangling slug."""
+        from config import settings
+        # Create a custom preset
+        create_body = {
+            "name": "Active Temp",
+            "parent_slug": "software_balanced",
+            "overrides": {},
+        }
+        create_resp = await client.post("/api/v1/presets", json=create_body)
+        assert create_resp.status_code == 201
+        slug = create_resp.json()["slug"]
+
+        # Make it the active selection
+        patch_resp = await client.patch(
+            "/config", json={"selected_preset_slug": slug}
+        )
+        assert patch_resp.status_code == 200
+        assert settings.selected_preset_slug == slug
+
+        # Delete the active preset
+        resp = await client.delete(f"/api/v1/presets/{slug}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["deleted"] == slug
+        assert data["selection_cleared"] is True
+        # Selection is cleared, so the next resolve falls back to scheme default
+        assert settings.selected_preset_slug == ""
+
+    @pytest.mark.asyncio
+    async def test_delete_does_not_touch_selection_when_different(self, client):
+        """Deleting a preset that is NOT the active selection leaves it alone."""
+        from config import settings
+        # Create two presets
+        create_a = await client.post("/api/v1/presets", json={
+            "name": "Active A", "parent_slug": "software_balanced", "overrides": {},
+        })
+        assert create_a.status_code == 201
+        slug_a = create_a.json()["slug"]
+
+        create_b = await client.post("/api/v1/presets", json={
+            "name": "Unrelated B", "parent_slug": "software_balanced", "overrides": {},
+        })
+        assert create_b.status_code == 201
+        slug_b = create_b.json()["slug"]
+
+        # Pick A as the active selection
+        await client.patch("/config", json={"selected_preset_slug": slug_a})
+        assert settings.selected_preset_slug == slug_a
+
+        try:
+            # Delete B; A's selection must remain untouched
+            resp = await client.delete(f"/api/v1/presets/{slug_b}")
+            assert resp.status_code == 200
+            assert resp.json()["selection_cleared"] is False
+            assert settings.selected_preset_slug == slug_a
+        finally:
+            # Clean up: delete A so the selection auto-clears (mirroring real use)
+            await client.delete(f"/api/v1/presets/{slug_a}")
+            assert settings.selected_preset_slug == ""
+
 
 # ---- Cross-scheme unavailable -----------------------------------------------
 
