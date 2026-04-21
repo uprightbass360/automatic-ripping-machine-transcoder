@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
 from auth import get_current_user, require_admin
+from config import settings
 from database import get_db
-from models import CustomPresetDB
+from models import ConfigOverrideDB, CustomPresetDB
 from presets import Preset, resolve_preset
 
 logger = logging.getLogger(__name__)
@@ -309,18 +310,34 @@ async def delete_preset(
     slug: str,
     _role: Annotated[str, Depends(require_admin)],
 ):
-    """Delete a custom preset. Built-in presets cannot be deleted."""
+    """Delete a custom preset. Built-in presets cannot be deleted.
+
+    If the deleted preset is currently the `selected_preset_slug`, the
+    selection is nulled in the same transaction so subsequent jobs fall
+    through to the active scheme's default preset rather than silently
+    referring to a dangling slug.
+    """
     scheme = _get_scheme()
 
     if scheme.get_preset(slug) is not None:
         raise HTTPException(status_code=404, detail="Cannot delete built-in preset")
 
+    selection_cleared = False
     async with get_db() as db:
         row = await db.get(CustomPresetDB, slug)
         if row is None:
             raise HTTPException(status_code=404, detail=f"Preset not found: {slug}")
 
+        # If this preset is the active selection, null it (and persist) so
+        # next-job resolution falls back to the scheme default.
+        if settings.selected_preset_slug == slug:
+            override_row = await db.get(ConfigOverrideDB, "selected_preset_slug")
+            if override_row:
+                await db.delete(override_row)
+            settings.selected_preset_slug = ""
+            selection_cleared = True
+
         await db.delete(row)
         await db.commit()
 
-    return {"success": True, "deleted": slug}
+    return {"success": True, "deleted": slug, "selection_cleared": selection_cleared}
