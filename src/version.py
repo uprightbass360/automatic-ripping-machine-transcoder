@@ -9,8 +9,9 @@ changes in a backwards-incompatible way.
 
 API_VERSION = "2"
 
-# Versions that the current transcoder accepts. During release N/N+1,
-# missing header is also accepted for rolling-upgrade compatibility.
-# Release N+2 will drop missing-header acceptance.
+# Versions that the current transcoder accepts. All deployed arm-neu
+# instances are on v16.0.0+, which stamps every webhook POST with
+# X-Api-Version: 2, so the missing-header back-compat window from
+# release N/N+1 is closed. Missing header now 400s.
 ACCEPTED_VERSIONS = frozenset({"2"})
-ACCEPT_MISSING_VERSION_HEADER = True  # flip to False in release N+2
+ACCEPT_MISSING_VERSION_HEADER = False  # enforced as of release N+2 (2026-04-21)

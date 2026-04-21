@@ -69,7 +69,13 @@ async def client(mock_worker, tmp_path):
         main_module.app.state.worker = mock_worker
 
         transport = ASGITransport(app=main_module.app)
-        async with AsyncClient(transport=transport, base_url="https://test") as ac:
+        # Default X-Api-Version: 2 on every request so these tests exercise
+        # webhook behaviour, not the handshake (covered in test_version_handshake).
+        async with AsyncClient(
+            transport=transport,
+            base_url="https://test",
+            headers={"X-Api-Version": "2"},
+        ) as ac:
             yield ac, main_module.app, test_session_factory
 
         main_module.app.state.worker = None

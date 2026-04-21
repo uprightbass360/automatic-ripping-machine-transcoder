@@ -1,9 +1,9 @@
 """Tests for X-Api-Version handshake on the ARM webhook receiver.
 
-During releases N and N+1:
+As of release N+2, missing-header back-compat is dropped:
   - X-Api-Version: 2 -> 200
   - X-Api-Version: 1 -> 400 (explicit old-version rejection)
-  - Missing header   -> 200 (back-compat for existing ARM deployments)
+  - Missing header   -> 400 (header is now required)
   - GET /health returns {"api_version": "2", ...}
 """
 from contextlib import asynccontextmanager
@@ -112,10 +112,14 @@ async def test_webhook_rejects_version_1(client):
 
 
 @pytest.mark.asyncio
-async def test_webhook_accepts_missing_header_back_compat(client):
-    """During release N/N+1, missing header is accepted for rolling upgrades."""
+async def test_webhook_rejects_missing_header(client):
+    """As of release N+2, the X-Api-Version header is required; missing header 400s."""
     response = await client.post(WEBHOOK_PATH, json=_VALID_PAYLOAD)
-    assert response.status_code in (200, 202), response.text
+    assert response.status_code == 400
+    body = response.json()
+    detail = body.get("detail", body.get("error", ""))
+    detail_str = str(detail).lower()
+    assert "required" in detail_str or "x-api-version" in detail_str
 
 
 @pytest.mark.asyncio
