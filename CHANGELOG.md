@@ -1,5 +1,22 @@
 # Changelog
 
+## [17.1.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.0.0...v17.1.0) (2026-04-21)
+
+
+### Features
+
+* API_VERSION constant for cross-service handshake ([c615069](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/c61506906f85689d945f2ca7ea001f412fbe10ff))
+* expose api_version in /health response ([0516c78](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/0516c786f7152e624075508c0edb8f70342b28a9))
+* validate X-Api-Version on webhook receiver ([d4e7073](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/d4e7073cf5b5049f91a50592f621ac3d637d76a2))
+
+
+### Bug Fixes
+
+* **config:** deserialize dict/list fields from JSON on load ([872c733](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/872c733834677a6af3a7338e795cfacbd86da357))
+* **config:** drop legacy ConfigOverrideDB rows on startup with WARN ([be84f77](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/be84f77ce231e38266f4839315d4bae2e516fdc1))
+* **config:** serialize dict/list fields as JSON on persist ([26c5b3e](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/26c5b3e184b890941f03b2d108bd0e869dea43c3))
+* retry ARM callback with exponential backoff ([d42f60d](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/d42f60db16ccbe50893b8fcb2727d1e13f859600))
+
 ## [17.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v16.0.3...v17.0.0) (2026-04-20)
 
 
