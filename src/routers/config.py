@@ -2,6 +2,7 @@
 
 import json
 import logging
+import typing
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -15,6 +16,35 @@ from models import ConfigOverrideDB
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _unwrap_optional(annotation):
+    """Unwrap Optional[T] / Union[T, None] to T. Leaves other types alone."""
+    origin = typing.get_origin(annotation)
+    if origin is typing.Union:
+        args = [a for a in typing.get_args(annotation) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return annotation
+
+
+def _serialize_for_storage(value: object, annotation: type) -> str:
+    """Convert a Pydantic-validated value to its DB string form.
+
+    Dict/list fields are stored as JSON. Other types use str().
+
+    For str fields whose *content* is JSON (e.g. global_overrides), str(value)
+    is a no-op on the already-serialized JSON string, which is exactly what
+    we want.
+    """
+    annotation = _unwrap_optional(annotation)
+
+    if annotation is dict or typing.get_origin(annotation) is dict:
+        return json.dumps(value)
+    if annotation is list or typing.get_origin(annotation) is list:
+        return json.dumps(value)
+
+    return str(value)
 
 
 @router.get("/config")
@@ -86,15 +116,18 @@ async def update_config(
         raise HTTPException(status_code=422, detail=str(e))
 
     # Persist to DB and update in-memory singleton
+    from config import Settings as _SettingsCls
     async with get_db() as db:
         for key, value in data.items():
             coerced = getattr(validated, key)
+            annotation = _SettingsCls.model_fields[key].annotation
+            storage_value = _serialize_for_storage(coerced, annotation)
             override = await db.get(ConfigOverrideDB, key)
             if override:
-                override.value = str(coerced)
+                override.value = storage_value
                 override.updated_at = datetime.now(timezone.utc)
             else:
-                db.add(ConfigOverrideDB(key=key, value=str(coerced)))
+                db.add(ConfigOverrideDB(key=key, value=storage_value))
             setattr(settings, key, coerced)
         await db.commit()
 
