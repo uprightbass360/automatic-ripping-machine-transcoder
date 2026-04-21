@@ -31,7 +31,7 @@ X-Webhook-Secret: <optional secret>
 | `folder_name` | string | Pre-rendered output folder path from ARM's naming engine. May contain `/` for nested dirs (e.g. `"Kolchak- The Night Stalker/Season 01"`). Each segment is already sanitized for filesystem use. |
 | `title_name` | string | Pre-rendered job-level output filename (sanitized). Used as fallback when tracks don't have individual names. |
 | `multi_title` | boolean | Present and `true` when the job has multiple distinct titles (e.g. TV episodes). Absent when `false`. |
-| `config_overrides` | object | Optional. Per-job transcoding overrides (encoder, quality, etc.) |
+| `config_overrides` | object \| null | Optional per-job preset + override. Shape: `{"preset_slug": "<slug>", "overrides": {"shared": {...}, "tiers": {"dvd": {...}, "bluray": {...}, "uhd": {...}}}, "delete_source": bool, "output_extension": "mkv"}`. All fields optional; omit the whole object for defaults. |
 | `tracks` | array | Per-track manifest. Always present when job has tracks. |
 
 ### Track manifest (`tracks[]`)

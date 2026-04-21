@@ -35,17 +35,17 @@ COMPLETED_PATH: "/home/arm/media/completed/"
 # Replace TRANSCODER_IP with the IP/hostname of your transcoder machine.
 #
 # Option 1: Simple webhook (no authentication)
-#   Set JSON_URL and leave BASH_SCRIPT empty.
+#   Set TRANSCODER_URL and leave BASH_SCRIPT empty.
 #
 # Option 2: Authenticated webhook (recommended)
-#   Leave JSON_URL empty and set BASH_SCRIPT to use the notify script,
+#   Leave TRANSCODER_URL empty and set BASH_SCRIPT to use the notify script,
 #   which sends the X-Webhook-Secret header.
 
 # --- Option 1: Simple webhook (no auth) ---
-JSON_URL: "http://TRANSCODER_IP:5000/webhook/arm"
+TRANSCODER_URL: "http://TRANSCODER_IP:5000/webhook/arm"
 
 # --- Option 2: Authenticated webhook ---
-# JSON_URL: ""
+# TRANSCODER_URL: ""
 # BASH_SCRIPT: "/home/arm/scripts/notify_transcoder.sh"
 
 # Notify after rip completes (triggers the webhook to arm-transcoder)

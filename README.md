@@ -40,13 +40,13 @@ flowchart TB
     end
 
     subgraph storage["Shared Storage"]
-        RAW["/raw/ — MakeMKV output"]
-        DONE["/completed/ — Transcoded output<br/>(movies, tv)"]
+        RAW["/raw/ - MakeMKV output"]
+        DONE["/completed/ - Transcoded output<br/>(movies, tv)"]
     end
 
     ARM -- "webhook<br/>(job + preset_slug)" --> TC
     TC -- "callback<br/>(status updates)" --> ARM
-    UI -- "GET /scheme, /presets<br/>POST /presets" --> TC
+    UI -- "GET /api/v1/scheme, /api/v1/presets<br/>POST /api/v1/presets" --> TC
     ARM -- "writes" --> RAW
     RAW -- "reads" --> TC
     TC -- "writes" --> DONE
@@ -55,13 +55,13 @@ flowchart TB
 ## Features
 
 - Webhook receiver for ARM job completion notifications
-- **Multi-worker concurrency** — spawn `MAX_CONCURRENT` worker tasks from a shared queue, configurable per GPU (NVIDIA 3-5, AMD 1-2, Intel 2-3, CPU 2-3)
-- **Auto-detected GPU encoding** — detects NVIDIA, AMD, or Intel at startup and selects the right encoder and preset automatically
+- **Multi-worker concurrency** - spawn `MAX_CONCURRENT` worker tasks from a shared queue, configurable per GPU (NVIDIA 3-5, AMD 1-2, Intel 2-3, CPU 2-3)
+- **Auto-detected GPU encoding** - detects NVIDIA, AMD, or Intel at startup and selects the right encoder and preset automatically
 - Hardware-accelerated transcoding via FFmpeg (with HandBrake fallback for NVIDIA)
-- Resolution-based encoding — 4K preserved, Blu-ray at 1080p, DVDs upscaled to 720p
+- Resolution-based encoding - 4K preserved, Blu-ray at 1080p, DVDs upscaled to 720p
 - Multi-GPU support: NVIDIA NVENC, AMD VAAPI/AMF, Intel Quick Sync, software fallback
-- **ARM callback** — notifies ARM when jobs complete or fail (`ARM_CALLBACK_URL`)
-- **Non-blocking I/O** — all filesystem operations run off the event loop via thread pool, keeping API responsive during transcodes
+- **ARM callback** - notifies ARM when jobs complete or fail (`ARM_CALLBACK_URL`)
+- **Non-blocking I/O** - all filesystem operations run off the event loop via thread pool, keeping API responsive during transcodes
 - Queue management with SQLite persistence
 - REST API with modular router architecture for job monitoring, worker status, and management
 - API key authentication with role-based access (admin/readonly)
@@ -178,7 +178,7 @@ The script patches `arm.yaml`, deploys the notification script (when using `--se
 Edit your ARM `arm.yaml`:
 
 ```yaml
-# Transcoder webhook — ARM notifies the transcoder when a rip completes
+# Transcoder webhook - ARM notifies the transcoder when a rip completes
 TRANSCODER_URL: "http://TRANSCODER_IP:5000/webhook/arm"
 TRANSCODER_WEBHOOK_SECRET: ""   # optional, must match WEBHOOK_SECRET on transcoder
 
@@ -215,7 +215,7 @@ Insert a disc into your ARM ripper and let it rip. When the rip completes:
 
 1. ARM sends a webhook to the transcoder
 2. The transcoder finds the raw MKV files on shared storage
-3. Files are transcoded with your GPU (resolution-aware — 4K preserved, DVDs upscaled to 720p)
+3. Files are transcoded with your GPU (resolution-aware - 4K preserved, DVDs upscaled to 720p)
 4. Output is written to `completed/movies/` or `completed/tv/` (auto-detected)
 5. Source files are cleaned up (if `DELETE_SOURCE=true`)
 
@@ -230,7 +230,6 @@ These variables are used across all `docker-compose*.yml` files:
 |----------|---------|-------------|
 | `HOST_RAW_PATH` | *(required)* | Host path to ARM's raw output (shared storage mount) |
 | `HOST_COMPLETED_PATH` | *(required)* | Host path for completed transcodes |
-| `VIDEO_ENCODER` | x265 | Video encoder (see [Encoder Options](#encoder-options)) |
 | `WEBHOOK_PORT` | 5000 | Port exposed on host |
 | `WEBHOOK_SECRET` | *(empty)* | Secret for webhook authentication (see [Authentication](docs/AUTHENTICATION.md)) |
 | `LOG_LEVEL` | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
@@ -240,11 +239,10 @@ These variables are used across all `docker-compose*.yml` files:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `SELECTED_PRESET_SLUG` | *(empty)* | Active preset slug (empty = scheme default) |
+| `GLOBAL_OVERRIDES` | *(empty)* | JSON object of tier-scoped overrides applied on top of the active preset |
 | `RAW_PATH` | /data/raw | Path to raw MKV files inside container |
 | `COMPLETED_PATH` | /data/completed | Path for completed transcodes inside container |
-| `VIDEO_QUALITY` | 22 | Quality (0-51, lower = better). Maps to CQ (NVENC), QP (VAAPI), global_quality (QSV), or CRF (software) |
-| `AUDIO_ENCODER` | copy | Audio handling (`copy`, `aac`, `ac3`, `eac3`, `flac`, `mp3`) |
-| `SUBTITLE_MODE` | all | Subtitle handling (`all`, `none`, `first`) |
 | `MOVIES_SUBDIR` | movies | Subdirectory under COMPLETED_PATH for movies |
 | `TV_SUBDIR` | tv | Subdirectory under COMPLETED_PATH for TV shows |
 | `OUTPUT_EXTENSION` | mkv | Output file extension |
@@ -255,9 +253,6 @@ These variables are used across all `docker-compose*.yml` files:
 | `MINIMUM_FREE_SPACE_GB` | 10 | Minimum free disk space required (GB) |
 | `REQUIRE_API_AUTH` | false | Require API key for endpoints |
 | `API_KEYS` | *(empty)* | Comma-separated API keys (see [Authentication](docs/AUTHENTICATION.md)) |
-| `HANDBRAKE_PRESET` | *(auto-detected)* | HandBrake preset for standard content |
-| `HANDBRAKE_PRESET_4K` | *(auto-detected)* | HandBrake preset for 4K content (source > 1080p) |
-| `HANDBRAKE_PRESET_DVD` | *(auto-detected)* | HandBrake preset for DVD/low-res sources (< 720p). Falls back to `HANDBRAKE_PRESET` if empty |
 | `ARM_CALLBACK_URL` | *(empty)* | ARM API base URL for status callbacks (e.g. `http://192.168.0.68:8080`) |
 | `VAAPI_DEVICE` | /dev/dri/renderD128 | VAAPI/QSV render device path (AMD and Intel only) |
 | `GPU_VENDOR` | *(auto, set by image)* | GPU vendor for live monitoring: `nvidia`, `amd`, `intel`, or empty. Set automatically by each Docker image layer. |
@@ -279,29 +274,13 @@ See `.env.example` for the full template.
 | None | `x265` | Software H.265 (no GPU required, slower) |
 | None | `x264` | Software H.264 (no GPU required, slower) |
 
-The compose files default to `x265` (software). At startup, `auto_resolve_gpu_defaults()` detects available GPU hardware and upgrades the encoder and presets automatically. Override with `VIDEO_ENCODER` in your `.env`.
+The scheme (nvidia, intel, amd, or software) is auto-detected from `GPU_VENDOR` at startup, which selects the matching built-in presets. Override by creating a custom preset via the `/api/v1/presets` API or the UI settings page.
 
-### HandBrake Presets
+## Resolution-Based Encoding
 
-HandBrake is used as the transcoding backend when NVIDIA NVENC is selected and HandBrake is available. For all other encoder families, FFmpeg is used directly.
+Each preset defines per-tier settings for three resolutions: `dvd` (< 720p), `bluray` (>= 720p), and `uhd` (>= 2160p). The transcoder automatically selects the tier from the input video and applies that tier's encoder + quality + HandBrake preset.
 
-When `HANDBRAKE_PRESET` is empty, the transcoder auto-detects your GPU and selects the appropriate preset (e.g. **NVENC H.265 1080p** for NVIDIA, **H.265 MKV 1080p30** for software). Custom presets are available in `presets/nvenc_presets.json` — to use them, set `HANDBRAKE_PRESET_FILE=/config/presets/nvenc_presets.json`:
-
-- **NVENC H.265 1080p** - Best compression, decomb deinterlacing, all audio/subtitle tracks
-- **NVENC H.265 4K** - For 4K/UHD content
-- **NVENC H.264 1080p** - Broader device compatibility
-
-### Resolution-Based Encoding
-
-The transcoder automatically detects source resolution and adjusts encoding:
-
-| Source | HandBrake | FFmpeg |
-|--------|-----------|--------|
-| **4K UHD** (> 1080p) | Uses `HANDBRAKE_PRESET_4K` | Preserves native resolution |
-| **Blu-ray** (720p–1080p) | Uses `HANDBRAKE_PRESET` | Preserves native resolution |
-| **DVD** (< 720p) | Uses `HANDBRAKE_PRESET_DVD` (falls back to `HANDBRAKE_PRESET`) | Upscales to 720p via GPU-native filter |
-
-FFmpeg upscaling uses the appropriate hardware filter per GPU: `scale_cuda` (NVIDIA), `scale_vaapi` (AMD), `vpp_qsv` (Intel), or software `scale` fallback.
+Built-in presets per scheme (nvidia, intel, amd, software) expose `balanced`, `quality`, and (where available) `fast` variants. Custom presets can be created via the UI or the preset CRUD API.
 
 ## API Endpoints
 
@@ -318,6 +297,12 @@ FFmpeg upscaling uses the appropriate hardware filter per GPU: `scale_cuda` (NVI
 | `/system/stats` | GET | None | Live metrics: CPU, memory, storage, GPU utilization |
 | `/config` | GET | API key | Current transcoding configuration |
 | `/config` | PATCH | Admin API key | Update runtime settings |
+| `/api/v1/scheme` | GET | API key | Active scheme metadata (supported encoders + tiers) |
+| `/api/v1/presets` | GET | API key | List built-in and custom presets |
+| `/api/v1/presets/{slug}` | GET | API key | Fetch a single preset |
+| `/api/v1/presets` | POST | Admin API key | Create a custom preset |
+| `/api/v1/presets/{slug}` | PATCH | Admin API key | Update a custom preset |
+| `/api/v1/presets/{slug}` | DELETE | Admin API key | Delete a custom preset |
 | `/logs` | GET | API key | List available log files |
 | `/logs/{file}` | GET | API key | Read log file contents |
 | `/logs/{file}/structured` | GET | API key | Structured (JSON lines) log with `?level=`, `?search=` filters |
@@ -352,7 +337,7 @@ The `/system/stats` endpoint includes live GPU metrics when running a GPU-enable
 | NVIDIA | `nvidia` | Utilization %, VRAM, temperature, encoder % | `nvidia-smi` |
 | AMD | `amd` | Utilization %, VRAM, temperature | sysfs (`gpu_busy_percent`) |
 | Intel | `intel` | Render engine %, video encoder % | `intel_gpu_top` |
-| CPU-only | *(none)* | `"gpu": null` | — |
+| CPU-only | *(none)* | `"gpu": null` | - |
 
 Example response:
 ```json
@@ -412,7 +397,7 @@ docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi
 
 1. Check ARM logs for notification attempts
 2. Verify network connectivity between machines
-3. Check `JSON_URL` in ARM config matches transcoder address
+3. Check `TRANSCODER_URL` in ARM config matches transcoder address
 4. If using `WEBHOOK_SECRET`, ensure ARM sends `X-Webhook-Secret` header
 
 The transcoder accepts two webhook formats:

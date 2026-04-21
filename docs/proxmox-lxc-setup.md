@@ -114,11 +114,6 @@ RAW_PATH=/mnt/raw
 COMPLETED_PATH=/mnt/completed
 WORK_PATH=/var/lib/arm-transcoder/work
 DB_PATH=/var/lib/arm-transcoder/transcoder.db
-
-# Transcoding (auto-detected from GPU at startup if left empty/x265)
-HANDBRAKE_PRESET=
-VIDEO_ENCODER=x265
-VIDEO_QUALITY=22
 ```
 
 ## Step 7: Start the Service
@@ -136,10 +131,10 @@ tail -f /var/log/arm-transcoder/service.log
 Update your ARM ripper's `arm.yaml`:
 
 ```yaml
-SKIP_TRANSCODE: true
+SKIP_TRANSCODE: false
 RIPMETHOD: "mkv"
 DELRAWFILES: false
-JSON_URL: "http://192.168.0.XX:5000/webhook/arm"  # IP of container 108
+TRANSCODER_URL: "http://192.168.0.XX:5000/webhook/arm"  # IP of container 108
 ```
 
 ## Verification
