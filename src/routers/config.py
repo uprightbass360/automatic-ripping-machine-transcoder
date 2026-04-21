@@ -9,23 +9,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from auth import get_current_user, require_admin
-from config import settings, UPDATABLE_KEYS, VALID_LOG_LEVELS
+from config import settings, unwrap_optional, UPDATABLE_KEYS, VALID_LOG_LEVELS
 from database import get_db
 from models import ConfigOverrideDB
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _unwrap_optional(annotation):
-    """Unwrap Optional[T] / Union[T, None] to T. Leaves other types alone."""
-    origin = typing.get_origin(annotation)
-    if origin is typing.Union:
-        args = [a for a in typing.get_args(annotation) if a is not type(None)]
-        if len(args) == 1:
-            return args[0]
-    return annotation
 
 
 def _serialize_for_storage(value: object, annotation: type) -> str:
@@ -39,7 +29,7 @@ def _serialize_for_storage(value: object, annotation: type) -> str:
     is a no-op on the already-serialized JSON string, which is exactly what
     we want.
     """
-    annotation = _unwrap_optional(annotation)
+    annotation = unwrap_optional(annotation)
 
     if annotation is dict or typing.get_origin(annotation) is dict:
         return json.dumps(value)
