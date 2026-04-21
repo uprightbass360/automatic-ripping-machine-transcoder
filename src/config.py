@@ -2,8 +2,14 @@
 Configuration settings for ARM Transcoder
 """
 
+import json
+import logging
+import typing
+
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 UPDATABLE_KEYS = {
@@ -143,8 +149,24 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+# Settings keys whose str value is expected to be a valid JSON document.
+# Downstream consumers call json.loads() on these; a malformed row must be
+# skipped rather than silently assigned to the singleton.
+_JSON_STRING_KEYS = frozenset({"global_overrides"})
+
+
 async def load_config_overrides():
-    """Load persisted config overrides from DB and patch the settings singleton."""
+    """Load persisted config overrides from DB and patch the settings singleton.
+
+    Coercion is annotation-aware:
+      - bool/int/float use their type constructor (skip row on ValueError)
+      - dict / list values are json.loads-ed (skip row on JSONDecodeError)
+      - str-typed fields whose content is expected to be JSON (see
+        _JSON_STRING_KEYS) are validated as valid JSON before assignment
+      - Optional[T] is unwrapped to T
+
+    Malformed rows are skipped with a WARN so operators can see the drift.
+    """
     from database import get_db
     from models import ConfigOverrideDB
     from sqlalchemy import select
@@ -159,8 +181,16 @@ async def load_config_overrides():
         field_info = Settings.model_fields.get(override.key)
         if not field_info:
             continue
-        # Coerce value based on Pydantic field annotation
+
+        # Unwrap Optional[T] so typing.get_origin / identity checks work.
         annotation = field_info.annotation
+        origin = typing.get_origin(annotation)
+        if origin is typing.Union:
+            args = [a for a in typing.get_args(annotation) if a is not type(None)]
+            if len(args) == 1:
+                annotation = args[0]
+                origin = typing.get_origin(annotation)
+
         try:
             if annotation is bool:
                 coerced = override.value.lower() in ("true", "1", "yes")
@@ -168,8 +198,24 @@ async def load_config_overrides():
                 coerced = int(override.value)
             elif annotation is float:
                 coerced = float(override.value)
+            elif annotation is dict or origin is dict:
+                coerced = json.loads(override.value)
+                if not isinstance(coerced, dict):
+                    raise ValueError(f"Expected dict, got {type(coerced).__name__}")
+            elif annotation is list or origin is list:
+                coerced = json.loads(override.value)
+                if not isinstance(coerced, list):
+                    raise ValueError(f"Expected list, got {type(coerced).__name__}")
+            elif annotation is str and override.key in _JSON_STRING_KEYS:
+                # Validate content parses as JSON; store the original string
+                # so downstream consumers can json.loads it unchanged.
+                json.loads(override.value)
+                coerced = override.value
             else:
                 coerced = override.value
             setattr(settings, override.key, coerced)
-        except (ValueError, TypeError):
-            pass  # skip invalid overrides
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "Skipping config override %s: invalid value %r (%s)",
+                override.key, override.value, exc,
+            )
