@@ -87,7 +87,7 @@ WEBHOOK_SECRET=your-webhook-secret
 Update your ARM `arm.yaml`:
 
 ```yaml
-JSON_URL: "http://transcoder-ip:5000/webhook/arm"
+TRANSCODER_URL: "http://transcoder-ip:5000/webhook/arm"
 ```
 
 ### Send Webhook with Secret
@@ -100,7 +100,7 @@ curl -X POST \
   http://localhost:5000/webhook/arm
 ```
 
-If ARM supports custom headers in JSON_URL (check ARM documentation), you can include the secret in the webhook configuration.
+If ARM supports custom headers in TRANSCODER_URL (check ARM documentation), you can include the secret in the webhook configuration.
 
 ## Endpoint Access Control
 

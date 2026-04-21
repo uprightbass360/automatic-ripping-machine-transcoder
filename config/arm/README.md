@@ -66,12 +66,12 @@ docker cp arm.yaml arm:/etc/arm/config/arm.yaml
 Edit the file and replace `TRANSCODER_IP` with the actual IP or hostname of your transcoder machine:
 
 ```yaml
-JSON_URL: "http://TRANSCODER_IP:5000/webhook/arm"
+TRANSCODER_URL: "http://TRANSCODER_IP:5000/webhook/arm"
 ```
 
 ### 3. Authentication (Optional)
 
-ARM's `JSON_URL` uses the Apprise library internally, which does not support custom HTTP headers. If you need webhook authentication (`WEBHOOK_SECRET`), use the bash script instead:
+ARM's `TRANSCODER_URL` uses the Apprise library internally, which does not support custom HTTP headers. If you need webhook authentication (`WEBHOOK_SECRET`), use the bash script instead:
 
 1. Copy `notify_transcoder.sh` to your ARM machine:
    ```bash
@@ -85,9 +85,9 @@ ARM's `JSON_URL` uses the Apprise library internally, which does not support cus
    WEBHOOK_SECRET="your-secret-here"
    ```
 
-3. Update `arm.yaml` to use the script instead of JSON_URL:
+3. Update `arm.yaml` to use the script instead of TRANSCODER_URL:
    ```yaml
-   JSON_URL: ""
+   TRANSCODER_URL: ""
    BASH_SCRIPT: "/home/arm/scripts/notify_transcoder.sh"
    ```
 
@@ -117,7 +117,7 @@ curl -X POST http://TRANSCODER_IP:5000/webhook/arm \
 
 1. ARM rips the disc to MKV files in `RAW_PATH` (e.g., `/home/arm/media/raw/Movie Title (2024)/`)
 2. With `SKIP_TRANSCODE: true`, ARM skips its built-in HandBrake step
-3. ARM sends a notification via `JSON_URL` or `BASH_SCRIPT`
+3. ARM sends a notification via `TRANSCODER_URL` or `BASH_SCRIPT`
 4. arm-transcoder receives the webhook, extracts the title, and queues a transcode job
 5. The transcoder finds source files in `RAW_PATH/<title>/` and transcodes them to `COMPLETED_PATH/`
 6. After successful transcode, source files are cleaned up (if `DELETE_SOURCE=true`)
