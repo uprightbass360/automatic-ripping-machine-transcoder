@@ -2,34 +2,16 @@
 Tests for preset CRUD API endpoints.
 """
 
-import json
-import os
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-# Force software scheme before any app imports
-os.environ["GPU_VENDOR"] = ""
-
 
 # ---- Fixtures ---------------------------------------------------------------
-
-
-@pytest.fixture
-def mock_worker():
-    worker = MagicMock()
-    worker.is_running = True
-    worker.queue_size = 0
-    worker.current_job = None
-    worker.gpu_support = {}
-    worker.active_count = 0
-    worker.queue_job = AsyncMock(return_value=(1, True))
-    worker.shutdown = MagicMock()
-    return worker
 
 
 @pytest_asyncio.fixture

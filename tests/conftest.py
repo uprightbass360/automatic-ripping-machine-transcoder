@@ -3,7 +3,7 @@ Shared fixtures for ARM Transcoder tests.
 """
 
 import os
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -17,6 +17,22 @@ os.environ.setdefault("DB_PATH", "/tmp/test_transcoder.db")
 os.environ.setdefault("REQUIRE_API_AUTH", "false")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
 os.environ.setdefault("LOG_PATH", "/tmp/test_transcoder_logs")
+# Force software scheme before any app imports so GPU probing is deterministic.
+os.environ.setdefault("GPU_VENDOR", "")
+
+
+@pytest.fixture
+def mock_worker():
+    """Mock TranscodeWorker for API tests."""
+    worker = MagicMock()
+    worker.is_running = True
+    worker.queue_size = 0
+    worker.current_job = None
+    worker.gpu_support = {}
+    worker.active_count = 0
+    worker.queue_job = AsyncMock(return_value=(1, True))
+    worker.shutdown = MagicMock()
+    return worker
 
 
 @pytest.fixture
