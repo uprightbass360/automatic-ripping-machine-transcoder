@@ -157,6 +157,16 @@ settings = Settings()
 _JSON_STRING_KEYS = frozenset({"global_overrides"})
 
 
+def unwrap_optional(annotation):
+    """Unwrap Optional[T] / Union[T, None] to T. Leaves other types alone."""
+    origin = typing.get_origin(annotation)
+    if origin is typing.Union:
+        args = [a for a in typing.get_args(annotation) if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return annotation
+
+
 async def load_config_overrides():
     """Load persisted config overrides from DB and patch the settings singleton.
 
@@ -184,14 +194,8 @@ async def load_config_overrides():
         if not field_info:
             continue
 
-        # Unwrap Optional[T] so typing.get_origin / identity checks work.
-        annotation = field_info.annotation
+        annotation = unwrap_optional(field_info.annotation)
         origin = typing.get_origin(annotation)
-        if origin is typing.Union:
-            args = [a for a in typing.get_args(annotation) if a is not type(None)]
-            if len(args) == 1:
-                annotation = args[0]
-                origin = typing.get_origin(annotation)
 
         try:
             if annotation is bool:
