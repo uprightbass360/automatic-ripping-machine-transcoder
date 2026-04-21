@@ -486,3 +486,224 @@ class TestEffectiveHelper:
         result = worker._effective("delete_source", {"output_extension": "mp4"})
         from config import settings
         assert result == settings.delete_source
+
+
+# ── Preset snapshot: resolve once per job, not per file ─────────────────────
+#
+# These tests lock in the invariant that _snapshot_preset is called exactly
+# once per _process_job invocation, regardless of how many source files the
+# job contains. Per-file _resolve_effective_settings still runs (it chooses
+# the tier from the file's resolution), but it must receive the cached
+# snapshot and skip any DB / global_overrides re-resolution.
+
+class TestPresetSnapshotOncePerJob:
+    """_snapshot_preset runs once per job; _resolve_effective_settings is
+    called per-file but must use the snapshot (no mid-job DB/settings hits)."""
+
+    @pytest.mark.asyncio
+    async def test_snapshot_called_exactly_once_per_job(self, worker_with_db, tmp_path):
+        """_snapshot_preset fires once even when the job has many source files."""
+        worker, session_factory = worker_with_db
+
+        # 3 source MKVs simulating a multi-title disc
+        source_dir = tmp_path / "raw" / "Multi Movie"
+        source_dir.mkdir(parents=True)
+        for i in range(3):
+            (source_dir / f"title_{i:02d}.mkv").write_bytes(b"\x00" * (1000 + i))
+        completed_dir = tmp_path / "completed"
+        completed_dir.mkdir()
+
+        from transcoder import TranscodeJob
+        await worker.queue_job(
+            job_id=9001, source_path=str(source_dir), title="Multi Movie",
+        )
+        job = await worker._queue.get()
+
+        real_snapshot = worker._snapshot_preset
+        snapshot_calls = 0
+
+        async def counting_snapshot(overrides):
+            nonlocal snapshot_calls
+            snapshot_calls += 1
+            return await real_snapshot(overrides)
+
+        transcode_mock = AsyncMock()
+
+        async def _passthrough_copy(s, d, **kw):
+            """Copy into the work-dir source folder for discovery."""
+            from pathlib import Path as _P
+            import shutil as _sh
+            _sh.copytree(s, d)
+
+        async def _passthrough_move(s, d):
+            import os as _os, shutil as _sh
+            _os.makedirs(_os.path.dirname(d) or ".", exist_ok=True)
+            _sh.move(s, d)
+
+        async def _passthrough_rmtree(p):
+            import shutil as _sh
+            _sh.rmtree(p, ignore_errors=True)
+
+        with patch.object(worker, "_snapshot_preset", side_effect=counting_snapshot), \
+             patch.object(worker, "_wait_for_stable", new_callable=AsyncMock), \
+             patch.object(worker, "_transcode_file_handbrake", transcode_mock), \
+             patch.object(worker, "_transcode_file_ffmpeg", transcode_mock), \
+             patch.object(worker, "_notify_arm_callback", new_callable=AsyncMock), \
+             patch("transcoder.async_copy", side_effect=_passthrough_copy), \
+             patch("transcoder.async_move_file", side_effect=_passthrough_move), \
+             patch("transcoder.async_rmtree", side_effect=_passthrough_rmtree), \
+             patch("transcoder.settings") as mock_settings:
+            mock_settings.work_path = str(tmp_path / "work")
+            mock_settings.raw_path = str(tmp_path / "raw")
+            mock_settings.completed_path = str(completed_dir)
+            mock_settings.movies_subdir = "movies"
+            mock_settings.tv_subdir = "tv"
+            mock_settings.output_extension = "mkv"
+            mock_settings.delete_source = False
+            mock_settings.stabilize_seconds = 0
+            mock_settings.minimum_free_space_gb = 0.0
+            mock_settings.log_path = str(tmp_path / "logs")
+            mock_settings.arm_callback_url = ""
+            mock_settings.selected_preset_slug = ""
+            mock_settings.global_overrides = "{}"
+
+            await worker._process_job(job)
+
+        # Core invariant: snapshot resolved exactly once regardless of N files
+        assert snapshot_calls == 1, (
+            f"_snapshot_preset should run once per job, not per file; "
+            f"got {snapshot_calls} calls for 3 source files"
+        )
+        # And the per-file transcode mock should have been invoked per file
+        assert transcode_mock.await_count == 3, (
+            f"expected 3 per-file transcode calls, got {transcode_mock.await_count}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_snapshot_passed_through_to_resolve(self, worker_with_db, tmp_path):
+        """Snapshot flows from _transcode_files into _resolve_effective_settings."""
+        worker, _ = worker_with_db
+
+        work_output = tmp_path / "output"
+        work_output.mkdir()
+
+        src1 = tmp_path / "t01.mkv"
+        src2 = tmp_path / "t02.mkv"
+        src1.write_bytes(b"\x00" * 100)
+        src2.write_bytes(b"\x00" * 100)
+
+        from transcoder import TranscodeJob
+        job = TranscodeJob(id=1, title="Movie", source_path=str(tmp_path))
+
+        snapshot = await worker._snapshot_preset(None)
+
+        received_snapshots = []
+
+        async def fake_transcode(source, output, job_id, overrides=None, *, preset_snapshot=None):
+            received_snapshots.append(preset_snapshot)
+
+        mock_settings = MagicMock()
+        mock_settings.output_extension = "mkv"
+
+        with patch.object(worker, "_update_progress", new_callable=AsyncMock), \
+             patch.object(worker, "_transcode_file_ffmpeg", side_effect=fake_transcode), \
+             patch.object(worker, "_transcode_file_handbrake", side_effect=fake_transcode), \
+             patch("transcoder.settings", mock_settings):
+            await worker._transcode_files(
+                job, [src1, src2], src1, work_output, "Movie",
+                None, multi_title=True, preset_snapshot=snapshot,
+            )
+
+        assert len(received_snapshots) == 2
+        # Every per-file call must see the SAME snapshot object
+        assert all(s is snapshot for s in received_snapshots), (
+            "each per-file transcode must receive the exact snapshot from the job"
+        )
+
+    @pytest.mark.asyncio
+    async def test_mid_job_patch_does_not_leak_into_job(self, worker_with_db, tmp_path):
+        """Mid-job PATCH to settings.selected_preset_slug must NOT affect later files.
+
+        This is the race the snapshot eliminates: a user changing /config
+        between track 1 and track 2 of the same disc would previously have
+        produced tracks with different encoders. The snapshot pins the
+        effective preset at job start.
+        """
+        worker, _ = worker_with_db
+
+        # Build a second preset so we can swap it in mid-job
+        from presets import Preset, Scheme, Encoder
+        alt_preset = Preset(
+            slug="alt_preset", name="Alt", scheme="software",
+            shared={"video_encoder": "x264", "audio_encoder": "copy", "subtitle_mode": "all"},
+            tiers={
+                "dvd": {"handbrake_preset": "Alt 720p", "video_quality": 30},
+                "bluray": {"handbrake_preset": "Alt 1080p", "video_quality": 30},
+                "uhd": {"handbrake_preset": "Alt 2160p", "video_quality": 30},
+            },
+        )
+        # Build a scheme that has BOTH the original test_sw preset and alt_preset
+        scheme_with_both = Scheme(
+            slug="software", name="Software (CPU)",
+            supported_encoders=[
+                Encoder(slug="x265", name="Software x265"),
+                Encoder(slug="x264", name="Software x264"),
+            ],
+            supported_audio_encoders=["copy", "aac"],
+            supported_subtitle_modes=["all", "first", "none"],
+            built_in_presets=[_mock_scheme_software().default_preset, alt_preset],
+        )
+
+        src1 = tmp_path / "t01.mkv"
+        src2 = tmp_path / "t02.mkv"
+        src1.write_bytes(b"\x00" * 100)
+        src2.write_bytes(b"\x00" * 100)
+        work_output = tmp_path / "work_output"
+        work_output.mkdir()
+
+        from transcoder import TranscodeJob
+        job = TranscodeJob(id=1, title="Movie", source_path=str(tmp_path))
+
+        mock_settings = MagicMock()
+        mock_settings.output_extension = "mkv"
+        # Start with test_sw (x265) selected
+        mock_settings.selected_preset_slug = "test_sw"
+        mock_settings.global_overrides = "{}"
+
+        # Resolve snapshot with test_sw active
+        with patch("main.active_scheme", scheme_with_both), \
+             patch("transcoder.settings", mock_settings):
+            snapshot = await worker._snapshot_preset(None)
+        assert snapshot.preset.slug == "test_sw"
+
+        # Now simulate a mid-job PATCH flipping selected_preset_slug to alt_preset
+        mock_settings.selected_preset_slug = "alt_preset"
+
+        # Each per-file transcode runs _resolve_effective_settings with the
+        # job-scoped snapshot. Despite settings now pointing at alt_preset,
+        # the effective preset MUST remain test_sw.
+        seen_encoders = []
+
+        async def capture_transcode(source, output, job_id, overrides=None, *, preset_snapshot=None):
+            with patch("main.active_scheme", scheme_with_both), \
+                 patch("transcoder.settings", mock_settings):
+                effective = await worker._resolve_effective_settings(
+                    (1920, 1080), None, snapshot=preset_snapshot,
+                )
+            seen_encoders.append(effective.get("video_encoder"))
+
+        with patch.object(worker, "_update_progress", new_callable=AsyncMock), \
+             patch.object(worker, "_transcode_file_ffmpeg", side_effect=capture_transcode), \
+             patch.object(worker, "_transcode_file_handbrake", side_effect=capture_transcode), \
+             patch("transcoder.settings", mock_settings):
+            await worker._transcode_files(
+                job, [src1, src2], src1, work_output, "Movie",
+                None, multi_title=True, preset_snapshot=snapshot,
+            )
+
+        # Both tracks must have resolved to x265 (the snapshotted preset),
+        # not x264 (the mid-job-patched preset)
+        assert seen_encoders == ["x265", "x265"], (
+            f"mid-job PATCH leaked into later tracks; got {seen_encoders}, "
+            f"expected both tracks to use the snapshot (x265)"
+        )

@@ -205,7 +205,7 @@ class TestTranscodeFilesMultiTitle:
 
         job = TranscodeJob(id=1, title="Movie", source_path=str(tmp_path))
 
-        async def mock_transcode(source, output, job_id, overrides=None):
+        async def mock_transcode(source, output, job_id, overrides=None, **_):
             if source == src1:
                 raise RuntimeError("Encoder crashed")
 
@@ -238,7 +238,7 @@ class TestTranscodeFilesMultiTitle:
 
         job = TranscodeJob(id=1, title="Movie", source_path=str(tmp_path))
 
-        async def mock_transcode(source, output, job_id, overrides=None):
+        async def mock_transcode(source, output, job_id, overrides=None, **_):
             if source == src1:
                 raise RuntimeError("Encoder crashed")
 
