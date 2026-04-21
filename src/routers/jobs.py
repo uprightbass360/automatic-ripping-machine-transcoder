@@ -5,19 +5,59 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import select, delete, func
 
 from auth import get_current_user, require_admin, verify_webhook_secret
 from config import settings
 from database import get_db
 from models import WebhookPayload, JobStatus, TranscodeJobDB
+from version import (
+    ACCEPT_MISSING_VERSION_HEADER,
+    ACCEPTED_VERSIONS,
+    API_VERSION,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def require_api_version(
+    x_api_version: Optional[str] = Header(default=None, alias="X-Api-Version"),
+) -> str:
+    """Validate the X-Api-Version header on cross-service webhook calls.
+
+    Returns the version string (or the current API_VERSION if header is
+    missing-and-accepted) so endpoints can branch on it if needed later.
+
+    Rejects with 400:
+      - Any explicit version not in ACCEPTED_VERSIONS (e.g. v1).
+      - Missing header, only if ACCEPT_MISSING_VERSION_HEADER is False.
+    """
+    if x_api_version is None:
+        if ACCEPT_MISSING_VERSION_HEADER:
+            return API_VERSION
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"X-Api-Version header is required. "
+                f"Supported versions: {sorted(ACCEPTED_VERSIONS)}. "
+                f"Upgrade arm-neu to a version that sends the handshake header."
+            ),
+        )
+    if x_api_version not in ACCEPTED_VERSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported X-Api-Version: {x_api_version!r}. "
+                f"This transcoder supports: {sorted(ACCEPTED_VERSIONS)}. "
+                f"Upgrade arm-neu to a version that supports API v2."
+            ),
+        )
+    return x_api_version
 
 
 def _normalize_source_path(source_path: str | None) -> str | None:
@@ -58,6 +98,7 @@ def _extract_media_title(body: str | None) -> str | None:
 async def arm_webhook(
     request: Request,
     _verified: Annotated[bool, Depends(verify_webhook_secret)],
+    api_version: Annotated[str, Depends(require_api_version)],
 ):
     """
     Receive webhook from ARM's JSON_URL or BASH_SCRIPT curl.
