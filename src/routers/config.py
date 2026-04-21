@@ -31,7 +31,9 @@ def _unwrap_optional(annotation):
 def _serialize_for_storage(value: object, annotation: type) -> str:
     """Convert a Pydantic-validated value to its DB string form.
 
-    Dict/list fields are stored as JSON. Other types use str().
+    Dict/list fields are stored as JSON. Everything else uses str().
+    Paired with _JSON_STRING_KEYS in src/config.py (load-side validation)
+    and the dict-to-JSON preconversion earlier in this router.
 
     For str fields whose *content* is JSON (e.g. global_overrides), str(value)
     is a no-op on the already-serialized JSON string, which is exactly what
@@ -87,9 +89,10 @@ async def update_config(
             detail=f"Non-updatable keys: {', '.join(sorted(invalid_keys))}",
         )
 
-    # global_overrides is stored as a JSON string internally. Accept a dict
-    # from clients (the UI sends the structured overrides object) and
-    # serialize it here so downstream validation sees a string.
+    # global_overrides (and any future JSON-str field) arrives as a dict from the
+    # UI; we serialize here so Pydantic validation sees a string. Mirrored by
+    # _JSON_STRING_KEYS in src/config.py (load-side) and _serialize_for_storage
+    # below (DB-write side).
     if "global_overrides" in data and isinstance(data["global_overrides"], dict):
         data["global_overrides"] = json.dumps(data["global_overrides"])
 
@@ -116,11 +119,10 @@ async def update_config(
         raise HTTPException(status_code=422, detail=str(e))
 
     # Persist to DB and update in-memory singleton
-    from config import Settings as _SettingsCls
     async with get_db() as db:
         for key, value in data.items():
             coerced = getattr(validated, key)
-            annotation = _SettingsCls.model_fields[key].annotation
+            annotation = SettingsClass.model_fields[key].annotation
             storage_value = _serialize_for_storage(coerced, annotation)
             override = await db.get(ConfigOverrideDB, key)
             if override:
