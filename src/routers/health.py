@@ -8,6 +8,7 @@ import psutil
 from fastapi import APIRouter, BackgroundTasks, Request
 
 from config import settings
+from version import API_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ async def health_check(request: Request):
     return {
         "status": "healthy",
         "version": request.app.version,
+        "api_version": API_VERSION,
         "worker_running": worker is not None and worker.is_running,
         "queue_size": worker.queue_size if worker else 0,
         "active_count": worker.active_count if worker else 0,
