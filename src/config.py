@@ -178,50 +178,70 @@ async def load_config_overrides():
       - Optional[T] is unwrapped to T
 
     Malformed rows are skipped with a WARN so operators can see the drift.
+
+    Legacy rows whose keys are no longer in UPDATABLE_KEYS (removed by the
+    preset rollout) are DELETEd from the DB with a WARN log. This runs once
+    per upgrade; subsequent startups find no legacy rows.
     """
     from database import get_db
     from models import ConfigOverrideDB
-    from sqlalchemy import select
+    from sqlalchemy import delete, select
 
     async with get_db() as db:
         result = await db.execute(select(ConfigOverrideDB))
         overrides = result.scalars().all()
 
-    for override in overrides:
-        if override.key not in UPDATABLE_KEYS:
-            continue
-        field_info = Settings.model_fields.get(override.key)
-        if not field_info:
-            continue
+        legacy_keys: list[tuple[str, str]] = []  # (key, value) pairs for logging
+        for override in overrides:
+            if override.key not in UPDATABLE_KEYS:
+                legacy_keys.append((override.key, override.value))
+                continue
+            field_info = Settings.model_fields.get(override.key)
+            if not field_info:
+                continue
 
-        annotation = unwrap_optional(field_info.annotation)
-        origin = typing.get_origin(annotation)
+            annotation = unwrap_optional(field_info.annotation)
+            origin = typing.get_origin(annotation)
 
-        try:
-            if annotation is bool:
-                coerced = override.value.lower() in ("true", "1", "yes")
-            elif annotation is int:
-                coerced = int(override.value)
-            elif annotation is float:
-                coerced = float(override.value)
-            elif annotation is dict or origin is dict:
-                coerced = json.loads(override.value)
-                if not isinstance(coerced, dict):
-                    raise ValueError(f"Expected dict, got {type(coerced).__name__}")
-            elif annotation is list or origin is list:
-                coerced = json.loads(override.value)
-                if not isinstance(coerced, list):
-                    raise ValueError(f"Expected list, got {type(coerced).__name__}")
-            elif annotation is str and override.key in _JSON_STRING_KEYS:
-                # Validate content parses as JSON; store the original string
-                # so downstream consumers can json.loads it unchanged.
-                json.loads(override.value)
-                coerced = override.value
-            else:
-                coerced = override.value
-            setattr(settings, override.key, coerced)
-        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            try:
+                if annotation is bool:
+                    coerced = override.value.lower() in ("true", "1", "yes")
+                elif annotation is int:
+                    coerced = int(override.value)
+                elif annotation is float:
+                    coerced = float(override.value)
+                elif annotation is dict or origin is dict:
+                    coerced = json.loads(override.value)
+                    if not isinstance(coerced, dict):
+                        raise ValueError(f"Expected dict, got {type(coerced).__name__}")
+                elif annotation is list or origin is list:
+                    coerced = json.loads(override.value)
+                    if not isinstance(coerced, list):
+                        raise ValueError(f"Expected list, got {type(coerced).__name__}")
+                elif annotation is str and override.key in _JSON_STRING_KEYS:
+                    # Validate content parses as JSON; store the original string
+                    # so downstream consumers can json.loads it unchanged.
+                    json.loads(override.value)
+                    coerced = override.value
+                else:
+                    coerced = override.value
+                setattr(settings, override.key, coerced)
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "Skipping config override %s: invalid value %r (%s)",
+                    override.key, override.value, exc,
+                )
+
+        # Drop legacy rows and warn for each
+        for key, value in legacy_keys:
             logger.warning(
-                "Skipping config override %s: invalid value %r (%s)",
-                override.key, override.value, exc,
+                "Dropping legacy config override %s=%r - flat encoding keys "
+                "were replaced by the preset system. Use PATCH /config with "
+                "{\"selected_preset_slug\": \"...\"} if you need to pin a preset.",
+                key, value,
             )
+            await db.execute(
+                delete(ConfigOverrideDB).where(ConfigOverrideDB.key == key)
+            )
+        if legacy_keys:
+            await db.commit()
