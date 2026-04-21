@@ -149,9 +149,11 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-# Settings keys whose str value is expected to be a valid JSON document.
-# Downstream consumers call json.loads() on these; a malformed row must be
-# skipped rather than silently assigned to the singleton.
+# Settings fields that are declared as `str` but whose value is a JSON-encoded
+# document (dict or list). On load, we json.loads to validate. On write, these
+# are handled by _serialize_for_storage in src/routers/config.py (dict/list
+# branch) and the dict-to-JSON preconversion at src/routers/config.py (~L93).
+# If you add a new JSON str field, update ALL THREE sites.
 _JSON_STRING_KEYS = frozenset({"global_overrides"})
 
 
