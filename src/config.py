@@ -6,7 +6,7 @@ import json
 import logging
 import typing
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,8 @@ VALID_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+
+    model_config = SettingsConfigDict(env_prefix="", case_sensitive=False)
 
     # Paths
     raw_path: str = Field("/data/raw", description="Path to raw MKV files from ARM")
@@ -140,10 +142,6 @@ class Settings(BaseSettings):
                 f"Valid options: {', '.join(valid_levels)}"
             )
         return v_upper
-
-    class Config:
-        env_prefix = ""
-        case_sensitive = False
 
 
 settings = Settings()

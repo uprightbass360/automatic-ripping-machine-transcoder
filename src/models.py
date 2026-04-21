@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum as SQLEnum
 from sqlalchemy.orm import declarative_base
 
@@ -160,9 +160,9 @@ class WebhookPayload(BaseModel):
 
 class TranscodeJob(BaseModel):
     """Transcode job for queue."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     title: str
     source_path: str
-
-    class Config:
-        from_attributes = True
