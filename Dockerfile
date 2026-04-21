@@ -1,5 +1,6 @@
-# ── HandBrake CLI — pre-compiled, published by publish-handbrake.yml ──
-ARG HANDBRAKE_TAG=latest
+# HandBrake CLI - pre-compiled, published by publish-handbrake.yml
+# Default pinned to the current VERSION_HANDBRAKE; CI overrides via --build-arg.
+ARG HANDBRAKE_TAG=1.10.2
 FROM uprightbass360/arm-handbrake:${HANDBRAKE_TAG} AS handbrake
 
 # ── Base runtime ──────────────────────────────────────────────────────
