@@ -170,6 +170,19 @@ class WorkerStatus:
         }
 
 
+@dataclasses.dataclass(frozen=True)
+class PresetSnapshot:
+    """Job-scoped snapshot of the resolved preset + merged overrides.
+
+    Captured once at the start of a job to eliminate per-file DB hits
+    (custom-preset lookups) and to prevent mid-job PATCH races to
+    ``/config`` from leaking new settings into in-flight tracks. Per-file
+    encoding still selects the tier based on the track's own resolution.
+    """
+    preset: Preset
+    combined_overrides: dict[str, Any] | None
+
+
 class TranscodeWorker:
     """Background worker that processes transcode jobs."""
 
@@ -206,27 +219,23 @@ class TranscodeWorker:
             return overrides[key]
         return getattr(settings, key)
 
-    async def _resolve_effective_settings(
-        self, resolution: tuple[int, int] | None, overrides: dict | None,
-    ) -> dict[str, Any]:
-        """Resolve effective transcode settings from scheme + preset + overrides.
+    async def _snapshot_preset(self, overrides: dict | None) -> PresetSnapshot:
+        """Resolve the active preset + merged overrides once for a whole job.
 
-        Merge order (later wins):
+        Runs the DB lookup for custom presets and reads
+        ``settings.global_overrides`` / ``settings.selected_preset_slug``
+        exactly once. The returned snapshot is passed into each per-file
+        transcode call so the entire job sees a single consistent view even
+        if the user PATCHes ``/config`` while the job is running.
+
+        Merge layering (applied per-file in _resolve_effective_settings):
           1. preset.shared
           2. preset.tiers[tier]
-          3. global_overrides (from settings)
+          3. global_overrides (from settings at snapshot time)
           4. job-level overrides
         """
         from main import active_scheme
         import json as _json
-
-        # Determine tier from resolution
-        if resolution and resolution[1] > 1080:
-            tier = "uhd"
-        elif resolution and resolution[1] < 720:
-            tier = "dvd"
-        else:
-            tier = "bluray"
 
         # Determine preset: job override > global > scheme default
         preset_slug = None
@@ -239,7 +248,7 @@ class TranscodeWorker:
         if preset_slug:
             preset = active_scheme.get_preset(preset_slug)
             if not preset:
-                # Check custom presets in DB
+                # Check custom presets in DB (one-time per job)
                 from models import CustomPresetDB
                 async with get_db() as db:
                     custom = await db.get(CustomPresetDB, preset_slug)
@@ -262,7 +271,7 @@ class TranscodeWorker:
         if not preset:
             preset = active_scheme.default_preset
 
-        # Merge global overrides
+        # Snapshot global overrides at job start — no mid-job PATCH race
         global_overrides = _json.loads(settings.global_overrides) if settings.global_overrides else None
 
         # Merge job overrides (new shape: overrides["overrides"] is the diff)
@@ -273,7 +282,7 @@ class TranscodeWorker:
             legacy = {k: v for k, v in overrides.items() if k not in ("preset_slug", "overrides")}
             job_overrides = {"shared": legacy}
 
-        # Chain: preset -> global -> job
+        # Chain: global -> job (applied over preset per-file)
         combined_overrides: dict[str, Any] = {}
         for layer in [global_overrides, job_overrides]:
             if layer:
@@ -286,8 +295,47 @@ class TranscodeWorker:
                             for t, fields in layer[section].items():
                                 combined_overrides[section].setdefault(t, {}).update(fields)
 
-        effective = resolve_preset(preset, tier, combined_overrides or None)
-        logger.info(f"Resolved settings: tier={tier}, preset={preset.slug}, encoder={effective.get('video_encoder')}")
+        return PresetSnapshot(
+            preset=preset,
+            combined_overrides=combined_overrides or None,
+        )
+
+    async def _resolve_effective_settings(
+        self,
+        resolution: tuple[int, int] | None,
+        overrides: dict | None,
+        *,
+        snapshot: PresetSnapshot | None = None,
+    ) -> dict[str, Any]:
+        """Return effective settings for a single file.
+
+        If *snapshot* is provided (the normal job-scoped path), reuse the
+        already-resolved preset + merged overrides - no DB hit, no
+        re-read of settings.global_overrides. Tier is still chosen
+        per-file based on the track's resolution so DVD extras on a
+        Blu-ray can pick the dvd tier.
+
+        If *snapshot* is None, fall back to resolving on the fly. Kept
+        for backwards compatibility with callers that never received a
+        job-scoped snapshot (direct unit tests of the transcode methods,
+        external callers).
+        """
+        # Determine tier from resolution (cheap, always per-file)
+        if resolution and resolution[1] > 1080:
+            tier = "uhd"
+        elif resolution and resolution[1] < 720:
+            tier = "dvd"
+        else:
+            tier = "bluray"
+
+        if snapshot is None:
+            snapshot = await self._snapshot_preset(overrides)
+
+        effective = resolve_preset(snapshot.preset, tier, snapshot.combined_overrides)
+        logger.info(
+            f"Resolved settings: tier={tier}, preset={snapshot.preset.slug}, "
+            f"encoder={effective.get('video_encoder')}"
+        )
         return effective
 
     def _detect_encoder_family(self, encoder: str) -> str:
@@ -712,6 +760,7 @@ class TranscodeWorker:
         self, job: TranscodeJob, local_source_files: list[Path],
         main_feature: Path, work_output_dir: Path, folder_name: str,
         overrides: dict | None, *, multi_title: bool = False,
+        preset_snapshot: PresetSnapshot | None = None,
     ) -> list[dict]:
         """Transcode all source files to the work output directory.
 
@@ -719,6 +768,11 @@ class TranscodeWorker:
         ``[{"file": "name.mkv", "status": "completed"|"failed", "error": "..."}]``
 
         When *multi_title* is True, a single track failure does not abort the job.
+
+        *preset_snapshot* carries the job-scoped resolved preset + merged
+        overrides so each per-file transcode call skips the custom-preset
+        DB lookup and sees a consistent view even if ``/config`` is
+        PATCHed mid-job.
         """
         ext = self._effective("output_extension", overrides)
         file_results: list[dict] = []
@@ -742,9 +796,15 @@ class TranscodeWorker:
 
             try:
                 if self._encoder_backend == "ffmpeg":
-                    await self._transcode_file_ffmpeg(source_file, output_file, job.id, overrides=overrides)
+                    await self._transcode_file_ffmpeg(
+                        source_file, output_file, job.id,
+                        overrides=overrides, preset_snapshot=preset_snapshot,
+                    )
                 else:
-                    await self._transcode_file_handbrake(source_file, output_file, job.id, overrides=overrides)
+                    await self._transcode_file_handbrake(
+                        source_file, output_file, job.id,
+                        overrides=overrides, preset_snapshot=preset_snapshot,
+                    )
                 file_results.append({"file": source_file.name, "status": "completed"})
             except Exception as e:
                 if multi_title:
@@ -867,9 +927,18 @@ class TranscodeWorker:
             )
 
             is_multi = bool(track_meta)
+
+            # Snapshot the resolved preset + merged overrides ONCE for the
+            # whole job, right before per-file transcoding begins. This
+            # eliminates per-file DB hits for custom-preset lookups and
+            # gives the job a consistent view even if /config is PATCHed
+            # mid-transcode. Tier is still chosen per-file by resolution.
+            preset_snapshot = await self._snapshot_preset(overrides)
+
             file_results = await self._transcode_files(
                 job, local_source_files, main_feature, work_output_dir,
                 folder_name, overrides, multi_title=is_multi,
+                preset_snapshot=preset_snapshot,
             )
 
             # Move local output → completed (with per-track routing for multi-title)
@@ -1346,10 +1415,14 @@ class TranscodeWorker:
         output: Path,
         job_id: int,
         overrides: dict | None = None,
+        *,
+        preset_snapshot: PresetSnapshot | None = None,
     ):
         """Transcode a single file using HandBrake."""
         resolution = await self._get_video_resolution(source)
-        effective = await self._resolve_effective_settings(resolution, overrides)
+        effective = await self._resolve_effective_settings(
+            resolution, overrides, snapshot=preset_snapshot,
+        )
 
         cmd = ["HandBrakeCLI", "-i", str(source), "-o", str(output)]
 
@@ -1508,10 +1581,14 @@ class TranscodeWorker:
         output: Path,
         job_id: int,
         overrides: dict | None = None,
+        *,
+        preset_snapshot: PresetSnapshot | None = None,
     ):
         """Transcode a single file using FFmpeg."""
         resolution = await self._get_video_resolution(source)
-        effective = await self._resolve_effective_settings(resolution, overrides)
+        effective = await self._resolve_effective_settings(
+            resolution, overrides, snapshot=preset_snapshot,
+        )
         cmd = self._build_ffmpeg_command(source, output, effective, resolution)
 
         logger.debug(f"FFmpeg command: {' '.join(cmd)}")
