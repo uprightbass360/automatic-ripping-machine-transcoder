@@ -960,7 +960,15 @@ class TestWebhookEdgeCases:
         assert call_kwargs["year"] == "2024"
         assert call_kwargs["disctype"] == "bluray"
         assert call_kwargs["poster_url"] == "https://example.com/poster.jpg"
-        assert call_kwargs["config_overrides"]["preset_slug"] == "software-balanced"
+        co = call_kwargs["config_overrides"]
+        assert co["preset_slug"] == "software-balanced"
+        assert "overrides" in co
+        # The test payload sent overrides.shared.video_quality=20; verify the dumped
+        # dict preserves the validated shape including default-expanded tier keys.
+        assert isinstance(co["overrides"], dict)
+        assert "shared" in co["overrides"]
+        assert co["overrides"]["shared"]["video_quality"] == 20
+        assert "tiers" in co["overrides"]
         assert call_kwargs["multi_title"] is True
         assert call_kwargs["tracks"] == [{"title": "Track 1"}]
         assert call_kwargs["folder_name"] == "Movie Title (2024)"
