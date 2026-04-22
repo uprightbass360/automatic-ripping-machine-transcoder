@@ -39,6 +39,7 @@ RUN (userdel -r ubuntu 2>/dev/null; groupdel ubuntu 2>/dev/null; true) \
 
 WORKDIR /app
 COPY requirements.txt .
+COPY components/contracts /app/components/contracts
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 COPY src/ /app/
 COPY VERSION /app/
