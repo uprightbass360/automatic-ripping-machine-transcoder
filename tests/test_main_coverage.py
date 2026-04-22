@@ -943,7 +943,10 @@ class TestWebhookEdgeCases:
             "year": "2024",
             "disctype": "bluray",
             "poster_url": "https://example.com/poster.jpg",
-            "config_overrides": {"video_quality": 20},
+            "config_overrides": {
+                "preset_slug": "software-balanced",
+                "overrides": {"shared": {"video_quality": 20}},
+            },
             "multi_title": True,
             "tracks": [{"title": "Track 1"}],
             "folder_name": "Movie Title (2024)",
@@ -957,7 +960,7 @@ class TestWebhookEdgeCases:
         assert call_kwargs["year"] == "2024"
         assert call_kwargs["disctype"] == "bluray"
         assert call_kwargs["poster_url"] == "https://example.com/poster.jpg"
-        assert call_kwargs["config_overrides"] == {"video_quality": 20}
+        assert call_kwargs["config_overrides"]["preset_slug"] == "software-balanced"
         assert call_kwargs["multi_title"] is True
         assert call_kwargs["tracks"] == [{"title": "Track 1"}]
         assert call_kwargs["folder_name"] == "Movie Title (2024)"

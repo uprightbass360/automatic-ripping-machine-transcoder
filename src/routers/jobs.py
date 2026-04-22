@@ -7,7 +7,9 @@ import re
 from pathlib import Path
 from typing import Annotated, Optional
 
+from arm_contracts import TranscodeJobConfig
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from pydantic import ValidationError
 from sqlalchemy import select, delete, func
 
 from auth import get_current_user, require_admin, verify_webhook_secret
@@ -168,6 +170,17 @@ async def arm_webhook(
 
     full_path = str(Path(settings.raw_path) / source_path)
 
+    # Parse config_overrides into the shared typed model. None -> None (back-compat).
+    typed_overrides: TranscodeJobConfig | None = None
+    if payload.config_overrides is not None:
+        try:
+            typed_overrides = TranscodeJobConfig.model_validate(payload.config_overrides)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid config_overrides shape: {exc.errors()}",
+            )
+
     if worker is None or not worker.is_running:
         raise HTTPException(status_code=503, detail="Transcoder not ready")
 
@@ -180,7 +193,7 @@ async def arm_webhook(
         year=payload.year,
         disctype=payload.disctype,
         poster_url=payload.poster_url,
-        config_overrides=payload.config_overrides,
+        config_overrides=typed_overrides.model_dump(exclude_none=True) if typed_overrides else None,
         multi_title=bool(payload.multi_title),
         tracks=payload.tracks,
         folder_name=payload.folder_name,
