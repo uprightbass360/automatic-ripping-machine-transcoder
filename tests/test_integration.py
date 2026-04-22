@@ -675,12 +675,14 @@ class TestWorkerRunLoop:
                 mock_settings.arm_callback_url = ""
                 mock_settings.log_path = str(tmp_path / "logs")
 
-                # Run worker briefly - it should process the job then we shut it down
-                async def run_and_stop():
-                    await asyncio.sleep(0.1)
+                # Wait for the worker to finish processing the queued job, then
+                # shut it down. Using _queue.join() instead of a fixed sleep
+                # eliminates the timing race on slow CI runners.
+                async def wait_and_stop():
+                    await worker._queue.join()
                     worker.shutdown()
 
-                stop_task = asyncio.create_task(run_and_stop())
+                stop_task = asyncio.create_task(wait_and_stop())
                 await worker.run()
                 await stop_task
 
