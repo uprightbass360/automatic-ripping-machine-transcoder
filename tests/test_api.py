@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
 
 
 # ─── App fixture with mocked worker and real DB ─────────────────────────────
@@ -61,14 +60,8 @@ async def client(mock_worker, tmp_path):
         import main as main_module
         main_module.app.state.worker = mock_worker
 
-        transport = ASGITransport(app=main_module.app)
-        # Default X-Api-Version: 2 on every request so these tests exercise
-        # webhook behaviour, not the handshake (covered in test_version_handshake).
-        async with AsyncClient(
-            transport=transport,
-            base_url="http://test",
-            headers={"X-Api-Version": "2"},
-        ) as ac:
+        from tests.api_test_helpers import versioned_test_client
+        async with versioned_test_client(main_module.app) as ac:
             yield ac
 
         main_module.app.state.worker = None
