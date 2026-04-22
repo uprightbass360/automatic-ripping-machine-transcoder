@@ -243,6 +243,9 @@ class TranscodeWorker:
             preset_slug = overrides["preset_slug"]
         if not preset_slug:
             preset_slug = settings.selected_preset_slug
+        # Coerce to string and drop whitespace - settings can round-trip as
+        # empty string on fresh installs
+        preset_slug = str(preset_slug).strip() if isinstance(preset_slug, str) else None
 
         preset = None
         if preset_slug:
@@ -272,7 +275,8 @@ class TranscodeWorker:
             preset = active_scheme.default_preset
 
         # Snapshot global overrides at job start — no mid-job PATCH race
-        global_overrides = _json.loads(settings.global_overrides) if settings.global_overrides else None
+        raw_global = settings.global_overrides
+        global_overrides = _json.loads(raw_global) if isinstance(raw_global, str) and raw_global else None
 
         # Merge job overrides (new shape: overrides["overrides"] is the diff)
         job_overrides = overrides.get("overrides") if overrides else None
