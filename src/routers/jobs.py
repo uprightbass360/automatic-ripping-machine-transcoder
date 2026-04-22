@@ -178,7 +178,13 @@ async def arm_webhook(
         except ValidationError as exc:
             raise HTTPException(
                 status_code=422,
-                detail=f"Invalid config_overrides shape: {exc.errors()}",
+                detail={
+                    "message": "Invalid config_overrides shape",
+                    "errors": [
+                        {"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]}
+                        for e in exc.errors()
+                    ],
+                },
             )
 
     if worker is None or not worker.is_running:
@@ -193,7 +199,12 @@ async def arm_webhook(
         year=payload.year,
         disctype=payload.disctype,
         poster_url=payload.poster_url,
-        config_overrides=typed_overrides.model_dump(exclude_none=True) if typed_overrides else None,
+        # model_dump() (no exclusions) preserves the full validated shape, including
+        # explicit null fields and the default-expanded tier keys. This matches the
+        # pre-typed behavior most closely - the only observable change is that missing
+        # tiers now default to empty dicts in the persisted JSON, which downstream
+        # merge code treats as a no-op.
+        config_overrides=typed_overrides.model_dump() if typed_overrides else None,
         multi_title=bool(payload.multi_title),
         tracks=payload.tracks,
         folder_name=payload.folder_name,
