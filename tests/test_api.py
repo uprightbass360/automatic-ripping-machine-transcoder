@@ -29,15 +29,12 @@ async def client(mock_worker, tmp_path):
     """Create an async test client with initialized test DB."""
     db_path = str(tmp_path / "test.db")
 
-    # Patch database module to use test DB before importing main
-    import database as db_module
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
     from models import Base
 
     test_engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
     test_session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
-    # Initialize tables
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -50,21 +47,9 @@ async def client(mock_worker, tmp_path):
                 await session.rollback()
                 raise
 
-    # Patch both the database module and the main module's reference
-    with patch.object(db_module, "get_db", test_get_db), \
-         patch("routers.jobs.get_db", test_get_db), \
-         patch("routers.stats.get_db", test_get_db), \
-         patch("routers.config.get_db", test_get_db), \
-         patch("main.init_db", AsyncMock()):
-
-        import main as main_module
-        main_module.app.state.worker = mock_worker
-
-        from tests.api_test_helpers import versioned_test_client
-        async with versioned_test_client(main_module.app) as ac:
-            yield ac
-
-        main_module.app.state.worker = None
+    from tests.api_test_helpers import patched_app_client
+    async with patched_app_client(mock_worker, test_get_db) as (ac, _main):
+        yield ac
 
     # Cleanup
     async with test_engine.begin() as conn:
