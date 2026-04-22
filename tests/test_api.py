@@ -393,3 +393,76 @@ class TestRestartEndpoint:
         data = response.json()
         assert data["success"] is True
         assert "restarting" in data["message"].lower()
+
+
+class TestWebhookConfigOverridesTyped:
+    """After the TranscodeJobConfig integration, webhook config_overrides
+    must be parsed into a typed model at the handler boundary and bad
+    payloads must be rejected with 422 rather than silently accepted."""
+
+    @pytest.mark.asyncio
+    async def test_webhook_accepts_well_shaped_config(self, client):
+        """Webhook with a valid TranscodeJobConfig shape queues the job."""
+        payload = {
+            "title": "Test Movie",
+            "job_id": 9991,
+            "path": "/data/raw/Test Movie",
+            "status": "success",
+            "config_overrides": {
+                "preset_slug": "software-balanced",
+                "overrides": {
+                    "shared": {"audio_encoder": "aac"},
+                    "tiers": {"dvd": {"video_quality": 20}},
+                },
+                "delete_source": False,
+                "output_extension": "mkv",
+            },
+        }
+        resp = await client.post("/webhook/arm", json=payload)
+        assert resp.status_code in (200, 202), resp.text
+
+    @pytest.mark.asyncio
+    async def test_webhook_rejects_invalid_preset_slug(self, client):
+        """Uppercase/bad-regex preset_slug in config_overrides -> 422."""
+        payload = {
+            "title": "Test Movie",
+            "job_id": 9992,
+            "path": "/data/raw/Test Movie",
+            "status": "success",
+            "config_overrides": {
+                "preset_slug": "INVALID UPPERCASE",
+                "overrides": {},
+            },
+        }
+        resp = await client.post("/webhook/arm", json=payload)
+        assert resp.status_code == 422, resp.text
+
+    @pytest.mark.asyncio
+    async def test_webhook_rejects_unknown_top_level_config_key(self, client):
+        """Extra top-level key in config_overrides -> 422."""
+        payload = {
+            "title": "Test Movie",
+            "job_id": 9993,
+            "path": "/data/raw/Test Movie",
+            "status": "success",
+            "config_overrides": {
+                "preset_slug": "software-balanced",
+                "overrides": {},
+                "bogus_key": "nope",
+            },
+        }
+        resp = await client.post("/webhook/arm", json=payload)
+        assert resp.status_code == 422, resp.text
+
+    @pytest.mark.asyncio
+    async def test_webhook_accepts_missing_config_overrides(self, client):
+        """Back-compat: a webhook without config_overrides is still accepted
+        (transcoder falls back to scheme defaults). Tests the Optional[...] path."""
+        payload = {
+            "title": "Test Movie",
+            "job_id": 9994,
+            "path": "/data/raw/Test Movie",
+            "status": "success",
+        }
+        resp = await client.post("/webhook/arm", json=payload)
+        assert resp.status_code in (200, 202), resp.text
