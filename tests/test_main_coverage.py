@@ -40,7 +40,6 @@ async def client(mock_worker, tmp_path):
     """Create an async test client with initialized test DB."""
     db_path = str(tmp_path / "test.db")
 
-    import database as db_module
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
     test_engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
@@ -58,20 +57,9 @@ async def client(mock_worker, tmp_path):
                 await session.rollback()
                 raise
 
-    with patch.object(db_module, "get_db", test_get_db), \
-         patch("routers.jobs.get_db", test_get_db), \
-         patch("routers.stats.get_db", test_get_db), \
-         patch("routers.config.get_db", test_get_db), \
-         patch("main.init_db", AsyncMock()):
-
-        import main as main_module
-        main_module.app.state.worker = mock_worker
-
-        from tests.api_test_helpers import versioned_test_client
-        async with versioned_test_client(main_module.app) as ac:
-            yield ac, main_module.app, test_session_factory
-
-        main_module.app.state.worker = None
+    from tests.api_test_helpers import patched_app_client
+    async with patched_app_client(mock_worker, test_get_db) as (ac, main_module):
+        yield ac, main_module.app, test_session_factory
 
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
