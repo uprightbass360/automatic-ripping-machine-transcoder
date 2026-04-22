@@ -1,5 +1,20 @@
 # Changelog
 
+## [17.1.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.1.0...v17.1.1) (2026-04-22)
+
+
+### Bug Fixes
+
+* guard snapshot against non-string settings values ([bbd1e45](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/bbd1e45831ce10bcbc4cb1602c18646162a6dbdb))
+* pin HANDBRAKE_TAG default to 1.10.2 for reproducible local builds ([9c990f6](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/9c990f6a9bcf250ba3a155052725de80afd6e00e))
+* **presets:** clear selected_preset_slug when the active preset is deleted ([0c7ab3c](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/0c7ab3c35099bf37f203522d792c598117f71f6b))
+* require X-Api-Version header on webhook (flip N+2 back-compat) ([794e488](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/794e48817e5ff9d5e16a50ff5f477b0c7e42fee3))
+
+
+### Performance Improvements
+
+* snapshot resolved preset at job start ([bf30b75](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/bf30b7561f1e04ed0c8c1c3c8164154ce81b8f5f))
+
 ## [17.1.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.0.0...v17.1.0) (2026-04-21)
 
 
