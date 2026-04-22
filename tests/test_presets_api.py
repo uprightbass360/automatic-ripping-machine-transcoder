@@ -452,6 +452,123 @@ class TestDeleteCustomPreset:
             assert settings.selected_preset_slug == ""
 
 
+# ---- Direct-call coverage for delete_preset --------------------------------
+#
+# The ASGI-client tests above exercise DELETE /api/v1/presets/{slug} end to
+# end, but pytest-cov does not track line execution inside the
+# `async with get_db()` block when the route is invoked via ASGITransport.
+# We also call `delete_preset` directly as a coroutine below so coverage
+# sees the branch inside the async context. Behavioural assertions live in
+# the ASGI tests above - these exist purely to land the patch on lines
+# coverage would otherwise miss.
+
+
+class TestDeletePresetDirectCoverage:
+    """Call delete_preset() directly to cover lines inside async with."""
+
+    @pytest_asyncio.fixture
+    async def db_setup(self, tmp_path):
+        """Set up an in-memory test DB with active_scheme loaded."""
+        db_path = str(tmp_path / "direct.db")
+        import database as db_module
+        from models import Base, CustomPresetDB, ConfigOverrideDB
+
+        test_engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
+        test_session_factory = async_sessionmaker(
+            test_engine, class_=AsyncSession, expire_on_commit=False,
+        )
+        async with test_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        @asynccontextmanager
+        async def test_get_db():
+            async with test_session_factory() as session:
+                yield session
+
+        with (
+            patch.object(db_module, "get_db", test_get_db),
+            patch("routers.presets.get_db", test_get_db),
+        ):
+            import main as main_module
+            from presets import load_active_scheme
+            main_module.active_scheme = load_active_scheme()
+
+            yield test_session_factory, CustomPresetDB, ConfigOverrideDB
+
+        async with test_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await test_engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_direct_delete_clears_active_selection(self, db_setup):
+        factory, CustomPresetDB, ConfigOverrideDB = db_setup
+        from config import settings
+        from routers.presets import delete_preset
+
+        # Seed a custom preset + make it the active selection
+        async with factory() as session:
+            session.add(CustomPresetDB(
+                slug="custom-pick", name="Custom Pick",
+                scheme="software", parent_slug="software_balanced",
+                overrides_json="{}",
+            ))
+            session.add(ConfigOverrideDB(key="selected_preset_slug", value="custom-pick"))
+            await session.commit()
+
+        prior = settings.selected_preset_slug
+        settings.selected_preset_slug = "custom-pick"
+        try:
+            result = await delete_preset(slug="custom-pick", _role="admin")
+        finally:
+            settings.selected_preset_slug = prior
+
+        assert result == {"success": True, "deleted": "custom-pick", "selection_cleared": True}
+
+        async with factory() as session:
+            assert await session.get(CustomPresetDB, "custom-pick") is None
+            assert await session.get(ConfigOverrideDB, "selected_preset_slug") is None
+
+    @pytest.mark.asyncio
+    async def test_direct_delete_unrelated_leaves_selection(self, db_setup):
+        factory, CustomPresetDB, ConfigOverrideDB = db_setup
+        from config import settings
+        from routers.presets import delete_preset
+
+        async with factory() as session:
+            session.add(CustomPresetDB(
+                slug="keep-me", name="Keep", scheme="software",
+                parent_slug="software_balanced", overrides_json="{}",
+            ))
+            session.add(CustomPresetDB(
+                slug="delete-me", name="Delete", scheme="software",
+                parent_slug="software_balanced", overrides_json="{}",
+            ))
+            session.add(ConfigOverrideDB(key="selected_preset_slug", value="keep-me"))
+            await session.commit()
+
+        prior = settings.selected_preset_slug
+        settings.selected_preset_slug = "keep-me"
+        try:
+            result = await delete_preset(slug="delete-me", _role="admin")
+            assert result["selection_cleared"] is False
+            # Override row for the kept selection is still present
+            async with factory() as session:
+                override = await session.get(ConfigOverrideDB, "selected_preset_slug")
+                assert override is not None
+                assert override.value == "keep-me"
+        finally:
+            settings.selected_preset_slug = prior
+
+    @pytest.mark.asyncio
+    async def test_direct_delete_nonexistent_raises_404(self, db_setup):
+        from fastapi import HTTPException
+        from routers.presets import delete_preset
+
+        with pytest.raises(HTTPException) as exc_info:
+            await delete_preset(slug="never-existed", _role="admin")
+        assert exc_info.value.status_code == 404
+
+
 # ---- Cross-scheme unavailable -----------------------------------------------
 
 
