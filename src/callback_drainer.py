@@ -156,3 +156,44 @@ class TranscodeCallbackDrainer:
                     row.job_id, row.attempt_count, exc,
                     backoff_seconds(row.attempt_count),
                 )
+
+    _SWEEP_LIMIT = 5
+    _CLEANUP_DELIVERED_DAYS = 7
+
+    async def sweep_once(self) -> None:
+        """Run one pass: find due rows, send concurrently (capped), cleanup.
+
+        - SELECT up to _SWEEP_LIMIT due rows (not delivered, not permanent
+          failure, next_attempt_at <= now).
+        - Spawn a send_one task per row; await them all.
+        - Cleanup delivered rows older than _CLEANUP_DELIVERED_DAYS.
+        """
+        now = datetime.now(timezone.utc)
+        async with self._get_db() as session:
+            result = await session.execute(
+                select(PendingCallbackDB.id)
+                .where(PendingCallbackDB.delivered_at.is_(None))
+                .where(PendingCallbackDB.permanent_failure_at.is_(None))
+                .where(PendingCallbackDB.next_attempt_at <= now)
+                .order_by(PendingCallbackDB.next_attempt_at)
+                .limit(self._SWEEP_LIMIT)
+            )
+            due_ids = [r[0] for r in result.all()]
+
+        if due_ids:
+            await asyncio.gather(
+                *(self.send_one(row_id) for row_id in due_ids),
+                return_exceptions=False,
+            )
+
+        # Cleanup old delivered rows
+        cutoff = now - timedelta(days=self._CLEANUP_DELIVERED_DAYS)
+        async with self._get_db() as session:
+            stale = await session.execute(
+                select(PendingCallbackDB)
+                .where(PendingCallbackDB.delivered_at.is_not(None))
+                .where(PendingCallbackDB.delivered_at < cutoff)
+            )
+            for row in stale.scalars():
+                await session.delete(row)
+            await session.commit()
