@@ -28,7 +28,7 @@ from constants import (
 )
 from database import get_db
 from log_format import json_formatter
-from models import TranscodeJobDB, JobStatus, TranscodeJob
+from models import TranscodeJobDB, JobStatus, PendingCallbackDB, TranscodeJob
 from utils import check_sufficient_disk_space, clean_title_for_filesystem, estimate_transcode_size
 
 
@@ -1195,7 +1195,6 @@ class TranscodeWorker:
 
         No-op if settings.arm_callback_url is empty.
         """
-        import json
         if not settings.arm_callback_url:
             return
 
@@ -1229,9 +1228,6 @@ class TranscodeWorker:
             return
 
         # Terminal: enqueue for the drainer
-        from models import PendingCallbackDB
-        from database import get_db
-
         async with get_db() as session:
             row = PendingCallbackDB(
                 job_id=job.id,
