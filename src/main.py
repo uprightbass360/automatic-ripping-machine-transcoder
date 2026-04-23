@@ -101,6 +101,25 @@ async def lifespan(app: FastAPI):
 
     app.state.worker = TranscodeWorker(gpu_support=gpu_support)
 
+    # Set up callback drainer so the worker can enqueue durably
+    from callback_drainer import TranscodeCallbackDrainer
+    from database import get_db
+    drainer = TranscodeCallbackDrainer(
+        get_db=get_db,
+        callback_url=settings.arm_callback_url or "",
+    )
+    app.state.worker._drainer = drainer
+    app.state.drainer = drainer
+    # Startup sweep catches any rows pending from a pre-crash run
+    if settings.arm_callback_url:
+        await drainer.sweep_once()
+        drainer_task = asyncio.create_task(drainer.run())
+        app.state.drainer_task = drainer_task
+        logger.info("Callback drainer started")
+    else:
+        app.state.drainer_task = None
+        logger.info("No ARM callback URL configured; drainer idle")
+
     # Spawn max_concurrent worker tasks pulling from the shared queue
     n_workers = settings.max_concurrent
     worker_tasks = []
@@ -134,6 +153,18 @@ async def lifespan(app: FastAPI):
     else:
         for task in worker_tasks:
             task.cancel()
+
+    # Stop the callback drainer cleanly
+    drainer_task = getattr(app.state, "drainer_task", None)
+    if drainer_task is not None:
+        app.state.drainer.stop()
+        try:
+            await asyncio.wait_for(drainer_task, timeout=SHUTDOWN_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning("Drainer did not finish in %ds, cancelling", SHUTDOWN_TIMEOUT)
+            drainer_task.cancel()
+        except asyncio.CancelledError:
+            raise
 
     logger.info("ARM Transcoder stopped")
 

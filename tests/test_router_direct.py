@@ -324,6 +324,7 @@ class TestLifespanCoverage:
              patch("main.settings") as mock_settings:
             mock_settings.gpu_vendor = "nvidia"
             mock_settings.max_concurrent = 2
+            mock_settings.arm_callback_url = ""
 
             from main import lifespan
             app = FastAPI()
@@ -365,6 +366,7 @@ class TestLifespanCoverage:
              patch("main.SHUTDOWN_TIMEOUT", 0.1):
             mock_settings.gpu_vendor = ""
             mock_settings.max_concurrent = 1
+            mock_settings.arm_callback_url = ""
 
             from main import lifespan
             app = FastAPI()
@@ -395,6 +397,7 @@ class TestLifespanCoverage:
              patch("main.settings") as mock_settings:
             mock_settings.gpu_vendor = ""
             mock_settings.max_concurrent = 1
+            mock_settings.arm_callback_url = ""
 
             from main import lifespan
             app = FastAPI()
