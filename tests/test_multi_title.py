@@ -8,12 +8,16 @@ Covers:
 - Partial status logic
 """
 
+import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from models import TranscodeJob
+from models import TranscodeJob, Base
 
 
 # Default GPU support dicts for mocking
@@ -255,6 +259,39 @@ class TestTranscodeFilesMultiTitle:
 # ─── _notify_arm_callback with track_results ────────────────────────────────
 
 
+@pytest_asyncio.fixture
+async def worker_with_test_db(tmp_path):
+    """TranscodeWorker with an in-memory test DB, for callback-enqueue tests."""
+    import database as db_module
+    from transcoder import TranscodeWorker
+
+    db_path = str(tmp_path / "test_multi.db")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
+    sf = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    @asynccontextmanager
+    async def test_get_db():
+        async with sf() as session:
+            try:
+                yield session
+            except Exception:
+                await session.rollback()
+                raise
+
+    with patch.object(db_module, "get_db", test_get_db), \
+         patch("transcoder.get_db", test_get_db), \
+         patch("main.active_scheme", _mock_scheme()):
+        worker = TranscodeWorker(gpu_support=_gpu_support_none())
+        yield worker, sf
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
+
+
 class TestNotifyArmCallback:
     """Tests for _notify_arm_callback track_results parameter."""
 
@@ -265,88 +302,71 @@ class TestNotifyArmCallback:
             return TranscodeWorker()
 
     @pytest.mark.asyncio
-    async def test_sends_track_results_in_payload(self):
-        """track_results should be included in the callback payload."""
-        worker = self._make_worker()
-        job = TranscodeJob(id=1, title="Movie", source_path="/data/raw/movie")
-        # job.id is already 1 (the ARM job ID)
+    async def test_sends_track_results_in_payload(self, worker_with_test_db):
+        """track_results are stored in the enqueued PendingCallbackDB row."""
+        from models import PendingCallbackDB
+        from sqlalchemy import select
 
+        worker, sf = worker_with_test_db
         track_results = [
             {"track_number": 1, "status": "completed", "output_path": "/out/ep1.mkv"},
             {"track_number": 2, "status": "failed", "error": "encode error"},
         ]
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-
-        with patch("transcoder.settings") as mock_settings, \
-             patch("transcoder.httpx.AsyncClient") as mock_client_cls:
+        with patch("transcoder.settings") as mock_settings:
             mock_settings.arm_callback_url = "https://arm:8080"
-            mock_client = AsyncMock()
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
-
+            job = TranscodeJob(id=1, title="Movie", source_path="/data/raw/movie")
             await worker._notify_arm_callback(
                 job, "partial", track_results=track_results,
             )
 
-            mock_client.post.assert_called_once()
-            call_kwargs = mock_client.post.call_args
-            payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
-            assert payload["status"] == "partial"
-            assert payload["track_results"] == track_results
+        async with sf() as session:
+            result = await session.execute(
+                select(PendingCallbackDB).where(PendingCallbackDB.job_id == 1)
+            )
+            row = result.scalar_one()
+            assert row.status == "partial"
+            assert json.loads(row.track_results_json) == track_results
 
     @pytest.mark.asyncio
-    async def test_no_track_results_key_when_none(self):
-        """track_results key should not be in payload when None."""
-        worker = self._make_worker()
-        job = TranscodeJob(id=1, title="Movie", source_path="/data/raw/movie")
-        # job.id is already 1 (the ARM job ID)
+    async def test_no_track_results_key_when_none(self, worker_with_test_db):
+        """track_results_json is NULL in the DB row when track_results=None."""
+        from models import PendingCallbackDB
+        from sqlalchemy import select
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
+        worker, sf = worker_with_test_db
 
-        with patch("transcoder.settings") as mock_settings, \
-             patch("transcoder.httpx.AsyncClient") as mock_client_cls:
+        with patch("transcoder.settings") as mock_settings:
             mock_settings.arm_callback_url = "https://arm:8080"
-            mock_client = AsyncMock()
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
-
+            job = TranscodeJob(id=2, title="Movie", source_path="/data/raw/movie")
             await worker._notify_arm_callback(job, "completed", track_results=None)
 
-            call_kwargs = mock_client.post.call_args
-            payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
-            assert "track_results" not in payload
+        async with sf() as session:
+            result = await session.execute(
+                select(PendingCallbackDB).where(PendingCallbackDB.job_id == 2)
+            )
+            row = result.scalar_one()
+            assert row.track_results_json is None
 
     @pytest.mark.asyncio
-    async def test_no_track_results_key_when_empty_list(self):
-        """track_results key should not be in payload when empty list."""
-        worker = self._make_worker()
-        job = TranscodeJob(id=1, title="Movie", source_path="/data/raw/movie")
-        # job.id is already 1 (the ARM job ID)
+    async def test_no_track_results_key_when_empty_list(self, worker_with_test_db):
+        """Empty track_results list is stored as NULL in the DB row."""
+        from models import PendingCallbackDB
+        from sqlalchemy import select
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
+        worker, sf = worker_with_test_db
 
-        with patch("transcoder.settings") as mock_settings, \
-             patch("transcoder.httpx.AsyncClient") as mock_client_cls:
+        with patch("transcoder.settings") as mock_settings:
             mock_settings.arm_callback_url = "https://arm:8080"
-            mock_client = AsyncMock()
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value = mock_client
-
+            job = TranscodeJob(id=3, title="Movie", source_path="/data/raw/movie")
             await worker._notify_arm_callback(job, "completed", track_results=[])
 
-            call_kwargs = mock_client.post.call_args
-            payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
-            assert "track_results" not in payload
+        async with sf() as session:
+            result = await session.execute(
+                select(PendingCallbackDB).where(PendingCallbackDB.job_id == 3)
+            )
+            row = result.scalar_one()
+            assert row.track_results_json is None
 
     @pytest.mark.asyncio
     async def test_skips_callback_without_callback_url(self):

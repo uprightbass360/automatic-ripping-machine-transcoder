@@ -30,6 +30,27 @@ def _gpu_support_none():
     }
 
 
+def _mock_scheme_software():
+    """Build a minimal software scheme for test fixtures."""
+    from presets import Preset, Scheme, Encoder
+    preset = Preset(
+        slug="test_sw", name="Test Software", scheme="software",
+        shared={"video_encoder": "x265", "audio_encoder": "copy", "subtitle_mode": "all"},
+        tiers={
+            "dvd": {"handbrake_preset": "H.265 MKV 720p30", "video_quality": 22},
+            "bluray": {"handbrake_preset": "H.265 MKV 1080p30", "video_quality": 22},
+            "uhd": {"handbrake_preset": "H.265 MKV 2160p60 4K", "video_quality": 22},
+        },
+    )
+    return Scheme(
+        slug="software", name="Software (CPU)",
+        supported_encoders=[Encoder(slug="x265", name="Software x265")],
+        supported_audio_encoders=["copy", "aac"],
+        supported_subtitle_modes=["all", "first", "none"],
+        built_in_presets=[preset],
+    )
+
+
 @pytest_asyncio.fixture
 async def worker_db(tmp_path):
     """TranscodeWorker with real test DB."""
@@ -53,7 +74,8 @@ async def worker_db(tmp_path):
                 raise
 
     with patch.object(db_module, "get_db", test_get_db), \
-         patch("transcoder.get_db", test_get_db):
+         patch("transcoder.get_db", test_get_db), \
+         patch("main.active_scheme", _mock_scheme_software()):
         worker = TranscodeWorker(gpu_support=_gpu_support_none())
         yield worker, sf, tmp_path
 
@@ -183,49 +205,107 @@ class TestWaitForStable:
 
 # ── _notify_arm_callback ────────────────────────────────────────────────────
 
-class TestNotifyArmCallback:
-    @pytest.mark.asyncio
-    async def test_callback_with_error(self, worker_db):
-        """Cover lines 897-898: error payload."""
-        worker, _, _ = worker_db
-        job = TranscodeJob(id=1, title="Test", source_path="/test")
-
-        with patch("transcoder.settings") as ms:
-            ms.arm_callback_url = "https://arm.local"
-            with patch("transcoder.httpx.AsyncClient") as mock_client:
-                mock_resp = MagicMock(status_code=200)
-                mock_client.return_value.__aenter__ = AsyncMock(return_value=MagicMock(
-                    post=AsyncMock(return_value=mock_resp)
-                ))
-                mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                await worker._notify_arm_callback(job, "failed", error="Transcode error")
+class TestNotifyArmCallbackEnqueues:
+    """After the callback-drainer refactor, terminal callbacks enqueue
+    a PendingCallbackDB row and return immediately (no inline retry)."""
 
     @pytest.mark.asyncio
-    async def test_callback_exception(self, worker_db):
-        """Cover lines 905-906: callback HTTP failure."""
-        worker, _, _ = worker_db
-        job = TranscodeJob(id=1, title="Test", source_path="/test")
+    async def test_terminal_status_enqueues_row(self, worker_db):
+        """completed status inserts a PendingCallbackDB row."""
+        from models import PendingCallbackDB
+        from sqlalchemy import select
 
-        with patch("transcoder.settings") as ms:
-            ms.arm_callback_url = "https://arm.local"
-            with patch("transcoder.httpx.AsyncClient") as mock_client:
-                mock_client.return_value.__aenter__ = AsyncMock(
-                    side_effect=ConnectionError("unreachable")
-                )
-                mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                # Should not raise — just log warning
-                await worker._notify_arm_callback(job, "completed")
+        worker, sf, _ = worker_db
+        worker._drainer = None  # Set by main.py at runtime; not exercised here
 
-    @pytest.mark.asyncio
-    async def test_callback_skipped_no_url(self, worker_db):
-        """Cover line 893: no callback URL → skip."""
-        worker, _, _ = worker_db
-        job = TranscodeJob(id=1, title="Test", source_path="/test")
+        with patch("transcoder.settings") as mock_settings:
+            mock_settings.arm_callback_url = "https://arm.example/callback"
 
-        with patch("transcoder.settings") as ms:
-            ms.arm_callback_url = ""
-            # Should return immediately without error
+            job = TranscodeJob(id=900, title="T", source_path="/x")
             await worker._notify_arm_callback(job, "completed")
+
+        async with sf() as session:
+            result = await session.execute(
+                select(PendingCallbackDB).where(PendingCallbackDB.job_id == 900)
+            )
+            row = result.scalar_one()
+            assert row.status == "completed"
+            assert row.delivered_at is None
+            assert row.attempt_count == 0
+
+    @pytest.mark.asyncio
+    async def test_informational_status_does_not_enqueue(self, worker_db):
+        """transcoding status stays fire-and-forget: no DB row."""
+        from models import PendingCallbackDB
+        from sqlalchemy import select
+
+        worker, sf, _ = worker_db
+        with patch("transcoder.settings") as mock_settings, \
+             patch("transcoder.httpx.AsyncClient") as mock_client_cls:
+            mock_settings.arm_callback_url = "https://arm.example/callback"
+            mock_client = AsyncMock()
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client.post.return_value.status_code = 200
+
+            job = TranscodeJob(id=901, title="T", source_path="/x")
+            await worker._notify_arm_callback(job, "transcoding")
+
+        async with sf() as session:
+            result = await session.execute(
+                select(PendingCallbackDB).where(PendingCallbackDB.job_id == 901)
+            )
+            rows = list(result.scalars())
+            assert rows == []
+
+    @pytest.mark.asyncio
+    async def test_no_callback_url_returns_without_enqueue(self, worker_db):
+        """With no callback URL configured, terminal status is a no-op."""
+        from models import PendingCallbackDB
+        from sqlalchemy import select
+
+        worker, sf, _ = worker_db
+        with patch("transcoder.settings") as mock_settings:
+            mock_settings.arm_callback_url = ""
+
+            job = TranscodeJob(id=902, title="T", source_path="/x")
+            await worker._notify_arm_callback(job, "completed")
+
+        async with sf() as session:
+            result = await session.execute(
+                select(PendingCallbackDB).where(PendingCallbackDB.job_id == 902)
+            )
+            rows = list(result.scalars())
+            assert rows == []
+
+    @pytest.mark.asyncio
+    async def test_enqueue_includes_error_and_track_results(self, worker_db):
+        """partial status with extra fields stores them in the DB row."""
+        import json
+        from models import PendingCallbackDB
+        from sqlalchemy import select
+
+        worker, sf, _ = worker_db
+        with patch("transcoder.settings") as mock_settings:
+            mock_settings.arm_callback_url = "https://arm.example/callback"
+
+            job = TranscodeJob(id=903, title="T", source_path="/x")
+            await worker._notify_arm_callback(
+                job, "partial",
+                error="one track failed",
+                track_results=[{"track_number": 1, "status": "failed"}],
+            )
+
+        async with sf() as session:
+            result = await session.execute(
+                select(PendingCallbackDB).where(PendingCallbackDB.job_id == 903)
+            )
+            row = result.scalar_one()
+            assert row.status == "partial"
+            assert row.error == "one track failed"
+            assert json.loads(row.track_results_json) == [
+                {"track_number": 1, "status": "failed"}
+            ]
 
 
 # ── _match_track_metadata ────────────────────────────────────────────────────
