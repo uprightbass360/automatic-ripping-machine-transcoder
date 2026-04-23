@@ -18,6 +18,7 @@ RUN groupadd -g ${TRANSCODER_GID} transcoder \
 
 WORKDIR /app
 COPY requirements.txt .
+COPY components/contracts /app/components/contracts
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ /app/
