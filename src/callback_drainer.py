@@ -29,3 +29,19 @@ def is_permanent_error(exc_or_response) -> bool:
         return exc_or_response.status_code in _PERMANENT_HTTP_CODES
     # httpx exceptions (ConnectError, ReadTimeout, etc.) are all retriable.
     return False
+
+
+_BASE_DELAY_SECONDS = 5
+_MAX_DELAY_SECONDS = 1800  # 30 minutes
+
+
+def backoff_seconds(attempt_count: int) -> int:
+    """Return the delay before attempt #(attempt_count + 1).
+
+    Schedule: 5, 10, 20, 40, 80, 160, 320, 640, 1280, 1800, 1800, ...
+    First retry after 5s; doubles per attempt; capped at 30 minutes.
+    attempt_count=0 returns 0 (send immediately).
+    """
+    if attempt_count <= 0:
+        return 0
+    return min(_BASE_DELAY_SECONDS * (2 ** (attempt_count - 1)), _MAX_DELAY_SECONDS)
