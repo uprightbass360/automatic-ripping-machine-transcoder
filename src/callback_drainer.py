@@ -83,6 +83,8 @@ class TranscodeCallbackDrainer:
         self._http_client_factory = http_client_factory or (
             lambda: httpx.AsyncClient(timeout=_POST_TIMEOUT_SECONDS)
         )
+        self._new_row_event = asyncio.Event()
+        self._stop_flag = False
 
     async def send_one(self, row_id: int) -> None:
         """Send a single pending row and update its state.
@@ -197,3 +199,49 @@ class TranscodeCallbackDrainer:
             for row in stale.scalars():
                 await session.delete(row)
             await session.commit()
+
+    _IDLE_SLEEP_SECONDS = 30
+    _CRASH_RETRY_SLEEP_SECONDS = 5
+
+    def notify_new_row(self) -> None:
+        """Called by _notify_arm_callback after INSERT to wake the drainer."""
+        self._new_row_event.set()
+
+    def stop(self) -> None:
+        """Signal the run loop to exit on its next iteration."""
+        self._stop_flag = True
+        self._new_row_event.set()
+
+    async def run(self) -> None:
+        """Main drainer loop. Runs until stop() is called.
+
+        Each iteration: sweep_once (may raise, caught and logged),
+        then wait for the event OR a 30s timeout.
+        """
+        while not self._stop_flag:
+            try:
+                await self.sweep_once()
+            except Exception as exc:
+                logger.error(
+                    "Drainer sweep failed, will retry in %ds: %s",
+                    self._CRASH_RETRY_SLEEP_SECONDS, exc,
+                    exc_info=True,
+                )
+                try:
+                    await asyncio.wait_for(
+                        self._new_row_event.wait(),
+                        timeout=self._CRASH_RETRY_SLEEP_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    pass
+                self._new_row_event.clear()
+                continue
+
+            try:
+                await asyncio.wait_for(
+                    self._new_row_event.wait(),
+                    timeout=self._IDLE_SLEEP_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                pass
+            self._new_row_event.clear()
