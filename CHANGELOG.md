@@ -1,5 +1,12 @@
 # Changelog
 
+## [17.2.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.2.0...v17.2.1) (2026-04-23)
+
+
+### Bug Fixes
+
+* COPY components/contracts before pip install in Dockerfile.dev ([9d24251](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/9d242516c33c74576e075220a94b89fc4326b297))
+
 ## [17.2.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.1.1...v17.2.0) (2026-04-23)
 
 
