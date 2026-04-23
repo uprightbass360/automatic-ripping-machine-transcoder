@@ -195,6 +195,8 @@ class TranscodeWorker:
         self._last_progress: dict[int, float] = {}
         self._last_progress_time: dict[int, float] = {}
         self._queue_lock = asyncio.Lock()
+        # Set by main.py lifespan after worker construction. See callback_drainer.py.
+        self._drainer = None
 
         logger.info(f"GPU support: {self._gpu_support}")
 
@@ -1177,64 +1179,79 @@ class TranscodeWorker:
 
         logger.info(f"Source stabilized at {last_size} bytes")
 
-    # Terminal statuses (completed/partial/failed) are critical — ARM job
-    # depends on them.  Informational statuses (transcoding) are best-effort.
-    _TERMINAL_RETRIES = 3
-    _TERMINAL_BACKOFF = (5, 30, 120)  # seconds between retries
-
     async def _notify_arm_callback(
         self, job: TranscodeJob, status: str, *,
         error: str | None = None,
         track_results: list[dict] | None = None,
     ):
-        """Send transcode result back to ARM so it can update the job status.
+        """Enqueue a pending callback or send informational status fire-and-forget.
 
-        Terminal statuses (completed, partial, failed) retry up to 3 times
-        with 5s/30s/120s backoff — ARM needs these to unstick the job.
+        Terminal statuses (completed, partial, failed) INSERT a
+        PendingCallbackDB row; the TranscodeCallbackDrainer background task
+        (set up in main.py lifespan) picks it up and delivers durably,
+        surviving restarts. Informational statuses (transcoding) POST once
+        with no retry or persistence - a missed informational update is
+        corrected by the next terminal callback.
 
-        Informational statuses (transcoding) are fire-and-forget — a failure
-        just means the ARM UI won't show "transcoding" immediately, which
-        is acceptable.
+        No-op if settings.arm_callback_url is empty.
         """
+        import json
         if not settings.arm_callback_url:
             return
-        url = f"{settings.arm_callback_url.rstrip('/')}/api/v1/jobs/{job.id}/transcode-callback"
-        payload: dict = {"status": status}
-        if error:
-            payload["error"] = error[:500]
-        if track_results:
-            payload["track_results"] = track_results
 
         is_terminal = status in ("completed", "partial", "failed")
-        max_attempts = self._TERMINAL_RETRIES if is_terminal else 1
 
-        for attempt in range(max_attempts):
+        if not is_terminal:
+            # Informational: fire-and-forget, single attempt
+            url = (
+                f"{settings.arm_callback_url.rstrip('/')}/api/v1/jobs/"
+                f"{job.id}/transcode-callback"
+            )
+            payload = {"status": status}
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
                     resp = await client.post(url, json=payload)
                 if resp.status_code < 300:
-                    logger.info(f"ARM callback sent ({resp.status_code}): {status} for job {job.id}")
-                    return
-                logger.warning(
-                    f"ARM callback returned {resp.status_code} for job {job.id} "
-                    f"(attempt {attempt + 1}/{max_attempts})"
-                )
+                    logger.info(
+                        f"ARM callback sent ({resp.status_code}): {status} "
+                        f"for job {job.id}"
+                    )
+                else:
+                    logger.warning(
+                        f"ARM callback returned {resp.status_code} for "
+                        f"job {job.id} (informational, not retried)"
+                    )
             except Exception as e:
                 logger.warning(
                     f"ARM callback failed for job {job.id}: {e} "
-                    f"(attempt {attempt + 1}/{max_attempts})"
+                    f"(informational, not retried)"
                 )
+            return
 
-            if attempt < max_attempts - 1:
-                delay = self._TERMINAL_BACKOFF[attempt]
-                logger.info(f"Retrying ARM callback for job {job.id} in {delay}s")
-                await asyncio.sleep(delay)
+        # Terminal: enqueue for the drainer
+        from models import PendingCallbackDB
+        from database import get_db
 
-        if is_terminal:
-            logger.error(
-                f"ARM callback exhausted {max_attempts} attempts for job {job.id} "
-                f"(status={status}). Job may be stuck in waiting_transcode on ARM."
+        async with get_db() as session:
+            row = PendingCallbackDB(
+                job_id=job.id,
+                status=status,
+                error=error[:500] if error else None,
+                track_results_json=(
+                    json.dumps(track_results) if track_results else None
+                ),
             )
+            session.add(row)
+            await session.commit()
+
+        logger.info(
+            f"ARM callback enqueued: status={status} for job {job.id}"
+        )
+
+        # Wake the drainer if it's attached (set by main.py at startup)
+        drainer = getattr(self, "_drainer", None)
+        if drainer is not None:
+            drainer.notify_new_row()
 
     def _discover_source_files(self, source_path: str) -> list[Path]:
         """Find all MKV files in source directory."""
