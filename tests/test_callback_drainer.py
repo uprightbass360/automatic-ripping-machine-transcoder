@@ -38,3 +38,31 @@ def test_timeout_exception_is_retriable():
     from callback_drainer import is_permanent_error
     exc = httpx.ReadTimeout("timed out")
     assert is_permanent_error(exc) is False
+
+
+# ── backoff_seconds ─────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("attempt, expected", [
+    (1, 5),
+    (2, 10),
+    (3, 20),
+    (4, 40),
+    (5, 80),
+    (6, 160),
+    (7, 320),
+    (8, 640),
+    (9, 1280),
+    (10, 1800),
+    (11, 1800),
+    (100, 1800),
+])
+def test_backoff_schedule(attempt, expected):
+    """Exponential 5s doubling, capped at 1800s (30 min). No ceiling on attempts."""
+    from callback_drainer import backoff_seconds
+    assert backoff_seconds(attempt) == expected
+
+
+def test_backoff_zero_attempts_returns_zero():
+    """Attempt 0 means 'send immediately'; used as the default for fresh rows."""
+    from callback_drainer import backoff_seconds
+    assert backoff_seconds(0) == 0
