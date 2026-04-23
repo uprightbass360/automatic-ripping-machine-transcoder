@@ -1,5 +1,27 @@
 # Changelog
 
+## [17.2.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.1.1...v17.2.0) (2026-04-23)
+
+
+### Features
+
+* _notify_arm_callback enqueues to pending_callbacks table ([6237c42](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/6237c428989909c2e942dcdc74fd30850a05a715))
+* add arm-contracts as components/contracts submodule ([f923d38](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/f923d3895c778f262a1509338461fefa31008ab7))
+* add backoff_seconds schedule for callback drainer ([afb9964](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/afb9964b0bd4ee4933784daf87e2e09d618d77dd))
+* add is_permanent_error classifier for callback drainer ([e0a7728](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/e0a7728cf8c7163c4d95f7a56a710a8fb56c56f8))
+* add PendingCallbackDB model ([85cb3ae](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/85cb3ae20313b36c1b25649ea173cd4c7943cea1))
+* add TranscodeCallbackDrainer.run() background loop ([4e9aa29](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/4e9aa299af664c4d4d7f0c7ebf4532d0cf7cba77))
+* add TranscodeCallbackDrainer.send_one ([935dd23](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/935dd2352c4ef4e32a959516880190daa104b1b1))
+* add TranscodeCallbackDrainer.sweep_once ([d331574](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/d33157464e5b7c85085a0dcd2de4ae4648ec2c85))
+* parse webhook config_overrides into TranscodeJobConfig ([ac61c45](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/ac61c459f0021f6cb2759f9b85b7f7fb298d8ce1))
+* start callback drainer in main.py lifespan ([0372cf1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/0372cf1d46e35fd6c8550c2b5455481498d92306))
+
+
+### Bug Fixes
+
+* harden webhook 422 detail shape and preserve explicit nulls ([cb1b568](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/cb1b568f73b7b4e0e1c0e460f3d6f05b8a54b36b))
+* **tests:** eliminate timing race in test_worker_processes_queued_job ([63a0a97](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/63a0a97b5a8048feb3a2550d6e496058b0c39580))
+
 ## [17.1.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.1.0...v17.1.1) (2026-04-22)
 
 
