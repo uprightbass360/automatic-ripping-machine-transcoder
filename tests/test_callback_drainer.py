@@ -243,3 +243,216 @@ async def test_send_one_retriable_on_network_error(drainer_db, pending_row):
         assert row.attempt_count == 1
         assert row.last_error is not None
         assert "refused" in row.last_error
+
+
+# ── Drainer sweep_once ─────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_sweep_once_sends_all_due_rows(drainer_db):
+    from callback_drainer import TranscodeCallbackDrainer
+    from models import PendingCallbackDB
+
+    factory, get_db = drainer_db
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        for i in range(3):
+            session.add(PendingCallbackDB(
+                job_id=100 + i, status="completed",
+                next_attempt_at=now, attempt_count=0,
+            ))
+        await session.commit()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post.return_value = httpx.Response(200)
+
+    drainer = TranscodeCallbackDrainer(
+        get_db=get_db,
+        callback_url="https://arm.example/callback",
+        http_client_factory=lambda: mock_client,
+    )
+
+    await drainer.sweep_once()
+
+    async with factory() as session:
+        result = await session.execute(select(PendingCallbackDB))
+        rows = list(result.scalars())
+        assert len(rows) == 3
+        assert all(r.delivered_at is not None for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_sweep_once_skips_not_yet_due(drainer_db):
+    from callback_drainer import TranscodeCallbackDrainer
+    from models import PendingCallbackDB
+
+    factory, get_db = drainer_db
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        session.add(PendingCallbackDB(
+            job_id=1, status="completed",
+            next_attempt_at=now + timedelta(seconds=60),  # not due yet
+            attempt_count=1,
+        ))
+        await session.commit()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post.return_value = httpx.Response(200)
+
+    drainer = TranscodeCallbackDrainer(
+        get_db=get_db,
+        callback_url="https://arm.example/callback",
+        http_client_factory=lambda: mock_client,
+    )
+
+    await drainer.sweep_once()
+
+    mock_client.post.assert_not_called()
+
+    async with factory() as session:
+        result = await session.execute(select(PendingCallbackDB))
+        row = result.scalar_one()
+        assert row.delivered_at is None  # Not sent yet
+
+
+@pytest.mark.asyncio
+async def test_sweep_once_skips_already_delivered(drainer_db):
+    from callback_drainer import TranscodeCallbackDrainer
+    from models import PendingCallbackDB
+
+    factory, get_db = drainer_db
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        session.add(PendingCallbackDB(
+            job_id=1, status="completed",
+            next_attempt_at=now, attempt_count=1,
+            delivered_at=now,  # Already delivered
+        ))
+        await session.commit()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post.return_value = httpx.Response(200)
+
+    drainer = TranscodeCallbackDrainer(
+        get_db=get_db,
+        callback_url="https://arm.example/callback",
+        http_client_factory=lambda: mock_client,
+    )
+
+    await drainer.sweep_once()
+
+    mock_client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sweep_once_skips_permanent_failure(drainer_db):
+    from callback_drainer import TranscodeCallbackDrainer
+    from models import PendingCallbackDB
+
+    factory, get_db = drainer_db
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        session.add(PendingCallbackDB(
+            job_id=1, status="completed",
+            next_attempt_at=now, attempt_count=1,
+            permanent_failure_at=now,
+        ))
+        await session.commit()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post.return_value = httpx.Response(200)
+
+    drainer = TranscodeCallbackDrainer(
+        get_db=get_db,
+        callback_url="https://arm.example/callback",
+        http_client_factory=lambda: mock_client,
+    )
+
+    await drainer.sweep_once()
+
+    mock_client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sweep_once_concurrency_cap(drainer_db):
+    """With 10 due rows and cap of 5 via LIMIT, one sweep sends 5; two sweeps send all 10."""
+    from callback_drainer import TranscodeCallbackDrainer
+    from models import PendingCallbackDB
+
+    factory, get_db = drainer_db
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        for i in range(10):
+            session.add(PendingCallbackDB(
+                job_id=200 + i, status="completed",
+                next_attempt_at=now, attempt_count=0,
+            ))
+        await session.commit()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post.return_value = httpx.Response(200)
+
+    drainer = TranscodeCallbackDrainer(
+        get_db=get_db,
+        callback_url="https://arm.example/callback",
+        http_client_factory=lambda: mock_client,
+    )
+
+    await drainer.sweep_once()
+    assert mock_client.post.call_count == 5
+
+    await drainer.sweep_once()
+    assert mock_client.post.call_count == 10
+
+
+@pytest.mark.asyncio
+async def test_sweep_once_cleans_up_old_delivered(drainer_db):
+    from callback_drainer import TranscodeCallbackDrainer
+    from models import PendingCallbackDB
+
+    factory, get_db = drainer_db
+    now = datetime.now(timezone.utc)
+
+    async with factory() as session:
+        session.add(PendingCallbackDB(
+            job_id=1, status="completed",
+            next_attempt_at=now - timedelta(days=30),
+            attempt_count=1,
+            delivered_at=now - timedelta(days=8),  # Older than 7d -> prune
+        ))
+        session.add(PendingCallbackDB(
+            job_id=2, status="completed",
+            next_attempt_at=now - timedelta(days=1),
+            attempt_count=1,
+            delivered_at=now - timedelta(days=1),  # Within 7d -> keep
+        ))
+        await session.commit()
+
+    mock_client = AsyncMock()
+    drainer = TranscodeCallbackDrainer(
+        get_db=get_db,
+        callback_url="https://arm.example/callback",
+        http_client_factory=lambda: mock_client,
+    )
+
+    await drainer.sweep_once()
+
+    async with factory() as session:
+        result = await session.execute(select(PendingCallbackDB))
+        rows = list(result.scalars())
+        assert len(rows) == 1
+        assert rows[0].job_id == 2
