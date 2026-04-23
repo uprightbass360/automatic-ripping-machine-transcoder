@@ -70,6 +70,7 @@ def test_backoff_zero_attempts_returns_zero():
 
 # ── Drainer send_one ───────────────────────────────────────────────────
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch
@@ -456,3 +457,95 @@ async def test_sweep_once_cleans_up_old_delivered(drainer_db):
         rows = list(result.scalars())
         assert len(rows) == 1
         assert rows[0].job_id == 2
+
+
+# ── Drainer run loop ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_run_loop_wakes_on_event(drainer_db):
+    """Calling notify_new_row wakes the drainer from its 30s sleep."""
+    from callback_drainer import TranscodeCallbackDrainer
+    from models import PendingCallbackDB
+
+    factory, get_db = drainer_db
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client.post.return_value = httpx.Response(200)
+
+    drainer = TranscodeCallbackDrainer(
+        get_db=get_db,
+        callback_url="https://arm.example/callback",
+        http_client_factory=lambda: mock_client,
+    )
+
+    # Start the loop as a background task, give it time to sleep
+    loop_task = asyncio.create_task(drainer.run())
+    await asyncio.sleep(0.1)
+
+    # Insert a row then wake the drainer
+    async with factory() as session:
+        session.add(PendingCallbackDB(
+            job_id=1, status="completed",
+            next_attempt_at=datetime.now(timezone.utc),
+            attempt_count=0,
+        ))
+        await session.commit()
+
+    drainer.notify_new_row()
+
+    # Wait up to 1s for the send to happen
+    for _ in range(20):
+        await asyncio.sleep(0.05)
+        if mock_client.post.call_count > 0:
+            break
+
+    assert mock_client.post.call_count == 1
+
+    drainer.stop()
+    await loop_task
+
+
+@pytest.mark.asyncio
+async def test_run_loop_survives_exception_in_sweep(drainer_db, caplog):
+    """If sweep_once raises, the loop logs it and keeps running."""
+    import logging
+    from callback_drainer import TranscodeCallbackDrainer
+
+    factory, get_db = drainer_db
+    drainer = TranscodeCallbackDrainer(
+        get_db=get_db,
+        callback_url="https://arm.example/callback",
+    )
+
+    # Monkeypatch sweep_once to raise once then succeed
+    call_count = {"n": 0}
+
+    async def flaky_sweep():
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("simulated drainer crash")
+        # second call is fine
+
+    drainer.sweep_once = flaky_sweep
+
+    with caplog.at_level(logging.ERROR):
+        loop_task = asyncio.create_task(drainer.run())
+        # First iteration raises, retry sleep is 5s; we short-circuit
+        # by poking notify_new_row after the exception so the next
+        # iteration runs promptly.
+        await asyncio.sleep(0.1)
+        drainer.notify_new_row()
+        # Wait long enough for the 5s retry sleep to pass
+        for _ in range(120):
+            await asyncio.sleep(0.05)
+            if call_count["n"] >= 2:
+                break
+
+    drainer.stop()
+    await loop_task
+
+    assert call_count["n"] >= 2
+    assert any(
+        "simulated drainer crash" in r.getMessage() for r in caplog.records
+    )
