@@ -51,6 +51,31 @@ class CustomPresetDB(Base):
                         onupdate=lambda: datetime.now(timezone.utc))
 
 
+class PendingCallbackDB(Base):
+    """Durable queue of pending ARM-callback POSTs.
+
+    Populated by _notify_arm_callback when a terminal status
+    (completed/partial/failed) needs delivery and settings.arm_callback_url
+    is configured. Drained by TranscodeCallbackDrainer in callback_drainer.py.
+    Rows outlive the TranscodeJobDB job row to preserve audit history.
+    """
+    __tablename__ = "pending_callbacks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(Integer, nullable=False, index=True)
+    status = Column(String(50), nullable=False)
+    error = Column(String(500), nullable=True)
+    track_results_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False,
+                        default=lambda: datetime.now(timezone.utc))
+    next_attempt_at = Column(DateTime, nullable=False, index=True,
+                             default=lambda: datetime.now(timezone.utc))
+    attempt_count = Column(Integer, nullable=False, default=0)
+    last_error = Column(String(500), nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
+    permanent_failure_at = Column(DateTime, nullable=True)
+
+
 class TranscodeJobDB(Base):
     """Database model for transcode jobs."""
     __tablename__ = "transcode_jobs"
