@@ -738,6 +738,77 @@ class TestWorkerRunLoop:
             worker._active_jobs[0] = WorkerStatus(worker_id=0)
             assert worker.current_job is None
 
+    @pytest.mark.asyncio
+    async def test_process_job_does_not_block_on_slow_callback(
+        self, test_db_setup, tmp_path
+    ):
+        """Regression guard for the callback-retry refactor: _process_job must
+        return promptly even if arm-neu's callback endpoint is slow, because
+        the worker now enqueues rather than awaiting the HTTP round-trip."""
+        import time
+        from models import PendingCallbackDB
+        from sqlalchemy import select
+
+        _, session_factory, test_get_db = test_db_setup
+
+        source_dir = tmp_path / "raw" / "Fast Movie"
+        source_dir.mkdir(parents=True)
+        (source_dir / "main.mkv").write_bytes(b"\x00" * 5000)
+        completed_dir = tmp_path / "completed"
+        completed_dir.mkdir()
+
+        with patch("transcoder.get_db", test_get_db), \
+             patch("transcoder.check_gpu_support", return_value={
+                 "handbrake_nvenc": True, "ffmpeg_nvenc_h265": True, "ffmpeg_nvenc_h264": True,
+                 "ffmpeg_vaapi_h265": False, "ffmpeg_vaapi_h264": False,
+                 "ffmpeg_amf_h265": False, "ffmpeg_amf_h264": False,
+                 "ffmpeg_qsv_h265": False, "ffmpeg_qsv_h264": False, "vaapi_device": False,
+             }):
+            from transcoder import TranscodeWorker
+            worker = TranscodeWorker()
+            worker._drainer = None  # Drainer not started; we're testing enqueue only
+
+            await worker.queue_job(
+                job_id=500, source_path=str(source_dir), title="Fast Movie"
+            )
+            job = await worker._queue.get()
+
+            transcode_mock = AsyncMock()
+            with patch.object(worker, "_wait_for_stable", AsyncMock()), \
+                 patch.object(worker, "_transcode_file_handbrake", transcode_mock), \
+                 patch.object(worker, "_transcode_file_ffmpeg", transcode_mock), \
+                 patch.object(worker, "_cleanup_source", AsyncMock()), \
+                 patch("transcoder.settings") as mock_settings:
+                mock_settings.completed_path = str(completed_dir)
+                mock_settings.movies_subdir = "movies"
+                mock_settings.output_extension = "mkv"
+                mock_settings.delete_source = False
+                mock_settings.video_encoder = "nvenc_h265"
+                mock_settings.stabilize_seconds = 0
+                mock_settings.work_path = str(tmp_path / "work")
+                mock_settings.minimum_free_space_gb = 10.0
+                mock_settings.arm_callback_url = "https://slow.example/callback"
+                mock_settings.log_path = str(tmp_path / "logs")
+
+                t_start = time.monotonic()
+                await worker._process_job(job)
+                elapsed = time.monotonic() - t_start
+
+        # _process_job must finish fast. Without the refactor, a failing
+        # arm-neu would force the process_job method to wait for
+        # 5s + 30s + 120s = 155s of inline backoff. With the refactor,
+        # _process_job enqueues and returns.
+        assert elapsed < 5.0, f"_process_job took {elapsed:.1f}s; expected < 5s"
+
+        # Verify a pending row was enqueued
+        async with session_factory() as session:
+            result = await session.execute(
+                select(PendingCallbackDB).where(PendingCallbackDB.job_id == 500)
+            )
+            rows = list(result.scalars())
+            assert len(rows) == 1
+            assert rows[0].status == "completed"
+
 
 # ─── 5. Full API → DB Integration (Retry Pipeline) ──────────────────────────
 
