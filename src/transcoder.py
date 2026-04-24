@@ -526,8 +526,13 @@ class TranscodeWorker:
                 setattr(job_db, key, value)
             await db.commit()
 
-    async def _update_progress(self, job_id: int, progress: float):
-        """Update job progress with delta and time-based rate limiting."""
+    async def _update_progress(self, job_id: int, progress: float, fps: float | None = None):
+        """Update job progress with delta and time-based rate limiting.
+
+        `fps` is the most recent encoder FPS sample. It piggybacks on the
+        progress-update cadence and is only persisted when a progress write
+        happens, so it doesn't thrash the database.
+        """
         now = asyncio.get_event_loop().time()
         last_progress = self._last_progress.get(job_id, -PROGRESS_UPDATE_THRESHOLD)
         last_time = self._last_progress_time.get(job_id, 0.0)
@@ -536,7 +541,10 @@ class TranscodeWorker:
         elapsed = now - last_time
 
         if delta >= PROGRESS_UPDATE_THRESHOLD and elapsed >= PROGRESS_UPDATE_MIN_INTERVAL:
-            await self._update_job(job_id, progress=progress)
+            update_kwargs = {"progress": progress}
+            if fps is not None:
+                update_kwargs["current_fps"] = fps
+            await self._update_job(job_id, **update_kwargs)
             self._last_progress[job_id] = progress
             self._last_progress_time[job_id] = now
 
@@ -1033,6 +1041,7 @@ class TranscodeWorker:
                     job.id,
                     status=final_status,
                     progress=100.0,
+                    current_fps=None,
                     completed_at=datetime.now(timezone.utc),
                     error=error_summary,
                 )
@@ -1044,6 +1053,7 @@ class TranscodeWorker:
                     job.id,
                     status=JobStatus.COMPLETED,
                     progress=100.0,
+                    current_fps=None,
                     completed_at=datetime.now(timezone.utc),
                 )
 
@@ -1065,6 +1075,7 @@ class TranscodeWorker:
                 await self._update_job(
                     job.id,
                     status=JobStatus.FAILED,
+                    current_fps=None,
                     error=str(e),
                 )
                 await self._notify_arm_callback(job, "failed", error=str(e))
@@ -1487,7 +1498,11 @@ class TranscodeWorker:
             line = line.decode('utf-8', errors='replace').strip()
             match = re.search(r'(\d+\.?\d*)\s*%', line)
             if match:
-                await self._update_progress(job_id, float(match.group(1)))
+                # HandBrake emits "12.34 % (45.67 fps, avg 40.12 fps, ETA ...)".
+                # Prefer the instantaneous reading; fall back to avg.
+                fps_match = re.search(r'(\d+\.?\d*)\s*fps', line)
+                fps = float(fps_match.group(1)) if fps_match else None
+                await self._update_progress(job_id, float(match.group(1)), fps=fps)
 
         await process.wait()
 
@@ -1630,7 +1645,10 @@ class TranscodeWorker:
                 hours, mins, secs = match.groups()
                 current_secs = int(hours) * 3600 + int(mins) * 60 + float(secs)
                 file_progress = min(100, (current_secs / duration) * 100)
-                await self._update_progress(job_id, file_progress)
+                # FFmpeg stats line includes "fps=NN" or "fps=NN.N".
+                fps_match = re.search(r'\bfps=\s*(\d+\.?\d*)', line)
+                fps = float(fps_match.group(1)) if fps_match else None
+                await self._update_progress(job_id, file_progress, fps=fps)
 
         await process.wait()
 

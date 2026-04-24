@@ -86,6 +86,7 @@ class TranscodeJobDB(Base):
     output_path = Column(String(1000), nullable=True)
     status = Column(SQLEnum(JobStatus), default=JobStatus.PENDING, nullable=False)
     progress = Column(Float, default=0.0)
+    current_fps = Column(Float, nullable=True)  # Most recent encoder FPS sample while processing
     error = Column(Text, nullable=True)
     retry_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

@@ -267,6 +267,7 @@ async def list_jobs(
                     "source_path": job.source_path,
                     "status": job.status,
                     "progress": job.progress,
+                    "current_fps": job.current_fps,
                     "created_at": job.created_at.isoformat() if job.created_at else None,
                     "started_at": job.started_at.isoformat() if job.started_at else None,
                     "completed_at": job.completed_at.isoformat() if job.completed_at else None,

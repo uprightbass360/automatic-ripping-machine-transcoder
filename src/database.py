@@ -63,6 +63,7 @@ def _add_missing_columns(conn):
             ("track_metadata", "TEXT"),
             ("folder_name", "VARCHAR(500)"),
             ("title_name", "VARCHAR(500)"),
+            ("current_fps", "FLOAT"),
         ]
         for col_name, col_type in migrations:
             if col_name not in existing:
