@@ -40,6 +40,18 @@ logger = logging.getLogger(__name__)
 
 _MKV_GLOB = "*.mkv"
 
+# Progress-line regexes used inside the encoder stdout loops.
+# Compiled once at module load so each line in a long transcode reuses
+# them. They use atomic, non-overlapping fragments (no nested quantifiers
+# on overlapping classes) to stay linear under adversarial input - HandBrake
+# and FFmpeg can produce very long lines and we don't want to give an
+# attacker who can influence the output a way to wedge the worker.
+_NUM = r'\d+(?:\.\d+)?'  # Non-overlapping integer + optional fractional.
+_PCT_PATTERN = re.compile(rf'({_NUM})\s*%')
+_FPS_PATTERN = re.compile(rf'({_NUM})\s*fps')          # HandBrake "12.3 fps"
+_FFMPEG_FPS_PATTERN = re.compile(rf'\bfps=\s*({_NUM})')  # FFmpeg "fps=24.0"
+_TIME_PATTERN = re.compile(rf'time=(\d+):(\d+):({_NUM})')
+
 
 def _ffmpeg_encoder_works(encoder: str, hwaccel: str | None = None) -> bool:
     """Attempt a 1-frame null encode to verify the encoder actually functions.
@@ -1496,11 +1508,11 @@ class TranscodeWorker:
 
         async for line in process.stdout:
             line = line.decode('utf-8', errors='replace').strip()
-            match = re.search(r'(\d+\.?\d*)\s*%', line)
+            match = _PCT_PATTERN.search(line)
             if match:
                 # HandBrake emits "12.34 % (45.67 fps, avg 40.12 fps, ETA ...)".
                 # Prefer the instantaneous reading; fall back to avg.
-                fps_match = re.search(r'(\d+\.?\d*)\s*fps', line)
+                fps_match = _FPS_PATTERN.search(line)
                 fps = float(fps_match.group(1)) if fps_match else None
                 await self._update_progress(job_id, float(match.group(1)), fps=fps)
 
@@ -1640,13 +1652,13 @@ class TranscodeWorker:
             line = line.decode('utf-8', errors='replace').strip()
 
             # Parse FFmpeg progress: "time=00:01:23.45"
-            match = re.search(r'time=(\d+):(\d+):(\d+\.?\d*)', line)
+            match = _TIME_PATTERN.search(line)
             if match and duration:
                 hours, mins, secs = match.groups()
                 current_secs = int(hours) * 3600 + int(mins) * 60 + float(secs)
                 file_progress = min(100, (current_secs / duration) * 100)
                 # FFmpeg stats line includes "fps=NN" or "fps=NN.N".
-                fps_match = re.search(r'\bfps=\s*(\d+\.?\d*)', line)
+                fps_match = _FFMPEG_FPS_PATTERN.search(line)
                 fps = float(fps_match.group(1)) if fps_match else None
                 await self._update_progress(job_id, file_progress, fps=fps)
 

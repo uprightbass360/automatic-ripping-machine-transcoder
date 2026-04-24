@@ -490,6 +490,152 @@ class TestTranscodeFileFFmpeg:
             # Progress should NOT be updated since duration is None
             mock_progress.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_ffmpeg_progress_without_fps_in_line(self, worker_with_db, tmp_path):
+        """A progress line without fps= still updates progress; fps kwarg is None."""
+        worker, _ = worker_with_db
+
+        source = tmp_path / "input.mkv"
+        source.write_bytes(b"\x00" * 100)
+        output = tmp_path / "output.mkv"
+
+        mock_proc = AsyncMock()
+        # No "fps=" token in the line - simulates the rare ffmpeg config
+        # where the stats line is suppressed but a time= token still appears.
+        mock_proc.stdout = _AsyncLineIterator([
+            b"time=00:01:00.00 bitrate=5000kbits/s\n",
+        ])
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
+             patch.object(worker, "_get_video_resolution", new_callable=AsyncMock, return_value=(1920, 1080)), \
+             patch.object(worker, "_get_video_duration", new_callable=AsyncMock, return_value=3600.0), \
+             patch.object(worker, "_build_ffmpeg_command", return_value=["ffmpeg"]), \
+             patch.object(worker, "_update_progress", new_callable=AsyncMock) as mock_progress:
+            output.write_bytes(b"\x00" * 50)
+            await worker._transcode_file_ffmpeg(source, output, job_id=1)
+            mock_progress.assert_called_once()
+            assert mock_progress.call_args.kwargs.get("fps") is None
+
+
+class TestTranscodeFileHandBrake:
+    @pytest.mark.asyncio
+    async def test_handbrake_progress_passes_fps(self, worker_with_db, tmp_path):
+        """HandBrake progress lines propagate the instantaneous fps reading."""
+        worker, _ = worker_with_db
+
+        source = tmp_path / "input.mkv"
+        source.write_bytes(b"\x00" * 100)
+        output = tmp_path / "output.mkv"
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = _AsyncLineIterator([
+            b"Encoding: task 1 of 1, 12.34 % (45.67 fps, avg 40.12 fps, ETA 00h05m30s)\n",
+        ])
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
+             patch.object(worker, "_update_progress", new_callable=AsyncMock) as mock_progress:
+            output.write_bytes(b"\x00" * 50)
+            await worker._transcode_file_handbrake(source, output, job_id=1)
+            mock_progress.assert_called_once()
+            args = mock_progress.call_args
+            assert args.args[1] == pytest.approx(12.34)
+            assert args.kwargs.get("fps") == pytest.approx(45.67)
+
+    @pytest.mark.asyncio
+    async def test_handbrake_progress_without_fps(self, worker_with_db, tmp_path):
+        """HandBrake line with a percentage but no fps token still updates progress."""
+        worker, _ = worker_with_db
+
+        source = tmp_path / "input.mkv"
+        source.write_bytes(b"\x00" * 100)
+        output = tmp_path / "output.mkv"
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = _AsyncLineIterator([
+            b"Encoding: task 1 of 1, 7.5 %\n",  # No fps section
+        ])
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
+             patch.object(worker, "_update_progress", new_callable=AsyncMock) as mock_progress:
+            output.write_bytes(b"\x00" * 50)
+            await worker._transcode_file_handbrake(source, output, job_id=1)
+            mock_progress.assert_called_once()
+            assert mock_progress.call_args.kwargs.get("fps") is None
+
+    @pytest.mark.asyncio
+    async def test_handbrake_failure(self, worker_with_db, tmp_path):
+        """Non-zero HandBrake exit raises RuntimeError."""
+        worker, _ = worker_with_db
+
+        source = tmp_path / "input.mkv"
+        source.write_bytes(b"\x00" * 100)
+        output = tmp_path / "output.mkv"
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = _AsyncLineIterator([])
+        mock_proc.wait = AsyncMock(return_value=1)
+        mock_proc.returncode = 1
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(RuntimeError, match="HandBrake failed"):
+                await worker._transcode_file_handbrake(source, output, job_id=1)
+
+    @pytest.mark.asyncio
+    async def test_handbrake_no_output_file(self, worker_with_db, tmp_path):
+        """HandBrake exit 0 but no output file raises RuntimeError."""
+        worker, _ = worker_with_db
+
+        source = tmp_path / "input.mkv"
+        source.write_bytes(b"\x00" * 100)
+        output = tmp_path / "output.mkv"
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = _AsyncLineIterator([])
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(RuntimeError, match="Output file was not created"):
+                await worker._transcode_file_handbrake(source, output, job_id=1)
+
+
+class TestUpdateProgressFps:
+    @pytest.mark.asyncio
+    async def test_update_progress_passes_fps_to_db(self, worker_with_db):
+        """When fps is supplied, it lands in the DB write alongside progress."""
+        worker, _ = worker_with_db
+        with patch.object(worker, "_update_job", new_callable=AsyncMock) as mock_update:
+            await worker._update_progress(job_id=42, progress=50.0, fps=24.5)
+            mock_update.assert_called_once()
+            assert mock_update.call_args.kwargs["progress"] == pytest.approx(50.0)
+            assert mock_update.call_args.kwargs["current_fps"] == pytest.approx(24.5)
+
+    @pytest.mark.asyncio
+    async def test_update_progress_omits_fps_when_none(self, worker_with_db):
+        """fps=None means the kwarg is omitted from the DB write entirely."""
+        worker, _ = worker_with_db
+        with patch.object(worker, "_update_job", new_callable=AsyncMock) as mock_update:
+            await worker._update_progress(job_id=42, progress=50.0, fps=None)
+            mock_update.assert_called_once()
+            assert "current_fps" not in mock_update.call_args.kwargs
+            assert mock_update.call_args.kwargs["progress"] == pytest.approx(50.0)
+
+    @pytest.mark.asyncio
+    async def test_update_progress_rate_limited_skips_write(self, worker_with_db):
+        """Two updates within the rate-limit window result in only one DB write."""
+        worker, _ = worker_with_db
+        with patch.object(worker, "_update_job", new_callable=AsyncMock) as mock_update:
+            await worker._update_progress(job_id=42, progress=50.0, fps=24.0)
+            await worker._update_progress(job_id=42, progress=50.1, fps=24.5)
+            # Second call below the delta threshold should not write again
+            assert mock_update.call_count == 1
+
 
 # ── _effective helper ────────────────────────────────────────────────────────
 
