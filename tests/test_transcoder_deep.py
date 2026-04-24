@@ -438,6 +438,33 @@ class TestTranscodeFileFFmpeg:
                 await worker._transcode_file_ffmpeg(source, output, job_id=1)
 
     @pytest.mark.asyncio
+    async def test_ffmpeg_progress_passes_fps(self, worker_with_db, tmp_path):
+        """FFmpeg stats lines propagate fps into _update_progress."""
+        worker, _ = worker_with_db
+
+        source = tmp_path / "input.mkv"
+        source.write_bytes(b"\x00" * 100)
+        output = tmp_path / "output.mkv"
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = _AsyncLineIterator([
+            b"frame=100 fps=42.5 time=00:01:00.00 bitrate=5000kbits/s\n",
+        ])
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
+             patch.object(worker, "_get_video_resolution", new_callable=AsyncMock, return_value=(1920, 1080)), \
+             patch.object(worker, "_get_video_duration", new_callable=AsyncMock, return_value=3600.0), \
+             patch.object(worker, "_build_ffmpeg_command", return_value=["ffmpeg"]), \
+             patch.object(worker, "_update_progress", new_callable=AsyncMock) as mock_progress:
+            output.write_bytes(b"\x00" * 50)
+            await worker._transcode_file_ffmpeg(source, output, job_id=1)
+            mock_progress.assert_called_once()
+            kwargs = mock_progress.call_args.kwargs
+            assert kwargs.get("fps") == 42.5
+
+    @pytest.mark.asyncio
     async def test_ffmpeg_no_duration(self, worker_with_db, tmp_path):
         """Cover _transcode_file_ffmpeg: no duration skips progress parsing."""
         worker, _ = worker_with_db
