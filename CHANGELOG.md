@@ -1,5 +1,17 @@
 # Changelog
 
+## [17.3.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.2.1...v17.3.0) (2026-04-25)
+
+
+### Features
+
+* **progress:** expose current encoder FPS on transcode jobs ([bfc5207](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/bfc52071e06f70982a69cb4c90381f66aacb514f))
+
+
+### Bug Fixes
+
+* **progress:** use ReDoS-safe regexes + 100% coverage on fps parsing ([ab50cec](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/ab50cecbc1708a547f20d8b9a91585ecc29a5e5b))
+
 ## [17.2.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.2.0...v17.2.1) (2026-04-23)
 
 
