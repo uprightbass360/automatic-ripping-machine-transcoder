@@ -234,9 +234,13 @@ class TestWebhookEndpoint:
 
     @pytest.mark.asyncio
     async def test_webhook_invalid_payload(self, client):
-        """Invalid payload (missing title) should return 400."""
+        """Invalid payload (missing title) should return 422 with field errors."""
         response = await client.post("/webhook/arm", json={"body": "no title"})
-        assert response.status_code == 400
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert detail["message"] == "Invalid webhook payload"
+        # Field-level errors mention the missing field.
+        assert any("title" in e["loc"] for e in detail["errors"])
 
     @pytest.mark.asyncio
     async def test_webhook_path_traversal_rejected(self, client):

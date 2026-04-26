@@ -970,7 +970,12 @@ class TestWebhookEdgeCases:
         assert co["overrides"]["shared"]["video_quality"] == 20
         assert "tiers" in co["overrides"]
         assert call_kwargs["multi_title"] is True
-        assert call_kwargs["tracks"] == [{"title": "Track 1"}]
+        # WebhookTrackMeta normalizes inputs to the full schema with defaulted
+        # empty strings, so a {"title": "Track 1"} input round-trips with the
+        # other 9 fields filled in from defaults.
+        assert len(call_kwargs["tracks"]) == 1
+        assert call_kwargs["tracks"][0]["title"] == "Track 1"
+        assert call_kwargs["tracks"][0]["track_number"] == ""
         assert call_kwargs["folder_name"] == "Movie Title (2024)"
         assert call_kwargs["title_name"] == "Movie Title"
 
