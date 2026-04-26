@@ -1,5 +1,12 @@
 # Changelog
 
+## [17.4.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.3.0...v17.4.0) (2026-04-26)
+
+
+### Features
+
+* adopt contracts WebhookPayload + TranscodeCallbackPayload ([a068be8](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/a068be86a1b0b552f57f63fa5ec8da712ede6171))
+
 ## [17.3.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.2.1...v17.3.0) (2026-04-25)
 
 
