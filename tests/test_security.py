@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from models import WebhookPayload
+from arm_contracts import WebhookPayload
 from utils import CommandValidator
 
 

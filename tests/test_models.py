@@ -5,7 +5,8 @@ Tests for models.py - Pydantic validation and data models.
 import pytest
 from pydantic import ValidationError
 
-from models import WebhookPayload, JobStatus, TranscodeJob, TranscodeJobDB
+from arm_contracts import WebhookPayload
+from models import JobStatus, TranscodeJob, TranscodeJobDB
 
 
 # ─── WebhookPayload Validation ──────────────────────────────────────────────
@@ -178,19 +179,19 @@ class TestWebhookPayload:
     def test_tracks_with_metadata(self):
         """tracks with per-track metadata dicts should be accepted."""
         tracks = [
-            {"track_number": 1, "filename": "t01.mkv", "title": "Episode 1", "year": "2024"},
-            {"track_number": 2, "filename": "t02.mkv", "title": "Episode 2", "year": "2024"},
+            {"track_number": "1", "filename": "t01.mkv", "title": "Episode 1", "year": "2024"},
+            {"track_number": "2", "filename": "t02.mkv", "title": "Episode 2", "year": "2024"},
         ]
         payload = WebhookPayload(title="Test", job_id=1, multi_title=True, tracks=tracks)
         assert payload.multi_title is True
         assert len(payload.tracks) == 2
-        assert payload.tracks[0]["filename"] == "t01.mkv"
-        assert payload.tracks[1]["track_number"] == 2
+        assert payload.tracks[0].filename == "t01.mkv"
+        assert payload.tracks[1].track_number == "2"
 
     def test_multi_title_full_payload(self):
         """Full payload with multi_title and tracks alongside standard fields."""
         tracks = [
-            {"track_number": 1, "filename": "main.mkv", "title": "Movie", "video_type": "movie"},
+            {"track_number": "1", "filename": "main.mkv", "title": "Movie", "video_type": "movie"},
         ]
         payload = WebhookPayload(
             title="ARM notification",

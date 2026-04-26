@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Annotated, Optional
 
-from arm_contracts import TranscodeJobConfig
+from arm_contracts import TranscodeJobConfig, WebhookPayload
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy import select, delete, func
@@ -15,7 +15,7 @@ from sqlalchemy import select, delete, func
 from auth import get_current_user, require_admin, verify_webhook_secret
 from config import settings
 from database import get_db
-from models import WebhookPayload, JobStatus, TranscodeJobDB
+from models import JobStatus, TranscodeJobDB
 from version import (
     ACCEPT_MISSING_VERSION_HEADER,
     ACCEPTED_VERSIONS,
@@ -132,6 +132,20 @@ async def arm_webhook(
     try:
         payload_dict = await request.json()
         payload = WebhookPayload(**payload_dict)
+    except ValidationError as exc:
+        # Structured 422 with field-level errors - matches the prior shape
+        # used for config_overrides validation, now applied to the whole
+        # payload since WebhookPayload is fully typed end-to-end.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Invalid webhook payload",
+                "errors": [
+                    {"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]}
+                    for e in exc.errors()
+                ],
+            },
+        )
     except Exception as e:
         logger.warning(f"Invalid webhook payload: {e}")
         raise HTTPException(status_code=400, detail=f"Invalid payload: {e}")
@@ -170,22 +184,8 @@ async def arm_webhook(
 
     full_path = str(Path(settings.raw_path) / source_path)
 
-    # Parse config_overrides into the shared typed model. None -> None (back-compat).
-    typed_overrides: TranscodeJobConfig | None = None
-    if payload.config_overrides is not None:
-        try:
-            typed_overrides = TranscodeJobConfig.model_validate(payload.config_overrides)
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "message": "Invalid config_overrides shape",
-                    "errors": [
-                        {"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]}
-                        for e in exc.errors()
-                    ],
-                },
-            )
+    # config_overrides is already typed by WebhookPayload.
+    typed_overrides: TranscodeJobConfig | None = payload.config_overrides
 
     if worker is None or not worker.is_running:
         raise HTTPException(status_code=503, detail="Transcoder not ready")
@@ -206,7 +206,8 @@ async def arm_webhook(
         # merge code treats as a no-op.
         config_overrides=typed_overrides.model_dump() if typed_overrides else None,
         multi_title=bool(payload.multi_title),
-        tracks=payload.tracks,
+        # Worker persists tracks as JSON dicts; dump the typed models.
+        tracks=[t.model_dump() for t in payload.tracks] if payload.tracks else None,
         folder_name=payload.folder_name,
         title_name=payload.title_name,
     )

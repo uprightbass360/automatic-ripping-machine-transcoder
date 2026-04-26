@@ -54,6 +54,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 import httpx
+from arm_contracts import JobStatus, TrackResult, TranscodeCallbackPayload
 from sqlalchemy import select
 
 from models import PendingCallbackDB
@@ -104,15 +105,23 @@ class TranscodeCallbackDrainer:
                 return  # Already terminal; nothing to do.
 
             url = f"{self._callback_url}/api/v1/jobs/{row.job_id}/transcode-callback"
-            payload: dict = {"status": row.status}
-            if row.error:
-                payload["error"] = row.error
+            track_results = None
             if row.track_results_json:
-                payload["track_results"] = json.loads(row.track_results_json)
+                track_results = [
+                    TrackResult.model_validate(t)
+                    for t in json.loads(row.track_results_json)
+                ]
+            payload = TranscodeCallbackPayload(
+                status=JobStatus(row.status),
+                error=row.error or None,
+                track_results=track_results,
+            )
 
             try:
                 async with self._http_client_factory() as client:
-                    response = await client.post(url, json=payload)
+                    response = await client.post(
+                        url, json=payload.model_dump(exclude_none=True),
+                    )
                 if response.status_code < 300:
                     row.delivered_at = datetime.now(timezone.utc)
                     await session.commit()
