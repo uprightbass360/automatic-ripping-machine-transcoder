@@ -1,5 +1,13 @@
 # Changelog
 
+## [17.5.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.5.0...v17.5.1) (2026-04-29)
+
+
+### Bug Fixes
+
+* **callback:** route informational callback through TranscodeCallbackPayload ([639cb08](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/639cb08db69269d9a277ae403bb0bdeefe5bb3e3))
+* **callback:** stamp X-Api-Version header on terminal callback POSTs ([afb052f](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/afb052f57fc7299f8d9a8241d0ad03a9ed89d25b))
+
 ## [17.5.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.4.0...v17.5.0) (2026-04-29)
 
 
