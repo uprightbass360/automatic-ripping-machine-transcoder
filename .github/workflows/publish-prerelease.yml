@@ -12,11 +12,6 @@ on:
       - "VERSION"
       - "VERSION_HANDBRAKE"
 
-permissions:
-  contents: read
-  packages: write
-  pull-requests: write
-
 concurrency:
   group: prerelease-${{ github.head_ref }}
   cancel-in-progress: true
@@ -31,6 +26,9 @@ jobs:
   build-base:
     if: startsWith(github.head_ref, 'release-please')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -85,6 +83,9 @@ jobs:
   build-variants:
     needs: build-base
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
       matrix:
         include:
@@ -140,6 +141,8 @@ jobs:
   comment:
     needs: [build-base, build-variants]
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - name: Find existing pre-release comment
         uses: peter-evans/find-comment@v4
