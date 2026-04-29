@@ -68,7 +68,9 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha,scope=base
           cache-to: type=gha,scope=base,mode=max
-          build-args: HANDBRAKE_TAG=${{ steps.hb_version.outputs.version }}
+          build-args: |
+            HANDBRAKE_TAG=${{ steps.hb_version.outputs.version }}
+            IMAGE_TAG=${{ steps.version.outputs.version }}-rc
           tags: |
             ${{ env.DOCKERHUB_BASE }}:${{ steps.version.outputs.version }}-rc
             ${{ env.DOCKERHUB_IMAGE }}:${{ steps.version.outputs.version }}-rc

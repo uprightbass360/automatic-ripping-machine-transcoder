@@ -49,6 +49,22 @@ RUN mkdir -p /data/raw /data/completed /data/work /data/db /data/logs \
 COPY scripts/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# Stamp VERSION with the actual build identity so the running image can
+# distinguish release / RC / dev builds in the Settings -> Versions panel.
+# - Release workflow passes IMAGE_TAG=<version>           -> e.g. 17.4.0
+# - RC workflow passes      IMAGE_TAG=<version>-rc        -> e.g. 17.4.0-rc
+# - Local docker compose build with no arg                -> e.g. 17.4.0-dev
+# GPU layers (Dockerfile.nvidia/intel/amd) inherit this via FROM, so they
+# do not need to set IMAGE_TAG themselves; vendor identity comes from the
+# GPU_VENDOR env var the GPU layers set, surfaced via /system/stats.
+ARG IMAGE_TAG=
+RUN if [ -n "$IMAGE_TAG" ]; then \
+        echo "$IMAGE_TAG" > /app/VERSION; \
+    else \
+        echo "$(cat /app/VERSION)-dev" > /app/VERSION; \
+    fi \
+    && cp /app/VERSION /etc/arm-transcoder-version
+
 EXPOSE 5000
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python3", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000"]
