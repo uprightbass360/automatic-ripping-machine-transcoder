@@ -12,23 +12,23 @@ on:
       - "VERSION"
       - "VERSION_HANDBRAKE"
 
-permissions:
-  contents: read
-  packages: write
-  pull-requests: write
-
 concurrency:
   group: prerelease-${{ github.head_ref }}
   cancel-in-progress: true
 
 env:
+  DOCKERHUB_BASE: ${{ secrets.DOCKERHUB_USERNAME }}/arm-transcoder-base
   DOCKERHUB_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/arm-transcoder
+  GHCR_BASE: ghcr.io/${{ github.repository_owner }}/arm-transcoder-base
   GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/automatic-ripping-machine-transcoder
 
 jobs:
-  prerelease:
+  build-base:
     if: startsWith(github.head_ref, 'release-please')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -59,22 +59,91 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push base RC image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
           push: true
           platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=base
+          cache-to: type=gha,scope=base,mode=max
           build-args: HANDBRAKE_TAG=${{ steps.hb_version.outputs.version }}
           tags: |
+            ${{ env.DOCKERHUB_BASE }}:${{ steps.version.outputs.version }}-rc
             ${{ env.DOCKERHUB_IMAGE }}:${{ steps.version.outputs.version }}-rc
+            ${{ env.GHCR_BASE }}:${{ steps.version.outputs.version }}-rc
             ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}-rc
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.version }}-rc
 
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+  build-variants:
+    needs: build-base
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - variant: nvidia
+            suffix: "-nvidia"
+          - variant: amd
+            suffix: "-amd"
+          - variant: intel
+            suffix: "-intel"
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4 (SHA-pinned per Sonar S7637)
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          VERSION="${{ needs.build-base.outputs.version }}"
+          SUFFIX="${{ matrix.suffix }}"
+          TAGS="${{ env.DOCKERHUB_IMAGE }}:${VERSION}-rc${SUFFIX}"
+          TAGS="${TAGS},${{ env.GHCR_IMAGE }}:${VERSION}-rc${SUFFIX}"
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push GPU variant
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.${{ matrix.variant }}
+          push: true
+          platforms: linux/amd64
+          cache-from: type=gha,scope=${{ matrix.variant }}
+          cache-to: type=gha,scope=${{ matrix.variant }},mode=max
+          build-args: BASE_TAG=${{ needs.build-base.outputs.version }}-rc
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.build-base.outputs.version }}-rc
+
+  comment:
+    needs: [build-base, build-variants]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
       - name: Find existing pre-release comment
         uses: peter-evans/find-comment@v4
         id: find-comment
@@ -90,6 +159,13 @@ jobs:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
           edit-mode: replace
           body: |
-            Pre-release image published:
-            - `${{ env.DOCKERHUB_IMAGE }}:${{ steps.version.outputs.version }}-rc`
-            - `${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}-rc`
+            Pre-release images published:
+
+            **Base (CPU-only):**
+            - `${{ env.DOCKERHUB_IMAGE }}:${{ needs.build-base.outputs.version }}-rc`
+            - `${{ env.GHCR_IMAGE }}:${{ needs.build-base.outputs.version }}-rc`
+
+            **GPU variants:**
+            - `${{ env.DOCKERHUB_IMAGE }}:${{ needs.build-base.outputs.version }}-rc-nvidia`
+            - `${{ env.DOCKERHUB_IMAGE }}:${{ needs.build-base.outputs.version }}-rc-intel`
+            - `${{ env.DOCKERHUB_IMAGE }}:${{ needs.build-base.outputs.version }}-rc-amd`
