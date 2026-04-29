@@ -1,5 +1,14 @@
 # Changelog
 
+## [17.5.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.4.0...v17.5.0) (2026-04-29)
+
+
+### Features
+
+* bump components/contracts to 1f17568 ([08bf30f](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/08bf30f7a66b8791d3a69e53203e111684f6a24c))
+* **ci:** build all 4 RC variants in pre-release workflow ([f49b3aa](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/f49b3aa41d0a025bd2c951375a3e6ac4560ea2d5))
+* **version:** stamp build identity into VERSION at image-build time ([25ced45](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/25ced453ccc36d6235d6517f4d50a7da5f786ad8))
+
 ## [17.4.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.3.0...v17.4.0) (2026-04-26)
 
 
