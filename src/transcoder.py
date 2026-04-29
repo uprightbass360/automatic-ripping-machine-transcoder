@@ -28,8 +28,10 @@ from constants import (
 )
 from database import get_db
 from log_format import json_formatter
+from arm_contracts import JobStatus as _ContractJobStatus, TranscodeCallbackPayload
 from models import TranscodeJobDB, JobStatus, PendingCallbackDB, TranscodeJob
 from utils import check_sufficient_disk_space, clean_title_for_filesystem, estimate_transcode_size
+from version import API_VERSION
 
 
 def log_filename(job_id: int) -> str:
@@ -1224,15 +1226,23 @@ class TranscodeWorker:
         is_terminal = status in ("completed", "partial", "failed")
 
         if not is_terminal:
-            # Informational: fire-and-forget, single attempt
+            # Informational: fire-and-forget, single attempt.
+            # Build through TranscodeCallbackPayload so a JobStatus rename
+            # crashes here at construction, not on arm-neu's receiver. F3.
             url = (
                 f"{settings.arm_callback_url.rstrip('/')}/api/v1/jobs/"
                 f"{job.id}/transcode-callback"
             )
-            payload = {"status": status}
+            payload = TranscodeCallbackPayload(
+                status=_ContractJobStatus(status),
+            ).model_dump(exclude_none=True, mode="json")
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
-                    resp = await client.post(url, json=payload)
+                    resp = await client.post(
+                        url,
+                        json=payload,
+                        headers={"X-Api-Version": API_VERSION},
+                    )
                 if resp.status_code < 300:
                     logger.info(
                         f"ARM callback sent ({resp.status_code}): {status} "
