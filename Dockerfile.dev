@@ -22,6 +22,13 @@ COPY components/contracts /app/components/contracts
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ /app/
+COPY VERSION /app/
+
+# Stamp the dev fallback path with a "-dev" suffix so the Settings ->
+# Versions panel shows "this is a dev build, not the released semver".
+# The /app/VERSION above is shadowed by the docker-compose src bind, so
+# main.py:_read_version() falls through to /etc/arm-transcoder-version.
+RUN echo "$(cat /app/VERSION)-dev" > /etc/arm-transcoder-version
 
 RUN mkdir -p /data/raw /data/completed /data/work /data/db /data/logs \
     && chown -R transcoder:transcoder /data /app
