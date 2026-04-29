@@ -139,6 +139,13 @@ async def test_send_one_marks_delivered_on_2xx(drainer_db, pending_row):
 
     await drainer.send_one(pending_row)
 
+    # F1: callbacks must include X-Api-Version header (audit 2026-04-29)
+    assert mock_client.post.call_count == 1
+    call_kwargs = mock_client.post.call_args.kwargs
+    assert call_kwargs.get("headers") == {"X-Api-Version": "2"}, (
+        f"expected X-Api-Version: 2 header, got {call_kwargs.get('headers')!r}"
+    )
+
     async with factory() as session:
         result = await session.execute(
             select(PendingCallbackDB).where(PendingCallbackDB.id == pending_row)

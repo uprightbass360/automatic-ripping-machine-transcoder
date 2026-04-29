@@ -58,6 +58,7 @@ from arm_contracts import JobStatus, TrackResult, TranscodeCallbackPayload
 from sqlalchemy import select
 
 from models import PendingCallbackDB
+from version import API_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,9 @@ class TranscodeCallbackDrainer:
             try:
                 async with self._http_client_factory() as client:
                     response = await client.post(
-                        url, json=payload.model_dump(exclude_none=True),
+                        url,
+                        json=payload.model_dump(exclude_none=True),
+                        headers={"X-Api-Version": API_VERSION},
                     )
                 if response.status_code < 300:
                     row.delivered_at = datetime.now(timezone.utc)
