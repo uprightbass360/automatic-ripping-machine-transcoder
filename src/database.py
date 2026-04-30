@@ -64,6 +64,7 @@ def _add_missing_columns(conn):
             ("folder_name", "VARCHAR(500)"),
             ("title_name", "VARCHAR(500)"),
             ("current_fps", "FLOAT"),
+            ("phase", "VARCHAR(50) DEFAULT 'queued'"),
         ]
         for col_name, col_type in migrations:
             if col_name not in existing:

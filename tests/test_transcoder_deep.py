@@ -880,3 +880,55 @@ class TestPresetSnapshotOncePerJob:
             f"mid-job PATCH leaked into later tracks; got {seen_encoders}, "
             f"expected both tracks to use the snapshot (x265)"
         )
+
+
+# ── TranscodePhase: sub-status surfaced via /jobs ────────────────────────────
+
+class TestTranscodePhase:
+    """Phase column on TranscodeJobDB - the UI uses it to render
+    'Copying source files' / 'Finalizing' indeterminate sliders during
+    periods where no encoder progress is being reported.
+    """
+
+    @pytest.mark.asyncio
+    async def test_new_job_defaults_to_queued_phase(self, worker_with_db):
+        """A freshly queued job has phase='queued'."""
+        worker, session_factory = worker_with_db
+        await worker.queue_job(job_id=1, source_path="/test/movie", title="M")
+        async with session_factory() as session:
+            from sqlalchemy import select as _sel
+            result = await session.execute(_sel(TranscodeJobDB).where(TranscodeJobDB.id == 1))
+            job = result.scalar_one()
+        assert job.phase == "queued"
+
+    @pytest.mark.asyncio
+    async def test_update_job_persists_phase(self, worker_with_db):
+        """_update_job(phase=...) writes the phase column."""
+        worker, session_factory = worker_with_db
+        await worker.queue_job(job_id=2, source_path="/test/movie", title="M")
+        await worker._update_job(2, phase="copying_source")
+        async with session_factory() as session:
+            from sqlalchemy import select as _sel
+            result = await session.execute(_sel(TranscodeJobDB).where(TranscodeJobDB.id == 2))
+            job = result.scalar_one()
+        assert job.phase == "copying_source"
+
+    @pytest.mark.asyncio
+    async def test_requeue_resets_phase_to_queued(self, worker_with_db):
+        """Re-queuing a terminal job resets phase to 'queued'."""
+        from models import JobStatus as _JobStatus
+        worker, session_factory = worker_with_db
+        # Seed a completed job with phase=finalizing
+        async with session_factory() as session:
+            session.add(TranscodeJobDB(
+                id=3, title="M", source_path="/test/movie",
+                status=_JobStatus.COMPLETED, phase="finalizing",
+            ))
+            await session.commit()
+        # Re-queue
+        await worker.queue_job(job_id=3, source_path="/test/movie", title="M")
+        async with session_factory() as session:
+            from sqlalchemy import select as _sel
+            result = await session.execute(_sel(TranscodeJobDB).where(TranscodeJobDB.id == 3))
+            job = result.scalar_one()
+        assert job.phase == "queued"

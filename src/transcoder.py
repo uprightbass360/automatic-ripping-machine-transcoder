@@ -28,7 +28,7 @@ from constants import (
 )
 from database import get_db
 from log_format import json_formatter
-from arm_contracts import JobStatus as _ContractJobStatus, TranscodeCallbackPayload
+from arm_contracts import JobStatus as _ContractJobStatus, TranscodeCallbackPayload, TranscodePhase
 from models import TranscodeJobDB, JobStatus, PendingCallbackDB, TranscodeJob
 from utils import check_sufficient_disk_space, clean_title_for_filesystem, estimate_transcode_size
 from version import API_VERSION
@@ -479,6 +479,7 @@ class TranscodeWorker:
                     else:
                         # Terminal job (COMPLETED/FAILED) — reset for re-queue
                         existing.status = JobStatus.PENDING
+                        existing.phase = TranscodePhase.queued.value
                         existing.progress = 0.0
                         existing.error = None
                         existing.started_at = None
@@ -881,6 +882,7 @@ class TranscodeWorker:
             await self._update_job(
                 job.id,
                 status=JobStatus.PROCESSING,
+                phase=TranscodePhase.copying_source.value,
                 started_at=datetime.now(timezone.utc),
                 logfile=logfile_name,
             )
@@ -963,6 +965,8 @@ class TranscodeWorker:
             # mid-transcode. Tier is still chosen per-file by resolution.
             preset_snapshot = await self._snapshot_preset(overrides)
 
+            await self._update_job(job.id, phase=TranscodePhase.encoding.value)
+
             file_results = await self._transcode_files(
                 job, local_source_files, main_feature, work_output_dir,
                 folder_name, overrides, multi_title=is_multi,
@@ -970,6 +974,7 @@ class TranscodeWorker:
             )
 
             # Move local output → completed (with per-track routing for multi-title)
+            await self._update_job(job.id, phase=TranscodePhase.finalizing.value)
             track_results = []
             if track_meta:
                 logger.info("Multi-title disc: routing output files per-track metadata")
