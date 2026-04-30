@@ -1,5 +1,17 @@
 # Changelog
 
+## [17.6.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.5.1...v17.6.0) (2026-04-30)
+
+
+### Features
+
+* **phase:** track sub-status phase on TranscodeJobDB ([c56cc09](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/c56cc093bf54006e8c2da273dad4ca701235717d))
+
+
+### Bug Fixes
+
+* bump components/contracts to 67eba7b for rip_progress float fix ([8e61248](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/8e612481568bf7a27a6ac63a256f891c405436f2))
+
 ## [17.5.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.5.0...v17.5.1) (2026-04-29)
 
 
