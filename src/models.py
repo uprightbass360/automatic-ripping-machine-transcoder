@@ -78,6 +78,12 @@ class TranscodeJobDB(Base):
     source_path = Column(String(1000), nullable=False)
     output_path = Column(String(1000), nullable=True)
     status = Column(SQLEnum(JobStatus), default=JobStatus.PENDING, nullable=False)
+    # phase is a fine-grained sub-status inside JobStatus.processing - lets the
+    # UI surface "Copying source files" or "Finalizing" instead of an empty 0%
+    # bar during periods where no encoder progress is being reported. Wire
+    # values come from arm_contracts.TranscodePhase. Stored as a plain string
+    # so adding new members on the contracts side doesn't require a DB migration.
+    phase = Column(String(50), nullable=True, default="queued")
     progress = Column(Float, default=0.0)
     current_fps = Column(Float, nullable=True)  # Most recent encoder FPS sample while processing
     error = Column(Text, nullable=True)

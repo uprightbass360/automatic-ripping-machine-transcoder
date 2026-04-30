@@ -70,6 +70,7 @@ class TestJobsDirectCoverage:
                 source_path="/data/raw/Direct Test",
                 status=JobStatus.COMPLETED,
                 video_type="movie", year="2024", disctype="bluray",
+                phase="finalizing",
             ))
             await session.commit()
 
@@ -86,6 +87,7 @@ class TestJobsDirectCoverage:
         assert job["title"] == "Direct Test Movie"
         assert job["status"] == "completed"
         assert job["video_type"] == "movie"
+        assert job["phase"] == "finalizing"
         assert "created_at" in job
         assert "config_overrides" in job
 
