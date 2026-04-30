@@ -6,6 +6,6 @@ sqlalchemy>=2.0.49
 aiosqlite>=0.22.1
 httpx>=0.25.0
 psutil>=5.9.0
-python-multipart>=0.0.26
+python-multipart>=0.0.27
 structlog>=24.4.0
 -e components/contracts
