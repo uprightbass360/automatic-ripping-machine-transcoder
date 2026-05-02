@@ -129,10 +129,15 @@ class TestWebhookPayload:
         with pytest.raises(ValidationError):
             WebhookPayload(title="Test", job_id=1, status="s" * 51)
 
-    def test_type_max_length(self):
-        """Type over 50 chars must be rejected."""
+    def test_type_rejects_non_enum_value(self):
+        """type is a WebhookEventType enum (contracts v0.7.0); only 'info' or None validates."""
         with pytest.raises(ValidationError):
-            WebhookPayload(title="Test", job_id=1, type="t" * 51)
+            WebhookPayload(title="Test", job_id=1, type="bogus_event_type")
+
+    def test_type_accepts_info(self):
+        """type='info' is the only currently-defined WebhookEventType member."""
+        payload = WebhookPayload(title="Test", job_id=1, type="info")
+        assert payload.type == "info"
 
     def test_none_optional_fields(self):
         """All optional fields should accept None."""

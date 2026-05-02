@@ -98,14 +98,20 @@ class TestOversizedPayloads:
             WebhookPayload(title="Test", job_id="x" * 51)
 
     def test_all_fields_at_max(self):
-        """All fields at max length should be accepted."""
+        """All fields at max length should be accepted.
+
+        The 'type' field is no longer a free length-bounded string; it is now
+        a strict WebhookEventType enum (contracts v0.7.0). It is therefore
+        excluded from this length-boundary sweep and pinned to a valid enum
+        value to keep the rest of the fields under test.
+        """
         payload = WebhookPayload(
             title="T" * 500,
             body="B" * 2000,
             path="P" * 1000,
             job_id=99999,
             status="s" * 50,
-            type="t" * 50,
+            type="info",
         )
         assert len(payload.title) == 500
 
