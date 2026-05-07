@@ -61,16 +61,27 @@ def _add_missing_columns(conn):
             ("config_overrides", "TEXT"),
             ("multi_title", "INTEGER DEFAULT 0"),
             ("track_metadata", "TEXT"),
-            ("folder_name", "VARCHAR(500)"),
             ("title_name", "VARCHAR(500)"),
             ("current_fps", "FLOAT"),
             ("phase", "VARCHAR(50) DEFAULT 'queued'"),
+            # output_path supersedes the legacy folder_name. ARM now sends
+            # the full subdir + leaf via the webhook output_path field,
+            # which we persist verbatim.
+            ("output_path", "VARCHAR(500)"),
         ]
         for col_name, col_type in migrations:
             if col_name not in existing:
                 conn.execute(text(
                     f"ALTER TABLE transcode_jobs ADD COLUMN {col_name} {col_type}"
                 ))
+
+        # If a legacy folder_name column exists, copy its content into
+        # output_path on a one-shot basis (idempotent: only fills NULLs).
+        if "folder_name" in existing:
+            conn.execute(text(
+                "UPDATE transcode_jobs SET output_path = folder_name "
+                "WHERE output_path IS NULL AND folder_name IS NOT NULL"
+            ))
 
 
 @asynccontextmanager

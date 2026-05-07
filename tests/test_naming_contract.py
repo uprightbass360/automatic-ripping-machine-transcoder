@@ -312,7 +312,7 @@ class TestRequeueRefreshesMetadata:
                 video_type="series",
                 multi_title=True,
                 tracks=old_tracks,
-                folder_name="Show/Season 01",
+                output_path="TV/0.Rips/Show/Season 01",
                 title_name="Old Name S01E01",
             )
         assert created is True
@@ -336,7 +336,7 @@ class TestRequeueRefreshesMetadata:
                 video_type="series",
                 multi_title=True,
                 tracks=new_tracks,
-                folder_name="Show/Season 02",
+                output_path="TV/0.Rips/Show/Season 02",
                 title_name="New Name S01E01",
             )
         assert job_id == 200
@@ -350,8 +350,8 @@ class TestRequeueRefreshesMetadata:
             track_meta = json.loads(job_db.track_metadata)
             assert track_meta[0]["title_name"] == "New Name S01E01", \
                 "Re-queue should refresh track_metadata"
-            assert job_db.folder_name == "Show/Season 02", \
-                "Re-queue should refresh folder_name"
+            assert job_db.output_path == "TV/0.Rips/Show/Season 02", \
+                "Re-queue should refresh output_path"
             assert job_db.title_name == "New Name S01E01", \
                 "Re-queue should refresh title_name"
 

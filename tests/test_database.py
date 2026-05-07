@@ -75,7 +75,7 @@ class TestAddMissingColumns:
             assert "config_overrides" in columns
             assert "multi_title" in columns
             assert "track_metadata" in columns
-            assert "folder_name" in columns
+            assert "output_path" in columns
             assert "title_name" in columns
 
     @pytest.mark.asyncio

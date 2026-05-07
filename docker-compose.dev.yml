@@ -30,9 +30,6 @@ services:
       - DELETE_SOURCE=false
       - OUTPUT_EXTENSION=mkv
       # Organization
-      - MOVIES_SUBDIR=movies
-      - TV_SUBDIR=tv
-      - AUDIO_SUBDIR=audio
       # Performance
       - MAX_CONCURRENT=1
       - STABILIZE_SECONDS=10

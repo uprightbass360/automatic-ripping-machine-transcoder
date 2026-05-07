@@ -19,10 +19,6 @@ UPDATABLE_KEYS = {
     # File handling
     "delete_source",
     "output_extension",
-    # Organization
-    "movies_subdir",
-    "tv_subdir",
-    "audio_subdir",
     # Concurrency
     "max_concurrent",
     "stabilize_seconds",
@@ -78,10 +74,9 @@ class Settings(BaseSettings):
     )
     output_extension: str = Field("mkv", description="Output file extension")
 
-    # Organization
-    movies_subdir: str = Field("movies", description="Subdirectory for movies")
-    tv_subdir: str = Field("tv", description="Subdirectory for TV shows")
-    audio_subdir: str = Field("audio", description="Subdirectory for audio")
+    # Output organization is now driven entirely by ARM via the webhook
+    # output_path field. The transcoder joins payload.output_path to
+    # completed_path; no per-type subdir partitioning here.
 
     # Concurrency
     max_concurrent: int = Field(

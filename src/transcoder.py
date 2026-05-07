@@ -453,7 +453,7 @@ class TranscodeWorker:
         config_overrides: dict | None = None,
         multi_title: bool = False,
         tracks: list[dict] | None = None,
-        folder_name: str | None = None,
+        output_path: str | None = None,
         title_name: str | None = None,
     ) -> tuple[int, bool]:
         """Add a job to the transcode queue.
@@ -496,7 +496,7 @@ class TranscodeWorker:
                         existing.config_overrides = overrides_json
                         existing.multi_title = 1 if multi_title else 0
                         existing.track_metadata = track_meta_json
-                        existing.folder_name = folder_name
+                        existing.output_path = output_path
                         existing.title_name = title_name
                         await db.commit()
                         job_db = existing
@@ -513,7 +513,7 @@ class TranscodeWorker:
                         config_overrides=overrides_json,
                         multi_title=1 if multi_title else 0,
                         track_metadata=track_meta_json,
-                        folder_name=folder_name,
+                        output_path=output_path,
                         title_name=title_name,
                         status=JobStatus.PENDING,
                     )
@@ -666,13 +666,14 @@ class TranscodeWorker:
     async def _load_job_metadata(self, job_id: int) -> tuple[dict | None, str | None, str | None, str | None, str | None]:
         """Load per-job config overrides and metadata from DB.
 
-        Returns (overrides, video_type, year, folder_name, title_name).
-        folder_name and title_name are pre-rendered by ARM's naming engine.
+        Returns (overrides, video_type, year, output_path, title_name).
+        output_path is the directory ARM resolved (relative to
+        completed_path); title_name is the pre-rendered file stem.
         """
         overrides = None
         db_video_type = None
         db_year = None
-        arm_folder_name = None
+        arm_output_path = None
         arm_title_name = None
         async with get_db() as db_sess:
             result = await db_sess.execute(
@@ -682,7 +683,7 @@ class TranscodeWorker:
             if job_db:
                 db_video_type = job_db.video_type
                 db_year = job_db.year
-                arm_folder_name = job_db.folder_name
+                arm_output_path = job_db.output_path
                 arm_title_name = job_db.title_name
                 if job_db.config_overrides:
                     try:
@@ -691,9 +692,9 @@ class TranscodeWorker:
                         pass
         if overrides:
             logger.info(f"Per-job overrides: {overrides}")
-        if arm_folder_name:
-            logger.info(f"ARM naming: folder={arm_folder_name}, title={arm_title_name}")
-        return overrides, db_video_type, db_year, arm_folder_name, arm_title_name
+        if arm_output_path:
+            logger.info(f"ARM naming: output_path={arm_output_path}, title={arm_title_name}")
+        return overrides, db_video_type, db_year, arm_output_path, arm_title_name
 
     async def _load_track_metadata(self, job_id: int) -> dict[str, dict] | None:
         """Load per-track metadata from DB. Returns {filename_stem: metadata} map or None."""
@@ -756,26 +757,15 @@ class TranscodeWorker:
         return None
 
     async def _resolve_and_stabilize(self, job: TranscodeJob) -> None:
-        """Resolve the source path and wait for files to stabilize."""
-        loop = asyncio.get_event_loop()
-        resolved_path = await loop.run_in_executor(None, self._resolve_source_path, job.source_path)
-        if resolved_path != job.source_path:
-            await self._update_job(job.id, source_path=resolved_path)
-            job.source_path = resolved_path
+        """Wait for source files to stabilize. ARM has already resolved
+        the source path on its side via the webhook input_path; we trust
+        that absolute path verbatim. _wait_for_stable handles NFS lag."""
         await self._wait_for_stable(job.source_path)
 
     async def _discover_or_passthrough(self, job: TranscodeJob) -> list[Path]:
-        """Discover source files, retrying after re-resolve. Handles audio passthrough."""
+        """Discover source files. Handles audio passthrough."""
         loop = asyncio.get_event_loop()
         source_files = await loop.run_in_executor(None, self._discover_source_files, job.source_path)
-        if not source_files:
-            # ARM may have moved files during stabilization (race condition)
-            resolved_path = await loop.run_in_executor(None, self._resolve_source_path, job.source_path)
-            if resolved_path != job.source_path:
-                await self._update_job(job.id, source_path=resolved_path)
-                job.source_path = resolved_path
-                await self._wait_for_stable(job.source_path)
-                source_files = await loop.run_in_executor(None, self._discover_source_files, job.source_path)
 
         if not source_files:
             audio_files = await loop.run_in_executor(None, self._discover_audio_files, job.source_path)
@@ -888,7 +878,7 @@ class TranscodeWorker:
             )
             await self._notify_arm_callback(job, "transcoding")
 
-            overrides, db_video_type, db_year, arm_folder_name, arm_title_name = await self._load_job_metadata(job.id)
+            overrides, db_video_type, db_year, arm_output_path, arm_title_name = await self._load_job_metadata(job.id)
             await self._resolve_and_stabilize(job)
 
             source_files = await self._discover_or_passthrough(job)
@@ -934,16 +924,14 @@ class TranscodeWorker:
             # Check for multi-title per-track metadata
             track_meta = await self._load_track_metadata(job.id)
 
-            if arm_folder_name:
-                # Use ARM's pre-rendered folder name (from arm.yaml naming patterns)
-                video_type = db_video_type or self._detect_video_type(job.title, job.source_path)
-                if video_type in ("tv", "series"):
-                    base = Path(settings.completed_path) / settings.tv_subdir
-                else:
-                    base = Path(settings.completed_path) / settings.movies_subdir
-                output_dir = base / arm_folder_name
+            if arm_output_path:
+                # ARM resolved the full subdir + leaf via the webhook. Just
+                # join to completed_path; no type detection required.
+                output_dir = Path(settings.completed_path) / arm_output_path
             else:
-                # Fallback: transcoder builds its own folder name
+                # Fallback: transcoder builds its own path. Used only when
+                # ARM didn't send output_path (legacy clients during a
+                # rolling deploy).
                 output_dir = self._determine_output_path(
                     job.title, job.source_path, resolution, overrides,
                     db_year=db_year, db_video_type=db_video_type,
@@ -990,18 +978,16 @@ class TranscodeWorker:
 
                     track_num = matched_meta.get("track_number", "")
                     try:
-                        # Build per-track output path
+                        # Build per-track output path. ARM sends the
+                        # resolved output_path on each track meta entry
+                        # (with the track's video_type subdir already
+                        # applied), so we just join to completed_path.
                         per_video_type = matched_meta.get("video_type", db_video_type)
-                        track_folder = matched_meta.get("folder_name", "")
-                        if track_folder:
-                            # Use ARM's pre-rendered folder name for this track
-                            if per_video_type in ("tv", "series"):
-                                per_base = Path(settings.completed_path) / settings.tv_subdir
-                            else:
-                                per_base = Path(settings.completed_path) / settings.movies_subdir
-                            per_output_dir = per_base / track_folder
+                        track_output_path = matched_meta.get("output_path", "")
+                        if track_output_path:
+                            per_output_dir = Path(settings.completed_path) / track_output_path
                         else:
-                            # Fallback: transcoder builds its own path
+                            # Fallback: transcoder builds its own path.
                             per_title = matched_meta.get("title", job.title)
                             per_year = matched_meta.get("year", db_year)
                             per_output_dir = self._determine_output_path(
@@ -1009,9 +995,10 @@ class TranscodeWorker:
                                 db_year=per_year, db_video_type=per_video_type,
                             )
                         await loop.run_in_executor(None, lambda d=per_output_dir: os.makedirs(d, exist_ok=True))
-                        # title_name = display filename (from ARM naming engine),
-                        # folder_name = directory path.  ARM's naming includes
-                        # episode numbers per track so names are unique.
+                        # title_name = display filename from ARM's naming
+                        # engine; output_path = directory (already
+                        # resolved by ARM). Track names include episode
+                        # numbers so files are unique within their dir.
                         per_title_name = matched_meta.get("title_name")
                         if not per_title_name:
                             # Fallback when ARM doesn't provide title_name:
@@ -1113,59 +1100,6 @@ class TranscodeWorker:
             self._last_progress.pop(job.id, None)
             self._last_progress_time.pop(job.id, None)
             structlog.contextvars.clear_contextvars()
-
-    @staticmethod
-    def _has_media_files(directory: Path) -> bool:
-        """Check whether a directory contains MKV or audio files."""
-        return (
-            any(directory.glob(_MKV_GLOB))
-            or any(
-                f for f in directory.iterdir()
-                if f.is_file() and f.suffix.lower() in AUDIO_FILE_EXTENSIONS
-            )
-        )
-
-    def _find_media_candidates(self, raw_path: Path, title: str, exclude: Path) -> list[Path]:
-        """Search subdirectories of raw_path for directories matching *title* with media files."""
-        candidates = []
-        for subdir in raw_path.iterdir():
-            if not subdir.is_dir() or subdir == exclude:
-                continue
-            for candidate in subdir.iterdir():
-                if not candidate.is_dir() or not candidate.name.startswith(title):
-                    continue
-                if not self._has_media_files(candidate):
-                    continue
-                try:
-                    candidate.resolve().relative_to(raw_path.resolve())
-                    candidates.append(candidate)
-                except ValueError:
-                    logger.warning(f"Skipping candidate outside raw_path: {candidate}")
-        return candidates
-
-    def _resolve_source_path(self, source_path: str) -> str:
-        """Resolve the actual source path, searching subdirectories if needed.
-
-        ARM may move ripped files from raw/<TITLE>/ to raw/<type>/<TITLE_timestamp>/
-        where type is 'unidentified', 'movies', or 'tv'. This method finds the
-        actual location when the direct path doesn't exist or is empty.
-        """
-        path = Path(source_path)
-
-        if path.exists() and path.is_dir() and self._has_media_files(path):
-            return source_path
-
-        raw_path = Path(settings.raw_path)
-        if not raw_path.exists():
-            return source_path
-
-        candidates = self._find_media_candidates(raw_path, path.name, path)
-        if not candidates:
-            return source_path
-
-        best = max(candidates, key=lambda d: d.stat().st_mtime)
-        logger.info(f"Resolved source path: {source_path} -> {best}")
-        return str(best)
 
     async def _wait_for_stable(self, path: str, timeout: int = 3600):
         """Wait for directory to stop receiving new files."""
@@ -1316,14 +1250,30 @@ class TranscodeWorker:
         return audio_files
 
     async def _passthrough_audio(self, job: TranscodeJob):
-        """Copy audio files directly to audio output folder (no transcoding)."""
+        """Copy audio files directly to audio output folder (no transcoding).
+
+        Honors ARM's output_path when present; falls back to a clean leaf
+        directory under completed_path otherwise (legacy clients).
+        """
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(
             job_id=job.id,
             label=job.title,
         )
-        clean_title = clean_title_for_filesystem(job.title)
-        output_dir = Path(settings.completed_path) / settings.audio_subdir / clean_title
+        # Re-fetch the row to pick up output_path even when callers
+        # don't load full job metadata (e.g. _discover_or_passthrough).
+        async with get_db() as db_sess:
+            result = await db_sess.execute(
+                select(TranscodeJobDB).where(TranscodeJobDB.id == job.id)
+            )
+            job_db = result.scalar_one_or_none()
+            arm_output_path = job_db.output_path if job_db else None
+
+        if arm_output_path:
+            output_dir = Path(settings.completed_path) / arm_output_path
+        else:
+            clean_title = clean_title_for_filesystem(job.title)
+            output_dir = Path(settings.completed_path) / clean_title
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: os.makedirs(output_dir, exist_ok=True))
 
@@ -1438,20 +1388,17 @@ class TranscodeWorker:
         overrides: dict | None = None,
         *, db_year: str | None = None, db_video_type: str | None = None,
     ) -> Path:
-        """Determine the output directory path.
+        """Determine the output directory path (legacy fallback).
 
         Builds a metadata-enriched folder name like:
           Serial Mom (1994) 480p DVD HEVC
 
-        Prefers DB values (db_year, db_video_type) from the webhook payload
-        over re-detecting from the directory name / title patterns.
+        ARM normally sends an explicit output_path via the webhook and
+        we use that directly; this fallback only fires when the webhook
+        omits output_path (legacy producer). Lands at the share root
+        with no type-subdir partitioning - operators using this path
+        should upgrade ARM.
         """
-        video_type = db_video_type or self._detect_video_type(title, source_path)
-        if video_type in ("tv", "series"):
-            base = Path(settings.completed_path) / settings.tv_subdir
-        else:
-            base = Path(settings.completed_path) / settings.movies_subdir
-
         clean_title = clean_title_for_filesystem(title)
 
         # Prefer year from DB; fall back to extracting from directory name
@@ -1462,7 +1409,7 @@ class TranscodeWorker:
             year = year_match.group(1) if year_match else None
 
         folder_name = self._build_folder_name(clean_title, year, resolution, overrides)
-        return base / folder_name
+        return Path(settings.completed_path) / folder_name
 
     async def _transcode_file_handbrake(
         self,

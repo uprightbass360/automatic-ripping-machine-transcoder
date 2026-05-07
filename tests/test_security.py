@@ -87,10 +87,15 @@ class TestOversizedPayloads:
         with pytest.raises(ValidationError):
             WebhookPayload(title="Test", body="X" * 2001, job_id=952)
 
-    def test_oversized_path(self):
-        """Path exceeding 1000 chars must be rejected."""
+    def test_oversized_input_path(self):
+        """input_path exceeding 1000 chars must be rejected."""
         with pytest.raises(ValidationError):
-            WebhookPayload(title="Test", path="X" * 1001, job_id=953)
+            WebhookPayload(title="Test", input_path="X" * 1001, job_id=953)
+
+    def test_oversized_output_path(self):
+        """output_path exceeding 1000 chars must be rejected."""
+        with pytest.raises(ValidationError):
+            WebhookPayload(title="Test", output_path="X" * 1001, job_id=953)
 
     def test_oversized_job_id(self):
         """Job ID exceeding 50 chars must be rejected."""
@@ -108,7 +113,8 @@ class TestOversizedPayloads:
         payload = WebhookPayload(
             title="T" * 500,
             body="B" * 2000,
-            path="P" * 1000,
+            input_path="P" * 1000,
+            output_path="O" * 1000,
             job_id=99999,
             status="s" * 50,
             type="info",
@@ -237,10 +243,10 @@ class TestWebhookInputSanitization:
         with pytest.raises(ValidationError):
             WebhookPayload(title="Test", job_id="job'OR'1'='1")
 
-    def test_path_with_null_byte(self):
-        """Null bytes in path should be stripped."""
-        payload = WebhookPayload(title="Test", path="movie\x00.mkv", job_id=955)
-        assert "\x00" not in payload.path
+    def test_input_path_with_null_byte(self):
+        """Null bytes in input_path should be stripped."""
+        payload = WebhookPayload(title="Test", input_path="movie\x00.mkv", job_id=955)
+        assert "\x00" not in payload.input_path
 
     def test_title_with_null_byte(self):
         """Control characters (including null) should be stripped from title."""

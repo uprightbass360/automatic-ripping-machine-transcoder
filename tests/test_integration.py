@@ -1189,20 +1189,23 @@ class TestAudioPassthrough:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(job_id=309, source_path=str(source_dir), title="Greatest Hits")
+            await worker.queue_job(
+                job_id=309,
+                source_path=str(source_dir),
+                title="Greatest Hits",
+                output_path="audio/Greatest Hits",
+            )
             job = await worker._queue.get()
 
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
-                mock_settings.audio_subdir = "audio"
-                mock_settings.movies_subdir = "movies"
                 mock_settings.delete_source = False
                 mock_settings.work_path = str(tmp_path / "work")
 
                 await worker._process_job(job)
 
-        # Verify files copied to audio/Greatest Hits/
+        # Verify files copied to the output_path that ARM resolved.
         audio_dir = completed_dir / "audio" / "Greatest Hits"
         assert audio_dir.exists()
         assert (audio_dir / "track01.flac").exists()
@@ -1262,12 +1265,14 @@ class TestAudioPassthrough:
 
                 await worker._process_job(job)
 
-        # Should be treated as video, not audio
+        # Should be treated as video, not audio. Without an explicit
+        # output_path on the Job (legacy fallback), the file lands
+        # directly under completed_path.
         async with session_factory() as session:
             result = await session.execute(select(TranscodeJobDB))
             job_db = result.scalar_one()
             assert job_db.status == JobStatus.COMPLETED
-            assert "movies" in job_db.output_path
+            assert str(completed_dir) in job_db.output_path
 
     @pytest.mark.asyncio
     async def test_no_video_or_audio_fails_with_updated_message(self, test_db_setup, tmp_path):
@@ -1322,14 +1327,17 @@ class TestAudioPassthrough:
             from transcoder import TranscodeWorker
             worker = TranscodeWorker()
 
-            await worker.queue_job(job_id=311, source_path=str(source_dir), title="Cleanup Album")
+            await worker.queue_job(
+                job_id=311,
+                source_path=str(source_dir),
+                title="Cleanup Album",
+                output_path="audio/Cleanup Album",
+            )
             job = await worker._queue.get()
 
             with patch.object(worker, "_wait_for_stable", AsyncMock()), \
                  patch("transcoder.settings") as mock_settings:
                 mock_settings.completed_path = str(completed_dir)
-                mock_settings.audio_subdir = "audio"
-                mock_settings.movies_subdir = "movies"
                 mock_settings.delete_source = True
                 mock_settings.work_path = str(tmp_path / "work")
 

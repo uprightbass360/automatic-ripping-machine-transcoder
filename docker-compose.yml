@@ -40,9 +40,6 @@ services:
       - DELETE_SOURCE=${DELETE_SOURCE:-true}
       - OUTPUT_EXTENSION=${OUTPUT_EXTENSION:-mkv}
       # Organization
-      - MOVIES_SUBDIR=${MOVIES_SUBDIR:-movies}
-      - TV_SUBDIR=${TV_SUBDIR:-tv}
-      - AUDIO_SUBDIR=${AUDIO_SUBDIR:-audio}
       # Performance
       - MAX_CONCURRENT=${MAX_CONCURRENT:-1}
       - STABILIZE_SECONDS=${STABILIZE_SECONDS:-60}

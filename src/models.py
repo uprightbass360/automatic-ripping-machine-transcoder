@@ -103,8 +103,13 @@ class TranscodeJobDB(Base):
     config_overrides = Column(Text, nullable=True)  # JSON dict of per-job transcode overrides
     multi_title = Column(Integer, default=0)  # Boolean: 1 if multi-title disc
     track_metadata = Column(Text, nullable=True)  # JSON list of per-track metadata dicts
-    folder_name = Column(String(500), nullable=True)  # Pre-rendered folder name from ARM naming engine
-    title_name = Column(String(500), nullable=True)  # Pre-rendered title name from ARM naming engine
+    # ARM-resolved output directory relative to settings.completed_path.
+    # Replaces the legacy folder_name (which was a leaf-only string and
+    # left type-subdir partitioning to the transcoder). With contracts
+    # v3.0.0 the field carries the full subdir + leaf, e.g.
+    # "Movies/0.Rips/Foo (2024)".
+    output_path = Column(String(500), nullable=True)
+    title_name = Column(String(500), nullable=True)  # Pre-rendered file stem from ARM naming engine
 
 
 class TranscodeJob(BaseModel):

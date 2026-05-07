@@ -658,132 +658,9 @@ class TestBuildFfmpegCommand:
         assert "scale_cuda=1280:-2" in cmd[vf_idx + 1]
 
 
-# --- TranscodeWorker._resolve_source_path ---
-
-
-class TestResolveSourcePath:
-    """Tests for _resolve_source_path method."""
-
-    def _make_worker(self):
-        scheme = _mock_scheme("x265")
-        with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
-             patch("main.active_scheme", scheme):
-            from transcoder import TranscodeWorker
-            return TranscodeWorker()
-
-    def test_direct_path_with_files(self, tmp_dirs):
-        """When direct path exists and has MKV files, return it as-is."""
-        movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
-        movie_dir.mkdir()
-        (movie_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
-
-        worker = self._make_worker()
-        with patch("transcoder.settings") as mock_settings:
-            mock_settings.raw_path = str(tmp_dirs["raw"])
-            result = worker._resolve_source_path(str(movie_dir))
-        assert result == str(movie_dir)
-
-    def test_empty_direct_path_finds_subdirectory(self, tmp_dirs):
-        """When direct path is empty, find files in subdirectory matching title."""
-        movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
-        movie_dir.mkdir()
-
-        actual_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_177059407232"
-        actual_dir.mkdir(parents=True)
-        (actual_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
-
-        worker = self._make_worker()
-        with patch("transcoder.settings") as mock_settings:
-            mock_settings.raw_path = str(tmp_dirs["raw"])
-            result = worker._resolve_source_path(str(movie_dir))
-        assert result == str(actual_dir)
-
-    def test_missing_direct_path_finds_subdirectory(self, tmp_dirs):
-        """When direct path doesn't exist, find files in subdirectory."""
-        movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
-
-        actual_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_177059407232"
-        actual_dir.mkdir(parents=True)
-        (actual_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
-
-        worker = self._make_worker()
-        with patch("transcoder.settings") as mock_settings:
-            mock_settings.raw_path = str(tmp_dirs["raw"])
-            result = worker._resolve_source_path(str(movie_dir))
-        assert result == str(actual_dir)
-
-    def test_finds_in_movies_subfolder(self, tmp_dirs):
-        """ARM may put identified movies in a 'movies' subfolder."""
-        movie_dir = tmp_dirs["raw"] / "THE_MATRIX"
-
-        actual_dir = tmp_dirs["raw"] / "movies" / "THE_MATRIX"
-        actual_dir.mkdir(parents=True)
-        (actual_dir / "THE_MATRIX.mkv").write_bytes(b"\x00" * 100)
-
-        worker = self._make_worker()
-        with patch("transcoder.settings") as mock_settings:
-            mock_settings.raw_path = str(tmp_dirs["raw"])
-            result = worker._resolve_source_path(str(movie_dir))
-        assert result == str(actual_dir)
-
-    def test_picks_most_recent_candidate(self, tmp_dirs):
-        """When multiple matches exist, pick the most recently modified."""
-        import time
-        movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
-
-        old_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_100"
-        old_dir.mkdir(parents=True)
-        (old_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
-
-        time.sleep(0.05)
-
-        new_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_200"
-        new_dir.mkdir(parents=True)
-        (new_dir / "SERIAL_MOM.mkv").write_bytes(b"\x00" * 100)
-
-        worker = self._make_worker()
-        with patch("transcoder.settings") as mock_settings:
-            mock_settings.raw_path = str(tmp_dirs["raw"])
-            result = worker._resolve_source_path(str(movie_dir))
-        assert result == str(new_dir)
-
-    def test_no_match_returns_original(self, tmp_dirs):
-        """When no matching subdirectory found, return original path."""
-        movie_dir = tmp_dirs["raw"] / "NONEXISTENT"
-
-        worker = self._make_worker()
-        with patch("transcoder.settings") as mock_settings:
-            mock_settings.raw_path = str(tmp_dirs["raw"])
-            result = worker._resolve_source_path(str(movie_dir))
-        assert result == str(movie_dir)
-
-    def test_audio_files_in_subdirectory(self, tmp_dirs):
-        """Resolves when subdirectory contains audio files (CD rip)."""
-        cd_dir = tmp_dirs["raw"] / "ALBUM_TITLE"
-
-        actual_dir = tmp_dirs["raw"] / "unidentified" / "ALBUM_TITLE_12345"
-        actual_dir.mkdir(parents=True)
-        (actual_dir / "track01.flac").write_bytes(b"\x00" * 100)
-
-        worker = self._make_worker()
-        with patch("transcoder.settings") as mock_settings:
-            mock_settings.raw_path = str(tmp_dirs["raw"])
-            result = worker._resolve_source_path(str(cd_dir))
-        assert result == str(actual_dir)
-
-    def test_skips_subdirectory_without_media(self, tmp_dirs):
-        """Ignores subdirectories that don't contain media files."""
-        movie_dir = tmp_dirs["raw"] / "SERIAL_MOM"
-
-        no_media_dir = tmp_dirs["raw"] / "unidentified" / "SERIAL_MOM_100"
-        no_media_dir.mkdir(parents=True)
-        (no_media_dir / "readme.txt").write_text("no media here")
-
-        worker = self._make_worker()
-        with patch("transcoder.settings") as mock_settings:
-            mock_settings.raw_path = str(tmp_dirs["raw"])
-            result = worker._resolve_source_path(str(movie_dir))
-        assert result == str(movie_dir)
+# _resolve_source_path was removed in v18.0.0 - ARM now sends the
+# input_path directly via the webhook, joined to settings.raw_path
+# without further resolution.
 
 
 # --- TranscodeWorker._discover_source_files ---
@@ -993,15 +870,15 @@ class TestDetermineOutputPath:
         assert ":" not in Path(path_str).name
         assert '"' not in Path(path_str).name
 
-    def test_movie_uses_movies_subdir(self):
+    def test_lands_directly_under_completed_path(self):
+        """The fallback _determine_output_path no longer partitions by
+        type (subdir Settings fields were removed in v18.0.0). Output
+        lands directly under completed_path; ARM owns the type subdir
+        via the webhook output_path."""
         worker = self._make_worker()
         result = worker._determine_output_path("Test Movie (2024)", "/data/raw/test")
-        assert settings.movies_subdir in str(result)
-
-    def test_tv_uses_tv_subdir(self):
-        worker = self._make_worker()
-        result = worker._determine_output_path("Show S01E05", "/data/raw/Show S01E05")
-        assert settings.tv_subdir in str(result)
+        # Result is exactly completed_path / <leaf>; no intermediate subdir.
+        assert result.parent == Path(settings.completed_path)
 
 
 # --- TranscodeWorker._classify_media_type ---
@@ -1113,8 +990,7 @@ class TestGetCodecName:
 class TestDetermineOutputPathWithMetadata:
     """Tests for _determine_output_path with resolution metadata."""
 
-    def _run_test(self, video_encoder, title, source, resolution, expected_name,
-                  subdir_key="movies_subdir", subdir_val="movies"):
+    def _run_test(self, video_encoder, title, source, resolution, expected_name):
         scheme = _mock_scheme(video_encoder)
         with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
              patch("main.active_scheme", scheme):
@@ -1122,7 +998,6 @@ class TestDetermineOutputPathWithMetadata:
             worker = TranscodeWorker()
             with patch("transcoder.settings") as s:
                 s.completed_path = "/data/completed"
-                setattr(s, subdir_key, subdir_val)
                 result = worker._determine_output_path(
                     title, source, resolution=resolution
                 )
@@ -1157,6 +1032,9 @@ class TestDetermineOutputPathWithMetadata:
                         (1920, 1080), "H264 Movie (2022) 1080p Blu-ray H264")
 
     def test_tv_show_with_resolution(self):
+        """Even for what looks like a TV show title, the legacy fallback
+        no longer partitions output by type - that responsibility is
+        ARM's via output_path. Just assert the name format is correct."""
         scheme = _mock_scheme("nvenc_h265")
         with patch("transcoder.check_gpu_support", return_value=_gpu_support_all()), \
              patch("main.active_scheme", scheme):
@@ -1164,12 +1042,11 @@ class TestDetermineOutputPathWithMetadata:
             worker = TranscodeWorker()
             with patch("transcoder.settings") as s:
                 s.completed_path = "/data/completed"
-                s.tv_subdir = "tv"
                 result = worker._determine_output_path(
                     "Show S01E05", "/data/raw/Show S01E05 (2023)", resolution=(1920, 1080)
                 )
-        assert "tv" in str(result)
         assert result.name == "Show S01E05 (2023) 1080p Blu-ray HEVC"
+        assert result.parent == Path("/data/completed")
 
     def test_720p_resolution(self):
         self._run_test("x265", "HD Movie", "/data/raw/HD Movie (2019)",
