@@ -7,7 +7,7 @@ FROM uprightbass360/arm-handbrake:${HANDBRAKE_TAG} AS handbrake
 # Shared base with HandBrake + deps + app code.
 # Add a GPU layer (Dockerfile.nvidia/intel/amd) for hardware encoding,
 # or use this image directly for CPU-only (x265/x264) transcoding.
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 LABEL org.opencontainers.image.source="https://github.com/uprightbass360/automatic-ripping-machine-transcoder"
 LABEL org.opencontainers.image.license="MIT"
 LABEL org.opencontainers.image.description="ARM Transcoder base — add a GPU layer (Dockerfile.nvidia/intel/amd) for hardware encoding"
