@@ -62,23 +62,6 @@ def require_api_version(
     return x_api_version
 
 
-def _normalize_source_path(source_path: str | None) -> str | None:
-    """Normalize absolute paths from ARM host to relative paths.
-
-    The webhook sender may include the full ARM host path
-    (e.g. /home/arm/media/raw/Title). Strip any leading directory prefix
-    and keep only the component(s) relative to the raw root.
-    """
-    if not source_path or not os.path.isabs(source_path):
-        return source_path
-    parts = Path(source_path).parts  # ('/', 'home', 'arm', 'media', 'raw', 'Title')
-    try:
-        raw_idx = len(parts) - 1 - parts[::-1].index("raw")
-        return str(Path(*parts[raw_idx + 1:])) if raw_idx + 1 < len(parts) else None
-    except ValueError:
-        return Path(source_path).name
-
-
 def _extract_media_title(body: str | None) -> str | None:
     """Extract media title from ARM notification body text."""
     if not body:
@@ -163,26 +146,14 @@ async def arm_webhook(
         logger.debug(f"Ignoring non-completion webhook: {payload.title}")
         return {"status": "ignored", "reason": "not a completion event"}
 
-    source_path = _normalize_source_path(payload.path)
-    if source_path:
-        logger.debug(f"Normalized absolute path to: {source_path}")
+    if not payload.input_path:
+        logger.warning(f"Webhook missing input_path: {payload.title}")
+        return {"status": "error", "reason": "input_path required"}
 
+    # Contracts validator already rejected absolute paths and `..`
+    # segments, so we trust the value and join straight to the share root.
+    full_path = str(Path(settings.raw_path) / payload.input_path)
     media_title = _extract_media_title(body)
-
-    # Use extracted title as source path if no explicit path provided
-    if not source_path and media_title:
-        source_path = Path(media_title).name
-
-    if not source_path:
-        logger.warning(f"Could not determine path from webhook: {payload.title}")
-        return {"status": "error", "reason": "could not determine source path"}
-
-    # Security: reject traversal attempts but allow relative subdirectories
-    if "\\" in source_path or ".." in source_path:
-        logger.warning(f"Rejected path with traversal attempt: {source_path}")
-        return {"status": "error", "reason": "invalid path"}
-
-    full_path = str(Path(settings.raw_path) / source_path)
 
     # config_overrides is already typed by WebhookPayload.
     typed_overrides: TranscodeJobConfig | None = payload.config_overrides
@@ -208,14 +179,14 @@ async def arm_webhook(
         multi_title=bool(payload.multi_title),
         # Worker persists tracks as JSON dicts; dump the typed models.
         tracks=[t.model_dump() for t in payload.tracks] if payload.tracks else None,
-        folder_name=payload.folder_name,
+        output_path=payload.output_path,
         title_name=payload.title_name,
     )
 
     return {
         "status": "queued" if created else "already_queued",
         "job_id": job_id,
-        "path": source_path,
+        "input_path": payload.input_path,
         "queue_size": worker.queue_size,
     }
 

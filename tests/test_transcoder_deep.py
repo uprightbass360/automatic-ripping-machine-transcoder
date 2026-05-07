@@ -145,7 +145,7 @@ class TestQueueJobPaths:
             job_id=3, source_path="/test/series", title="Series",
             config_overrides=overrides,
             multi_title=True, tracks=tracks,
-            folder_name="Series/Season 1", title_name="S01E01",
+            output_path="TV/0.Rips/Series/Season 1", title_name="S01E01",
         )
         assert created is True
 
@@ -159,7 +159,7 @@ class TestQueueJobPaths:
             assert job_db.config_overrides is not None
             assert job_db.multi_title == 1
             assert job_db.track_metadata is not None
-            assert job_db.folder_name == "Series/Season 1"
+            assert job_db.output_path == "TV/0.Rips/Series/Season 1"
 
 
 # ── Worker run loop ──────────────────────────────────────────────────────────
@@ -207,7 +207,8 @@ class TestWorkerRunLoop:
 class TestLoadJobMetadata:
     @pytest.mark.asyncio
     async def test_load_metadata_with_overrides(self, worker_with_db):
-        """Cover _load_job_metadata lines 406-413: config_overrides and folder_name."""
+        """Cover _load_job_metadata: config_overrides and output_path
+        round-trip via the DB."""
         worker, session_factory = worker_with_db
 
         overrides = {"video_encoder": "hevc_nvenc"}
@@ -216,7 +217,7 @@ class TestLoadJobMetadata:
                 id=60, title="Test", source_path="/test",
                 status=JobStatus.PENDING,
                 config_overrides=json.dumps(overrides),
-                folder_name="Movies/Test (2024)",
+                output_path="Movies/0.Rips/Test (2024)",
                 title_name="Test (2024)",
                 video_type="movie", year="2024",
             )
@@ -226,11 +227,11 @@ class TestLoadJobMetadata:
             job_id = job_db.id
 
         result = await worker._load_job_metadata(job_id)
-        loaded_overrides, video_type, year, folder_name, title_name = result
+        loaded_overrides, video_type, year, output_path, title_name = result
         assert loaded_overrides == overrides
         assert video_type == "movie"
         assert year == "2024"
-        assert folder_name == "Movies/Test (2024)"
+        assert output_path == "Movies/0.Rips/Test (2024)"
         assert title_name == "Test (2024)"
 
     @pytest.mark.asyncio
@@ -271,58 +272,23 @@ class TestSetupJobLogging:
 
 class TestResolveAndStabilize:
     @pytest.mark.asyncio
-    async def test_resolve_changes_path(self, worker_with_db):
-        """Cover _resolve_and_stabilize lines 480-481: path changes."""
+    async def test_resolve_just_waits_for_stable(self, worker_with_db):
+        """_resolve_and_stabilize is now a thin wrapper around
+        _wait_for_stable (ARM sends an explicit input_path). The path
+        on the job is never mutated."""
         worker, _ = worker_with_db
 
-        job = TranscodeJob(id=1, title="Test", source_path="/old/path")
+        job = TranscodeJob(id=1, title="Test", source_path="/some/path")
 
-        with patch.object(worker, "_resolve_source_path", return_value="/new/path"), \
-             patch.object(worker, "_update_job", new_callable=AsyncMock), \
-             patch.object(worker, "_wait_for_stable", new_callable=AsyncMock):
+        with patch.object(worker, "_wait_for_stable", new_callable=AsyncMock) as mock_wait:
             await worker._resolve_and_stabilize(job)
-            assert job.source_path == "/new/path"
-
-    @pytest.mark.asyncio
-    async def test_resolve_no_change(self, worker_with_db):
-        """Cover _resolve_and_stabilize: path stays the same."""
-        worker, _ = worker_with_db
-
-        job = TranscodeJob(id=1, title="Test", source_path="/same/path")
-
-        with patch.object(worker, "_resolve_source_path", return_value="/same/path"), \
-             patch.object(worker, "_update_job", new_callable=AsyncMock) as mock_update, \
-             patch.object(worker, "_wait_for_stable", new_callable=AsyncMock):
-            await worker._resolve_and_stabilize(job)
-            mock_update.assert_not_called()
+            mock_wait.assert_called_once_with("/some/path")
+            assert job.source_path == "/some/path"
 
 
 # ── _discover_or_passthrough ─────────────────────────────────────────────────
 
 class TestDiscoverOrPassthrough:
-    @pytest.mark.asyncio
-    async def test_discover_empty_then_reresolve(self, worker_with_db):
-        """Cover _discover_or_passthrough lines 491-494: empty then re-resolve."""
-        worker, _ = worker_with_db
-
-        job = TranscodeJob(id=1, title="Test", source_path="/test/path")
-        fake_files = [Path("/test/path/movie.mkv")]
-
-        call_count = 0
-        def discover_side_effect(path):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return []  # First call: empty
-            return fake_files  # After re-resolve: found files
-
-        with patch.object(worker, "_discover_source_files", side_effect=discover_side_effect), \
-             patch.object(worker, "_resolve_source_path", return_value="/new/path"), \
-             patch.object(worker, "_update_job", new_callable=AsyncMock), \
-             patch.object(worker, "_wait_for_stable", new_callable=AsyncMock):
-            result = await worker._discover_or_passthrough(job)
-            assert result == fake_files
-
     @pytest.mark.asyncio
     async def test_discover_audio_passthrough(self, worker_with_db):
         """Cover _discover_or_passthrough: audio files trigger passthrough."""
@@ -331,7 +297,6 @@ class TestDiscoverOrPassthrough:
         job = TranscodeJob(id=1, title="Audio CD", source_path="/test/audio")
 
         with patch.object(worker, "_discover_source_files", return_value=[]), \
-             patch.object(worker, "_resolve_source_path", return_value="/test/audio"), \
              patch.object(worker, "_discover_audio_files", return_value=[Path("/test/audio/track01.flac")]), \
              patch.object(worker, "_passthrough_audio", new_callable=AsyncMock) as mock_passthrough:
             result = await worker._discover_or_passthrough(job)
@@ -346,7 +311,6 @@ class TestDiscoverOrPassthrough:
         job = TranscodeJob(id=1, title="Empty", source_path="/test/empty")
 
         with patch.object(worker, "_discover_source_files", return_value=[]), \
-             patch.object(worker, "_resolve_source_path", return_value="/test/empty"), \
              patch.object(worker, "_discover_audio_files", return_value=[]):
             with pytest.raises(ValueError, match="No video or audio"):
                 await worker._discover_or_passthrough(job)
@@ -729,8 +693,6 @@ class TestPresetSnapshotOncePerJob:
             mock_settings.work_path = str(tmp_path / "work")
             mock_settings.raw_path = str(tmp_path / "raw")
             mock_settings.completed_path = str(completed_dir)
-            mock_settings.movies_subdir = "movies"
-            mock_settings.tv_subdir = "tv"
             mock_settings.output_extension = "mkv"
             mock_settings.delete_source = False
             mock_settings.stabilize_seconds = 0

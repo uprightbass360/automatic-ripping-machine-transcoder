@@ -18,10 +18,11 @@ from models import Base
 
 
 # Webhook payload shape that the current WebhookPayload Pydantic model accepts.
-# Matches the schema in src/models.py: title + body + path + job_id + status.
+# Matches the v3.0.0 contract: title + body + input_path/output_path + job_id + status.
 _VALID_PAYLOAD = {
     "title": "Rip complete",
-    "path": "Test Movie (2024)",
+    "input_path": "movies/Test Movie (2024)",
+    "output_path": "Movies/0.Rips/Test Movie (2024)",
     "status": "success",
     "job_id": 1,
 }

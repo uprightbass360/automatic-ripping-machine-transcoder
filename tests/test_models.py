@@ -21,14 +21,16 @@ class TestWebhookPayload:
         assert payload.title == "Movie Rip Complete"
         assert payload.job_id == 1
         assert payload.body is None
-        assert payload.path is None
+        assert payload.input_path is None
+        assert payload.output_path is None
 
     def test_valid_full_payload(self):
         """Full payload with all fields."""
         payload = WebhookPayload(
             title="Movie Title",
             body="Rip of Movie Title (2024) complete",
-            path="Movie Title (2024)",
+            input_path="movies/Movie Title (2024)",
+            output_path="Movies/0.Rips/Movie Title (2024)",
             job_id=123,
             status="success",
             type="info",
@@ -83,20 +85,30 @@ class TestWebhookPayload:
         assert "\x01" not in payload.body
         assert "\x02" not in payload.body
 
-    def test_path_max_length(self):
-        """Path over 1000 chars must be rejected."""
+    def test_input_path_max_length(self):
+        """input_path over 1000 chars must be rejected."""
         with pytest.raises(ValidationError):
-            WebhookPayload(title="Test", job_id=1, path="p" * 1001)
+            WebhookPayload(title="Test", job_id=1, input_path="p" * 1001)
 
-    def test_path_null_bytes_stripped(self):
-        """Null bytes should be removed from path."""
-        payload = WebhookPayload(title="Test", job_id=1, path="movie\x00title")
-        assert "\x00" not in payload.path
+    def test_input_path_null_bytes_stripped(self):
+        """Null bytes should be removed from input_path."""
+        payload = WebhookPayload(title="Test", job_id=1, input_path="movie\x00title")
+        assert "\x00" not in payload.input_path
 
-    def test_path_control_chars_stripped(self):
-        """Control characters should be removed from path."""
-        payload = WebhookPayload(title="Test", job_id=1, path="movie\x01title")
-        assert "\x01" not in payload.path
+    def test_input_path_control_chars_stripped(self):
+        """Control characters should be removed from input_path."""
+        payload = WebhookPayload(title="Test", job_id=1, input_path="movie\x01title")
+        assert "\x01" not in payload.input_path
+
+    def test_input_path_rejects_absolute(self):
+        """Absolute paths are rejected by the contracts validator."""
+        with pytest.raises(ValidationError):
+            WebhookPayload(title="Test", job_id=1, input_path="/abs/path")
+
+    def test_output_path_rejects_dotdot(self):
+        """`..` segments are rejected."""
+        with pytest.raises(ValidationError):
+            WebhookPayload(title="Test", job_id=1, output_path="Movies/../etc")
 
     def test_job_id_required(self):
         """job_id is required."""
@@ -146,13 +158,15 @@ class TestWebhookPayload:
             job_id=1,
             body=None,
             message=None,
-            path=None,
+            input_path=None,
+            output_path=None,
             status=None,
             type=None,
         )
         assert payload.body is None
         assert payload.message is None
-        assert payload.path is None
+        assert payload.input_path is None
+        assert payload.output_path is None
 
     # ─── Multi-title disc fields ────────────────────────────────────────────
 
@@ -201,7 +215,8 @@ class TestWebhookPayload:
         payload = WebhookPayload(
             title="ARM notification",
             body="Rip of Movie (2024) complete",
-            path="Movie (2024)",
+            input_path="movies/Movie (2024)",
+            output_path="Movies/0.Rips/Movie (2024)",
             job_id=42,
             status="success",
             type="info",

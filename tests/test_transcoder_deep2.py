@@ -84,77 +84,9 @@ async def worker_db(tmp_path):
     await engine.dispose()
 
 
-# ── _resolve_source_path ─────────────────────────────────────────────────────
-
-class TestResolveSourcePath:
-    def test_existing_dir_with_media(self, worker_db, tmp_path):
-        """Cover line 834: path exists and has media → return as-is."""
-        worker, _, _ = worker_db
-        media_dir = tmp_path / "movie"
-        media_dir.mkdir()
-        (media_dir / "title.mkv").write_bytes(b"\x00" * 100)
-
-        result = worker._resolve_source_path(str(media_dir))
-        assert result == str(media_dir)
-
-    def test_missing_dir_searches_subdirs(self, worker_db, tmp_path):
-        """Cover lines 837-847: path missing, search raw subdirs."""
-        worker, _, _ = worker_db
-        raw = tmp_path / "raw"
-        raw.mkdir()
-        # ARM moved files to raw/movies/TestMovie_xxx/
-        subdir = raw / "movies"
-        subdir.mkdir()
-        moved = subdir / "TestMovie_20240101"
-        moved.mkdir()
-        (moved / "title.mkv").write_bytes(b"\x00" * 100)
-
-        with patch("transcoder.settings") as ms:
-            ms.raw_path = str(raw)
-            result = worker._resolve_source_path(str(raw / "TestMovie"))
-            # Should find the moved directory
-            assert "TestMovie_20240101" in result
-
-    def test_raw_path_doesnt_exist(self, worker_db, tmp_path):
-        """Cover line 838-839: raw_path doesn't exist → return original."""
-        worker, _, _ = worker_db
-        with patch("transcoder.settings") as ms:
-            ms.raw_path = str(tmp_path / "nonexistent_raw")
-            result = worker._resolve_source_path("/fake/path")
-            assert result == "/fake/path"
-
-
-# ── _find_media_candidates ───────────────────────────────────────────────────
-
-class TestFindMediaCandidates:
-    def test_finds_candidates(self, worker_db, tmp_path):
-        """Cover lines 810-823: find matching subdirectories."""
-        worker, _, _ = worker_db
-        raw = tmp_path / "raw"
-        raw.mkdir()
-        subdir = raw / "movies"
-        subdir.mkdir()
-        match = subdir / "MyMovie"
-        match.mkdir()
-        (match / "title.mkv").write_bytes(b"\x00" * 100)
-
-        result = worker._find_media_candidates(raw, "MyMovie", raw / "excluded")
-        assert len(result) == 1
-        assert result[0] == match
-
-    def test_skips_non_matching(self, worker_db, tmp_path):
-        """Cover line 814-815: non-matching dirs skipped."""
-        worker, _, _ = worker_db
-        raw = tmp_path / "raw"
-        raw.mkdir()
-        subdir = raw / "movies"
-        subdir.mkdir()
-        other = subdir / "OtherMovie"
-        other.mkdir()
-        (other / "title.mkv").write_bytes(b"\x00" * 100)
-
-        result = worker._find_media_candidates(raw, "MyMovie", raw / "excluded")
-        assert len(result) == 0
+# _resolve_source_path / _find_media_candidates were removed in v18.0.0.
+# ARM now sends an explicit input_path which the webhook handler joins
+# directly to settings.raw_path - no resolution / candidate search.
 
 
 # ── _wait_for_stable ─────────────────────────────────────────────────────────

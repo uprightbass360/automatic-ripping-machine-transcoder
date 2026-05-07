@@ -141,42 +141,6 @@ class TestDetectCpu:
             assert result == "aarch64"
 
 
-# ─── _normalize_source_path ─────────────────────────────────────────────────
-
-
-class TestNormalizeSourcePath:
-    """Tests for _normalize_source_path()."""
-
-    def test_returns_none_for_none(self):
-        from routers.jobs import _normalize_source_path
-        assert _normalize_source_path(None) is None
-
-    def test_returns_relative_path_unchanged(self):
-        from routers.jobs import _normalize_source_path
-        assert _normalize_source_path("Movie Title (2024)") == "Movie Title (2024)"
-
-    def test_strips_raw_prefix(self):
-        from routers.jobs import _normalize_source_path
-        result = _normalize_source_path("/home/arm/media/raw/Movie Title (2024)")
-        assert result == "Movie Title (2024)"
-
-    def test_absolute_path_without_raw(self):
-        """Should return basename when 'raw' not in path."""
-        from routers.jobs import _normalize_source_path
-        result = _normalize_source_path("/some/other/path/MovieDir")
-        assert result == "MovieDir"
-
-    def test_returns_none_when_raw_is_last_part(self):
-        """Should return None when raw is the last path component."""
-        from routers.jobs import _normalize_source_path
-        result = _normalize_source_path("/home/arm/media/raw")
-        assert result is None
-
-    def test_empty_string(self):
-        from routers.jobs import _normalize_source_path
-        assert _normalize_source_path("") == ""
-
-
 # ─── _extract_media_title ───────────────────────────────────────────────────
 
 
@@ -899,20 +863,20 @@ class TestWebhookEdgeCases:
         assert response.status_code == 413
 
     @pytest.mark.asyncio
-    async def test_webhook_absolute_path_normalization(self, client, mock_worker):
-        """Should normalize absolute ARM host paths to relative."""
+    async def test_webhook_absolute_input_path_rejected(self, client, mock_worker):
+        """Absolute input_paths are rejected by the contracts validator
+        (it returns 422 before the handler runs). ARM is now responsible
+        for sending relative paths."""
         ac, app, *_rest = client
         payload = {
             "title": "Rip complete",
-            "path": "/home/arm/media/raw/Movie Title (2024)",
+            "input_path": "/home/arm/media/raw/Movie Title (2024)",
+            "output_path": "Movies/0.Rips/Movie Title (2024)",
             "status": "success",
             "job_id": 901,
         }
         response = await ac.post("/webhook/arm", json=payload)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "queued"
-        assert data["path"] == "Movie Title (2024)"
+        assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_webhook_already_queued(self, client, mock_worker):
@@ -921,7 +885,8 @@ class TestWebhookEdgeCases:
         mock_worker.queue_job = AsyncMock(return_value=(1, False))
         payload = {
             "title": "Rip complete",
-            "path": "Movie",
+            "input_path": "movies/Movie",
+            "output_path": "Movies/0.Rips/Movie",
             "status": "success",
             "job_id": 902,
         }
@@ -936,7 +901,8 @@ class TestWebhookEdgeCases:
         ac, app, *_rest = client
         payload = {
             "title": "Rip complete",
-            "path": "Movie Title (2024)",
+            "input_path": "movies/Movie Title (2024)",
+            "output_path": "Movies/0.Rips/Movie Title (2024)",
             "status": "success",
             "job_id": "42",
             "video_type": "movie",
@@ -949,7 +915,6 @@ class TestWebhookEdgeCases:
             },
             "multi_title": True,
             "tracks": [{"title": "Track 1"}],
-            "folder_name": "Movie Title (2024)",
             "title_name": "Movie Title",
         }
         response = await ac.post("/webhook/arm", json=payload)
@@ -976,7 +941,7 @@ class TestWebhookEdgeCases:
         assert len(call_kwargs["tracks"]) == 1
         assert call_kwargs["tracks"][0]["title"] == "Track 1"
         assert call_kwargs["tracks"][0]["track_number"] == ""
-        assert call_kwargs["folder_name"] == "Movie Title (2024)"
+        assert call_kwargs["output_path"] == "Movies/0.Rips/Movie Title (2024)"
         assert call_kwargs["title_name"] == "Movie Title"
 
     @pytest.mark.asyncio
@@ -987,9 +952,10 @@ class TestWebhookEdgeCases:
         try:
             payload = {
                 "title": "Rip complete",
-                "path": "Movie",
+                "input_path": "movies/Movie",
+                "output_path": "Movies/0.Rips/Movie",
                 "status": "success",
-            "job_id": 903,
+                "job_id": 903,
             }
             response = await ac.post("/webhook/arm", json=payload)
             assert response.status_code == 503

@@ -87,6 +87,8 @@ class TestWebhookEndpoint:
         payload = {
             "title": "ARM notification",
             "body": "Rip of Test Movie (2024) complete",
+            "input_path": "movies/Test Movie (2024)",
+            "output_path": "Movies/0.Rips/Test Movie (2024)",
             "type": "info",
             "job_id": 1,
         }
@@ -97,11 +99,12 @@ class TestWebhookEndpoint:
         mock_worker.queue_job.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_webhook_with_path(self, client, mock_worker):
-        """Webhook with explicit path should use it."""
+    async def test_webhook_with_input_path(self, client, mock_worker):
+        """Webhook with explicit input_path should use it."""
         payload = {
             "title": "Rip complete",
-            "path": "Movie Title (2024)",
+            "input_path": "movies/Movie Title (2024)",
+            "output_path": "Movies/0.Rips/Movie Title (2024)",
             "status": "success",
             "job_id": 2,
         }
@@ -115,7 +118,8 @@ class TestWebhookEndpoint:
         """When body has no parseable pattern, use body text as media title."""
         payload = {
             "title": "Rip complete",
-            "path": "Movie Title (2024)",
+            "input_path": "movies/Movie Title (2024)",
+            "output_path": "Movies/0.Rips/Movie Title (2024)",
             "body": "some unrecognized format",
             "status": "success",
             "job_id": 3,
@@ -127,11 +131,14 @@ class TestWebhookEndpoint:
 
     @pytest.mark.asyncio
     async def test_apprise_message_field(self, client, mock_worker):
-        """Apprise json:// sends 'message' instead of 'body' - should still work."""
+        """Apprise json:// sends 'message' instead of 'body' - should still
+        be queued so long as input_path is present."""
         payload = {
             "version": "1.0",
             "title": "ARM notification",
             "message": "Test Movie (2024) rip complete. Starting transcode.",
+            "input_path": "movies/Test Movie (2024)",
+            "output_path": "Movies/0.Rips/Test Movie (2024)",
             "type": "info",
             "job_id": 4,
         }
@@ -143,10 +150,12 @@ class TestWebhookEndpoint:
 
     @pytest.mark.asyncio
     async def test_arm_rip_notification_format(self, client, mock_worker):
-        """ARM's actual NOTIFY_RIP format: '{title} rip complete. Starting transcode.'"""
+        """ARM's actual NOTIFY_RIP format with input_path/output_path."""
         payload = {
             "title": "ARM notification",
             "body": "Movie Title (2024) rip complete. Starting transcode.",
+            "input_path": "movies/Movie Title (2024)",
+            "output_path": "Movies/0.Rips/Movie Title (2024)",
             "type": "info",
             "job_id": 5,
         }
@@ -154,7 +163,7 @@ class TestWebhookEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "queued"
-        assert data["path"] == "Movie Title (2024)"
+        assert data["input_path"] == "movies/Movie Title (2024)"
         mock_worker.queue_job.assert_called_once()
         # Job title should be the extracted media title, not "ARM notification"
         call_kwargs = mock_worker.queue_job.call_args
@@ -162,10 +171,12 @@ class TestWebhookEndpoint:
 
     @pytest.mark.asyncio
     async def test_arm_processing_complete_format(self, client, mock_worker):
-        """ARM's NOTIFY_TRANSCODE format: '{title} processing complete.'"""
+        """ARM's NOTIFY_TRANSCODE format with input_path/output_path."""
         payload = {
             "title": "ARM notification",
             "body": "Movie Title (2024) processing complete.",
+            "input_path": "movies/Movie Title (2024)",
+            "output_path": "Movies/0.Rips/Movie Title (2024)",
             "type": "info",
             "job_id": 6,
         }
@@ -173,7 +184,7 @@ class TestWebhookEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "queued"
-        assert data["path"] == "Movie Title (2024)"
+        assert data["input_path"] == "movies/Movie Title (2024)"
 
     @pytest.mark.asyncio
     async def test_webhook_returns_503_when_worker_not_ready(self, client):
@@ -185,6 +196,8 @@ class TestWebhookEndpoint:
             payload = {
                 "title": "ARM notification",
                 "body": "Rip of Test Movie (2024) complete",
+                "input_path": "movies/Test Movie (2024)",
+                "output_path": "Movies/0.Rips/Test Movie (2024)",
                 "type": "info",
                 "job_id": 7,
             }
@@ -222,15 +235,18 @@ class TestWebhookEndpoint:
         assert response.json()["status"] == "ignored"
 
     @pytest.mark.asyncio
-    async def test_webhook_no_path_no_body(self, client):
-        """Webhook with no determinable path should return error."""
+    async def test_webhook_missing_input_path(self, client):
+        """Webhook without input_path returns error - the field is now required
+        for any job-bound webhook."""
         payload = {
             "title": "Something complete",
             "job_id": 10,
         }
         response = await client.post("/webhook/arm", json=payload)
         assert response.status_code == 200
-        assert response.json()["status"] == "error"
+        body = response.json()
+        assert body["status"] == "error"
+        assert body["reason"] == "input_path required"
 
     @pytest.mark.asyncio
     async def test_webhook_invalid_payload(self, client):
@@ -243,45 +259,47 @@ class TestWebhookEndpoint:
         assert any("title" in e["loc"] for e in detail["errors"])
 
     @pytest.mark.asyncio
-    async def test_webhook_path_traversal_rejected(self, client):
-        """Path with traversal characters should be rejected."""
+    async def test_webhook_input_path_traversal_rejected_at_contracts(self, client):
+        """input_path with `..` traversal is rejected by the contracts
+        validator - the request returns 422 before the handler runs."""
         payload = {
             "title": "Rip complete",
-            "path": "../../../etc/passwd",
+            "input_path": "../../../etc/passwd",
+            "output_path": "Movies/0.Rips/X",
             "status": "success",
             "job_id": 11,
         }
         response = await client.post("/webhook/arm", json=payload)
-        data = response.json()
-        assert data.get("status") == "error" or response.status_code == 400
+        # 422 from Pydantic ValidationError on the contract-level guard.
+        assert response.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_webhook_path_with_subdirectory_accepted(self, client):
-        """Relative subdirectory paths should be accepted (e.g. movies/Title (Year))."""
+    async def test_webhook_input_path_with_subdirectory_accepted(self, client, mock_worker):
+        """Relative subdirectory paths are accepted (e.g. movies/Title (Year))."""
         payload = {
             "title": "Rip complete",
-            "path": "movies/The Babysitter (1969)",
+            "input_path": "movies/The Babysitter (1969)",
+            "output_path": "Movies/0.Rips/The Babysitter (1969)",
             "status": "success",
             "job_id": 12,
         }
         response = await client.post("/webhook/arm", json=payload)
         data = response.json()
-        assert data.get("status") in ("queued", "error")
-        # Should not be rejected for path validation reasons
-        assert data.get("reason") != "invalid path"
+        assert data.get("status") == "queued"
 
     @pytest.mark.asyncio
-    async def test_webhook_path_with_backslash_rejected(self, client):
-        """Paths with backslashes should be rejected."""
+    async def test_webhook_input_path_absolute_rejected(self, client):
+        """Absolute paths (with leading / or \\) are rejected by the
+        contracts validator."""
         payload = {
             "title": "Rip complete",
-            "path": "some\\nested\\path",
+            "input_path": "/some/abs/path",
+            "output_path": "Movies/0.Rips/X",
             "status": "success",
             "job_id": 13,
         }
         response = await client.post("/webhook/arm", json=payload)
-        data = response.json()
-        assert data.get("status") == "error"
+        assert response.status_code == 422
 
 
 # ─── Jobs Endpoint ──────────────────────────────────────────────────────────
@@ -410,7 +428,8 @@ class TestWebhookConfigOverridesTyped:
         payload = {
             "title": "Test Movie",
             "job_id": 9991,
-            "path": "/data/raw/Test Movie",
+            "input_path": "movies/Test Movie",
+            "output_path": "Movies/0.Rips/Test Movie",
             "status": "success",
             "config_overrides": {
                 "preset_slug": "software-balanced",
@@ -431,7 +450,8 @@ class TestWebhookConfigOverridesTyped:
         payload = {
             "title": "Test Movie",
             "job_id": 9992,
-            "path": "/data/raw/Test Movie",
+            "input_path": "movies/Test Movie",
+            "output_path": "Movies/0.Rips/Test Movie",
             "status": "success",
             "config_overrides": {
                 "preset_slug": "INVALID UPPERCASE",
@@ -447,7 +467,8 @@ class TestWebhookConfigOverridesTyped:
         payload = {
             "title": "Test Movie",
             "job_id": 9993,
-            "path": "/data/raw/Test Movie",
+            "input_path": "movies/Test Movie",
+            "output_path": "Movies/0.Rips/Test Movie",
             "status": "success",
             "config_overrides": {
                 "preset_slug": "software-balanced",
@@ -465,7 +486,8 @@ class TestWebhookConfigOverridesTyped:
         payload = {
             "title": "Test Movie",
             "job_id": 9994,
-            "path": "/data/raw/Test Movie",
+            "input_path": "movies/Test Movie",
+            "output_path": "Movies/0.Rips/Test Movie",
             "status": "success",
         }
         resp = await client.post("/webhook/arm", json=payload)

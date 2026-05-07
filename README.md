@@ -241,10 +241,8 @@ These variables are used across all `docker-compose*.yml` files:
 |----------|---------|-------------|
 | `SELECTED_PRESET_SLUG` | *(empty)* | Active preset slug (empty = scheme default) |
 | `GLOBAL_OVERRIDES` | *(empty)* | JSON object of tier-scoped overrides applied on top of the active preset |
-| `RAW_PATH` | /data/raw | Path to raw MKV files inside container |
-| `COMPLETED_PATH` | /data/completed | Path for completed transcodes inside container |
-| `MOVIES_SUBDIR` | movies | Subdirectory under COMPLETED_PATH for movies |
-| `TV_SUBDIR` | tv | Subdirectory under COMPLETED_PATH for TV shows |
+| `RAW_PATH` | /data/raw | Path to raw MKV files inside container. ARM sends a relative `input_path` in the webhook; transcoder joins to RAW_PATH. |
+| `COMPLETED_PATH` | /data/completed | Path for completed transcodes inside container. ARM sends a relative `output_path` in the webhook; transcoder joins to COMPLETED_PATH. Type-subdir partitioning (Movies/0.Rips, TV/0.Rips, etc.) is set on ARM via MOVIES_SUBDIR/TV_SUBDIR/AUDIO_SUBDIR. |
 | `OUTPUT_EXTENSION` | mkv | Output file extension |
 | `DELETE_SOURCE` | true | Remove source after successful transcode |
 | `MAX_CONCURRENT` | 1 | Max concurrent transcodes. NVIDIA: 3-5 sessions, AMD: 1-2, Intel: 2-3, CPU: 2-3. Default 1 unless verified. |
