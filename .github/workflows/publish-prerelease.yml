@@ -11,9 +11,14 @@ on:
       - "requirements*.txt"
       - "VERSION"
       - "VERSION_HANDBRAKE"
+  workflow_dispatch:
+    # Manual trigger to rebuild the RC from main between release-please
+    # PRs (e.g. after a chore(deps) bump that doesn't refresh the
+    # release-please PR). Reads VERSION from the dispatched ref and
+    # publishes <VERSION>-rc plus the three GPU variants.
 
 concurrency:
-  group: prerelease-${{ github.head_ref }}
+  group: prerelease-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -24,7 +29,7 @@ env:
 
 jobs:
   build-base:
-    if: startsWith(github.head_ref, 'release-please')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'release-please')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -141,6 +146,7 @@ jobs:
             org.opencontainers.image.version=${{ needs.build-base.outputs.version }}-rc
 
   comment:
+    if: github.event_name == 'pull_request'
     needs: [build-base, build-variants]
     runs-on: ubuntu-latest
     permissions:
