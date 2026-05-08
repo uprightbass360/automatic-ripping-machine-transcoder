@@ -1,5 +1,24 @@
 # Changelog
 
+## [18.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.6.0...v18.0.0) (2026-05-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* MOVIES_SUBDIR / TV_SUBDIR / AUDIO_SUBDIR env vars are no longer read. Operators must remove them from transcoder host .env (no harm if left, but they are inert) and set the equivalent on the ARM ripper host instead. Webhook payloads from arm-neu < the matching breaking release will be rejected without input_path.
+* contracts has breaking commits in this bump. Review the commit list above and verify consumer code still compiles before merging. release-please will cut a major consumer release when this PR lands.
+
+### Features
+
+* adopt arm_contracts v0.7.0 (WebhookEventType narrowing) ([98335f6](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/98335f6b9a0f64ec54044f3f660d46f635acb33f))
+* adopt arm_contracts v2.0.0 (lockstep submodule bump) ([3eacea6](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/3eacea6a8f0a76d3e366241393d9ee1f1c096829))
+* bump components/contracts to 37d3fd4 ([c42d9cd](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/c42d9cd9fc41174400cc9917e7fdf799db201e6d))
+
+
+### Code Refactoring
+
+* drop subdir settings, accept output_path from webhook ([4839f8a](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/4839f8a38b0cf6d9de4009d9ce06cc958a2c87b5))
+
 ## [17.6.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.5.1...v17.6.0) (2026-04-30)
 
 
