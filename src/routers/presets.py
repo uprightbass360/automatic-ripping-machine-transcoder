@@ -11,6 +11,7 @@ from sqlalchemy import select
 from auth import get_current_user, require_admin
 from config import settings
 from database import get_db
+from handbrake_presets import list_handbrake_presets
 from models import ConfigOverrideDB, CustomPresetDB
 from presets import Preset, resolve_preset
 
@@ -154,6 +155,19 @@ async def get_scheme(_role: Annotated[str, Depends(get_current_user)]):
 
 
 # ---- Preset CRUD -----------------------------------------------------------
+
+
+@router.get("/handbrake-presets")
+async def get_handbrake_presets(
+    _role: Annotated[str, Depends(get_current_user)],
+) -> dict[str, list[str]]:
+    """Return categorized HandBrakeCLI built-in preset names.
+
+    Result shape: ``{category_name: [preset_name, ...]}``. Empty dict if
+    HandBrakeCLI is missing, hangs, or emits unparseable output - the
+    UI is expected to fall back to free-text entry in that case.
+    """
+    return await list_handbrake_presets()
 
 
 @router.get("/presets", responses=_RESP_SCHEME_UNLOADED)
