@@ -53,3 +53,22 @@ def test_conformance_partial_transfer_raises(adapter, tmp_path):
 
 def test_conformance_remove_source_cleanup(adapter, tmp_path):
     assert_remove_source_cleanup(adapter, tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_async_copy_drives_progress_callback(tmp_path):
+    """async_copy accepts an on_progress callback and routes events to it
+    when the new helper is wired through."""
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    src.mkdir()
+    dst.mkdir()
+    (src / "payload.bin").write_bytes(os.urandom(2 * 1024 * 1024))
+
+    events: list[RsyncProgressEvent] = []
+
+    from file_transfer import async_copy
+    await async_copy(str(src), str(dst), on_progress=events.append)
+
+    assert any(0 < e.progress_pct <= 100 for e in events)
+    assert events[-1].progress_pct == pytest.approx(100.0)
