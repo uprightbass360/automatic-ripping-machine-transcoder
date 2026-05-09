@@ -873,6 +873,7 @@ class TranscodeWorker:
                 job.id,
                 status=JobStatus.PROCESSING,
                 phase=TranscodePhase.copying_source.value,
+                progress=0.0,
                 started_at=datetime.now(timezone.utc),
                 logfile=logfile_name,
             )
@@ -907,11 +908,21 @@ class TranscodeWorker:
             await asyncio.get_event_loop().run_in_executor(None, work_output_dir.mkdir)
 
             logger.info(f"Copying source to local scratch: {work_source_dir}")
+
+            async def _cs_progress(evt):
+                await self._update_progress(job.id, evt.progress_pct)
+
             if await asyncio.get_event_loop().run_in_executor(None, source.is_file):
                 await asyncio.get_event_loop().run_in_executor(None, work_source_dir.mkdir)
-                await async_copy_file(str(source), str(work_source_dir / source.name))
+                await async_copy_file(
+                    str(source), str(work_source_dir / source.name),
+                    on_progress=_cs_progress,
+                )
             else:
-                await async_copy(str(source), str(work_source_dir))
+                await async_copy(
+                    str(source), str(work_source_dir),
+                    on_progress=_cs_progress,
+                )
 
             loop = asyncio.get_event_loop()
             local_source_files = await loop.run_in_executor(
@@ -953,7 +964,11 @@ class TranscodeWorker:
             # mid-transcode. Tier is still chosen per-file by resolution.
             preset_snapshot = await self._snapshot_preset(overrides)
 
-            await self._update_job(job.id, phase=TranscodePhase.encoding.value)
+            await self._update_job(
+                job.id,
+                phase=TranscodePhase.encoding.value,
+                progress=0.0,
+            )
 
             file_results = await self._transcode_files(
                 job, local_source_files, main_feature, work_output_dir,
@@ -962,7 +977,15 @@ class TranscodeWorker:
             )
 
             # Move local output → completed (with per-track routing for multi-title)
-            await self._update_job(job.id, phase=TranscodePhase.finalizing.value)
+            await self._update_job(
+                job.id,
+                phase=TranscodePhase.finalizing.value,
+                progress=0.0,  # reset for the finalizing phase
+            )
+
+            async def _fin_progress(evt):
+                await self._update_progress(job.id, evt.progress_pct)
+
             track_results = []
             if track_meta:
                 logger.info("Multi-title disc: routing output files per-track metadata")
@@ -973,7 +996,10 @@ class TranscodeWorker:
                     if not matched_meta:
                         # Fall back to job-level output dir
                         logger.debug(f"No per-track match for {f.name}, using job output dir")
-                        await async_move_file(str(f), str(output_dir / f.name))
+                        await async_move_file(
+                            str(f), str(output_dir / f.name),
+                            on_progress=_fin_progress,
+                        )
                         continue
 
                     track_num = matched_meta.get("track_number", "")
@@ -1008,7 +1034,10 @@ class TranscodeWorker:
                                 per_title_name = f"{per_title_name} - Track {track_num}"
                         new_name = f"{per_title_name}{f.suffix}"
                         logger.info(f"Moving {f.name} → {per_output_dir / new_name}")
-                        await async_move_file(str(f), str(per_output_dir / new_name))
+                        await async_move_file(
+                            str(f), str(per_output_dir / new_name),
+                            on_progress=_fin_progress,
+                        )
                         track_results.append({
                             "track_number": track_num,
                             "status": "completed",
@@ -1018,7 +1047,10 @@ class TranscodeWorker:
                         logger.error(f"Failed to route track {track_num} ({f.name}): {e}")
                         # Move to job-level dir as fallback
                         try:
-                            await async_move_file(str(f), str(output_dir / f.name))
+                            await async_move_file(
+                                str(f), str(output_dir / f.name),
+                                on_progress=_fin_progress,
+                            )
                         except Exception:
                             pass
                         track_results.append({
@@ -1029,7 +1061,10 @@ class TranscodeWorker:
             else:
                 logger.info(f"Moving output to completed: {output_dir}")
                 for f in work_output_dir.iterdir():
-                    await async_move_file(str(f), str(output_dir / f.name))
+                    await async_move_file(
+                        str(f), str(output_dir / f.name),
+                        on_progress=_fin_progress,
+                    )
 
             # Merge transcode file_results into track_results for the callback
             failed_transcodes = [r for r in file_results if r.get("status") == "failed"]
