@@ -853,12 +853,17 @@ class TestWebhookEdgeCases:
 
     @pytest.mark.asyncio
     async def test_payload_too_large(self, client):
-        """Should reject payloads over 10KB via content-length header."""
+        """Should reject payloads over the configured cap (MAX_WEBHOOK_PAYLOAD_SIZE).
+
+        Cap is a sanity guard against obvious garbage, not a gate on legitimate
+        multi-track 4K Blu-ray payloads (which can run ~12KB).
+        """
+        from constants import MAX_WEBHOOK_PAYLOAD_SIZE
         ac, app, *_rest = client
         response = await ac.post(
             "/webhook/arm",
             json={"title": "test"},
-            headers={"content-length": "20000"},
+            headers={"content-length": str(MAX_WEBHOOK_PAYLOAD_SIZE + 1)},
         )
         assert response.status_code == 413
 

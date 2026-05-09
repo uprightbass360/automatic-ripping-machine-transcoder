@@ -15,7 +15,12 @@ FFMPEG_TIMEOUT = 36000  # 10 hours max for any single file
 HANDBRAKE_TIMEOUT = 36000  # 10 hours max for any single file
 
 # Validation constants
-MAX_WEBHOOK_PAYLOAD_SIZE = 10 * 1024  # 10KB
+# Webhook body cap is a sanity guard against obvious garbage, not a gate on
+# legitimate payloads. A 4K Blu-ray with 70+ titles ships ~12KB of typed
+# track metadata under WebhookPayload.tracks; 64KB headroom keeps that
+# working without enabling a useful denial-of-service vector (the sender is
+# already authenticated by X-Webhook-Secret).
+MAX_WEBHOOK_PAYLOAD_SIZE = 64 * 1024  # 64KB
 MAX_TITLE_LENGTH = 500
 MAX_BODY_LENGTH = 2000
 MAX_PATH_LENGTH = 1000

@@ -14,6 +14,7 @@ from sqlalchemy import select, delete, func
 
 from auth import get_current_user, require_admin, verify_webhook_secret
 from config import settings
+from constants import MAX_WEBHOOK_PAYLOAD_SIZE
 from database import get_db
 from models import JobStatus, TranscodeJobDB
 from version import (
@@ -107,10 +108,14 @@ async def arm_webhook(
     """
     worker = request.app.state.worker
 
-    # Validate request size (10KB limit)
+    # Validate request size; cap is a sanity guard, not a gate on legitimate
+    # payloads (a 4K Blu-ray with 70+ titles ships ~12KB of typed tracks[]).
     content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > 10240:  # 10KB
-        raise HTTPException(status_code=413, detail="Payload too large (max 10KB)")
+    if content_length and int(content_length) > MAX_WEBHOOK_PAYLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Payload too large (max {MAX_WEBHOOK_PAYLOAD_SIZE // 1024}KB)",
+        )
 
     try:
         payload_dict = await request.json()
