@@ -72,3 +72,27 @@ async def test_async_copy_drives_progress_callback(tmp_path):
 
     assert any(0 < e.progress_pct <= 100 for e in events)
     assert events[-1].progress_pct == pytest.approx(100.0)
+
+
+@pytest.mark.asyncio
+async def test_copy_progress_drives_update_progress(tmp_path):
+    """Wiring the callback into transcoder._update_progress should advance
+    the rate-limited progress for a >5MB transfer."""
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    src.mkdir()
+    dst.mkdir()
+    (src / "payload.bin").write_bytes(os.urandom(5 * 1024 * 1024))
+
+    last_progress = {"value": 0.0}
+
+    async def fake_update_progress(job_id, progress, fps=None):
+        last_progress["value"] = progress
+
+    from rsync_helper import run_rsync_async
+
+    async def cb(evt: RsyncProgressEvent):
+        await fake_update_progress(99, evt.progress_pct)
+
+    await run_rsync_async(str(src), str(dst), on_progress=cb)
+    assert last_progress["value"] == pytest.approx(100.0)
