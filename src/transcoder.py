@@ -563,6 +563,58 @@ class TranscodeWorker:
             self._last_progress[job_id] = progress
             self._last_progress_time[job_id] = now
 
+    async def _stream_progress_lines(
+        self,
+        process,
+        job_id: int,
+        *,
+        line_handler,
+    ) -> None:
+        """Read process.stdout in chunks, splitting on both \\r and \\n.
+
+        HandBrake and FFmpeg emit progress lines using \\r to overwrite the
+        same terminal line. asyncio's StreamReader.readline() only splits on
+        \\n, so the default loop buffers indefinitely until LimitOverrunError.
+        We read fixed-size chunks and split manually.
+
+        Drains stdout continuously so the OS pipe buffer cannot fill and
+        deadlock the subprocess waiting on stdout while we wait on stdin.
+        """
+        assert process.stdout is not None
+        buffer = b""
+        while True:
+            chunk = await process.stdout.read(4096)
+            # Treat non-bytes (e.g., mock leakage in tests) as EOF instead of
+            # spinning a `while True` that grows `buffer` into a MagicMock chain.
+            if not chunk or not isinstance(chunk, (bytes, bytearray)):
+                # Flush any trailing partial line
+                if buffer:
+                    self._dispatch_line(buffer, line_handler)
+                break
+            buffer += chunk
+            # Split on \r and \n; keep trailing partial for next chunk
+            parts = buffer.replace(b"\r", b"\n").split(b"\n")
+            buffer = parts[-1]
+            for raw in parts[:-1]:
+                self._dispatch_line(raw, line_handler)
+
+    @staticmethod
+    def _dispatch_line(raw: bytes, line_handler) -> None:
+        """Decode a raw stdout chunk and pass to the handler. Handler
+        exceptions are caught at DEBUG so a buggy parser cannot kill a
+        long-running transcode."""
+        try:
+            line = raw.decode("utf-8", errors="replace").strip()
+        except Exception:
+            logger.debug("decode failed", exc_info=True)
+            return
+        if not line:
+            return
+        try:
+            line_handler(line)
+        except Exception:
+            logger.debug("line_handler raised", exc_info=True)
+
     async def run(self, worker_id: int = 0):
         """Main worker loop. Multiple instances pull from the shared queue.
 
@@ -987,9 +1039,41 @@ class TranscodeWorker:
                 await self._update_progress(job.id, evt.progress_pct)
 
             track_results = []
+            # Build a set of failed source filenames so we don't try to move
+            # partial output from tracks whose transcode raised. The partial
+            # files exist on disk because the failure happens after some
+            # data has been written; moving them yields rsync exit 23
+            # ("Skipping sender remove for changed file") because the
+            # zombied transcoder process may still hold a file handle.
+            failed_sources = {
+                r["file"] for r in file_results
+                if r.get("status") == "failed"
+            }
+
+            def _matched_source_name(output_file: Path) -> str | None:
+                """Map an output file back to its source filename.
+
+                The output filename was renamed during _transcode_files;
+                we need to map it back to the source. The convention from
+                _transcode_files is `<title> - <source.name>` (line 822 area).
+                """
+                for src_file in local_source_files:
+                    if src_file.name in output_file.name:
+                        return src_file.name
+                    if src_file.stem in output_file.stem:
+                        return src_file.name
+                return None
+
             if track_meta:
                 logger.info("Multi-title disc: routing output files per-track metadata")
                 for f in work_output_dir.iterdir():
+                    matched_source_name = _matched_source_name(f)
+                    if matched_source_name in failed_sources:
+                        logger.warning(
+                            "Skipping route for %s: source %s failed to transcode",
+                            f.name, matched_source_name,
+                        )
+                        continue
                     matched_meta = self._match_track_metadata(
                         f.stem, local_source_files, track_meta,
                     )
@@ -1042,6 +1126,7 @@ class TranscodeWorker:
                             "track_number": track_num,
                             "status": "completed",
                             "output_path": str(per_output_dir / new_name),
+                            "source_file": matched_source_name or f.name,
                         })
                     except Exception as e:
                         logger.error(f"Failed to route track {track_num} ({f.name}): {e}")
@@ -1057,22 +1142,41 @@ class TranscodeWorker:
                             "track_number": track_num,
                             "status": "failed",
                             "error": str(e)[:200],
+                            "source_file": matched_source_name or f.name,
                         })
             else:
                 logger.info(f"Moving output to completed: {output_dir}")
                 for f in work_output_dir.iterdir():
+                    matched_source_name = _matched_source_name(f)
+                    if matched_source_name in failed_sources:
+                        logger.warning(
+                            "Skipping route for %s: source %s failed to transcode",
+                            f.name, matched_source_name,
+                        )
+                        continue
                     await async_move_file(
                         str(f), str(output_dir / f.name),
                         on_progress=_fin_progress,
                     )
 
-            # Merge transcode file_results into track_results for the callback
+            # Merge transcode file_results into track_results for the callback.
+            # A track that fails BOTH transcode AND route is one failure, not
+            # two; dedup by source filename to avoid the "All N tracks failed"
+            # false positive when N is small.
             failed_transcodes = [r for r in file_results if r.get("status") == "failed"]
             failed_routes = [r for r in track_results if r.get("status") == "failed"]
+            failed_transcode_sources = {r["file"] for r in failed_transcodes}
+            # Count routes that failed for tracks NOT already in the transcode
+            # failure list. (Routes for failed transcodes are skipped in the
+            # finalizing block; this dedup is defense-in-depth.)
+            distinct_failed_routes = [
+                r for r in failed_routes
+                if r.get("source_file") not in failed_transcode_sources
+            ]
             all_track_results = track_results or []
 
             # Determine overall status
-            total_failures = len(failed_transcodes) + len(failed_routes)
+            total_failures = len(failed_transcodes) + len(distinct_failed_routes)
             if total_failures > 0 and total_failures < len(local_source_files):
                 # Some tracks failed but others succeeded
                 final_status = JobStatus.COMPLETED
@@ -1500,20 +1604,36 @@ class TranscodeWorker:
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            limit=1024 * 1024,  # 1 MiB line limit (HandBrake can emit long lines)
+            # No `limit=` here - we read in fixed chunks below to avoid the
+            # asyncio readline() 64KB-default deadlock on CR-overwritten
+            # progress output. HandBrake emits progress as
+            # `\r12.34 % (45.67 fps, ...)\r12.35 % ...` with no \n in between.
         )
 
-        async for line in process.stdout:
-            line = line.decode('utf-8', errors='replace').strip()
+        def _handbrake_handler(line: str) -> None:
             match = _PCT_PATTERN.search(line)
-            if match:
-                # HandBrake emits "12.34 % (45.67 fps, avg 40.12 fps, ETA ...)".
-                # Prefer the instantaneous reading; fall back to avg.
-                fps_match = _FPS_PATTERN.search(line)
-                fps = float(fps_match.group(1)) if fps_match else None
-                await self._update_progress(job_id, float(match.group(1)), fps=fps)
+            if not match:
+                return
+            # HandBrake emits "12.34 % (45.67 fps, avg 40.12 fps, ETA ...)".
+            # Prefer the instantaneous reading; fall back to avg.
+            fps_match = _FPS_PATTERN.search(line)
+            fps = float(fps_match.group(1)) if fps_match else None
+            # _update_progress is async but the handler interface is sync;
+            # schedule the coroutine without blocking the reader. The
+            # progress write itself is rate-limited inside _update_progress,
+            # so the create_task fan-out cannot flood the DB.
+            asyncio.create_task(
+                self._update_progress(job_id, float(match.group(1)), fps=fps)
+            )
 
-        await process.wait()
+        try:
+            await self._stream_progress_lines(
+                process, job_id, line_handler=_handbrake_handler,
+            )
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
 
         if process.returncode != 0:
             raise RuntimeError(f"HandBrake failed with exit code {process.returncode}")
@@ -1639,15 +1759,13 @@ class TranscodeWorker:
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            limit=1024 * 1024,  # 1 MiB line limit
+            # See HandBrake reader for the buffer-size rationale.
         )
 
         # Get duration for progress calculation
         duration = await self._get_video_duration(source)
 
-        async for line in process.stdout:
-            line = line.decode('utf-8', errors='replace').strip()
-
+        def _ffmpeg_handler(line: str) -> None:
             # Parse FFmpeg progress: "time=00:01:23.45"
             match = _TIME_PATTERN.search(line)
             if match and duration:
@@ -1657,9 +1775,18 @@ class TranscodeWorker:
                 # FFmpeg stats line includes "fps=NN" or "fps=NN.N".
                 fps_match = _FFMPEG_FPS_PATTERN.search(line)
                 fps = float(fps_match.group(1)) if fps_match else None
-                await self._update_progress(job_id, file_progress, fps=fps)
+                # _update_progress is async but the handler interface is sync;
+                # schedule the coroutine without blocking the reader.
+                asyncio.create_task(self._update_progress(job_id, file_progress, fps=fps))
 
-        await process.wait()
+        try:
+            await self._stream_progress_lines(
+                process, job_id, line_handler=_ffmpeg_handler,
+            )
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
 
         if process.returncode != 0:
             raise RuntimeError(f"FFmpeg failed with exit code {process.returncode}")

@@ -1220,6 +1220,7 @@ class TestHandBrakePresetSelection:
             mock_proc.stdout = AsyncMock()
             mock_proc.stdout.__aiter__ = lambda self: self
             mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+            mock_proc.stdout.read = AsyncMock(return_value=b"")
             mock_proc.wait = AsyncMock(return_value=0)
             return mock_proc
 

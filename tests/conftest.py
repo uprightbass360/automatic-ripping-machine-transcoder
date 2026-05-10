@@ -111,6 +111,8 @@ def mock_subprocess():
     mock_proc.stdout = AsyncMock()
     mock_proc.stdout.__aiter__ = lambda self: self
     mock_proc.stdout.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+    # _stream_progress_lines reads stdout in fixed chunks; b"" means EOF.
+    mock_proc.stdout.read = AsyncMock(return_value=b"")
     mock_proc.wait = AsyncMock(return_value=0)
     mock_proc.communicate = AsyncMock(return_value=(b"3600.0", b""))
     return mock_proc
