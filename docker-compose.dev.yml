@@ -18,18 +18,15 @@ services:
       - REQUIRE_API_AUTH=false
       - API_KEYS=
       - WEBHOOK_SECRET=
-      # Transcoding
-      - VIDEO_ENCODER=x265
-      - VIDEO_QUALITY=22
-      - AUDIO_ENCODER=copy
-      - SUBTITLE_MODE=all
-      - HANDBRAKE_PRESET=
-      - HANDBRAKE_PRESET_4K=H.265 MKV 2160p60
-      - HANDBRAKE_PRESET_FILE=
+      # ARM callback — notify ARM when jobs complete/fail (set on
+      # docker compose run for dev with a real ARM, otherwise leave empty)
+      - ARM_CALLBACK_URL=${ARM_CALLBACK_URL:-}
+      # Encoder selection is driven by the preset system. v1 flat keys
+      # (VIDEO_ENCODER / HANDBRAKE_PRESET*) were retired in the v17.x
+      # preset rollout. Dev runs against the software preset by default.
       # File handling
       - DELETE_SOURCE=false
       - OUTPUT_EXTENSION=mkv
-      # Organization
       # Performance
       - MAX_CONCURRENT=1
       - STABILIZE_SECONDS=10

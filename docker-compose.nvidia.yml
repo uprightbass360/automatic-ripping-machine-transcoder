@@ -25,19 +25,14 @@ services:
       - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
       # ARM callback — notify ARM when jobs complete/fail
       - ARM_CALLBACK_URL=${ARM_CALLBACK_URL:-}
-      # Transcoding
-      - VIDEO_ENCODER=${VIDEO_ENCODER:-nvenc_h265}
-      - VIDEO_QUALITY=${VIDEO_QUALITY:-22}
-      - AUDIO_ENCODER=${AUDIO_ENCODER:-copy}
-      - SUBTITLE_MODE=${SUBTITLE_MODE:-all}
-      - HANDBRAKE_PRESET=${HANDBRAKE_PRESET:-}
-      - HANDBRAKE_PRESET_4K=${HANDBRAKE_PRESET_4K:-H.265 NVENC 2160p 4K}
-      - HANDBRAKE_PRESET_FILE=${HANDBRAKE_PRESET_FILE:-}
+      # Encoder selection is driven by the preset system (the nvidia
+      # scheme in src/presets/schemes/nvidia.py provides defaults
+      # tuned for NVENC). v1 flat keys (VIDEO_ENCODER /
+      # HANDBRAKE_PRESET*) were retired in the v17.x preset rollout.
       - LOG_LEVEL_LIBRARIES=${LOG_LEVEL_LIBRARIES:-WARNING}
       # File handling
       - DELETE_SOURCE=${DELETE_SOURCE:-true}
       - OUTPUT_EXTENSION=${OUTPUT_EXTENSION:-mkv}
-      # Organization
       # Performance
       - MAX_CONCURRENT=${MAX_CONCURRENT:-1}
       - STABILIZE_SECONDS=${STABILIZE_SECONDS:-60}
