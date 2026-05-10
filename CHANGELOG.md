@@ -1,5 +1,22 @@
 # Changelog
 
+## [18.1.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v18.0.0...v18.1.0) (2026-05-10)
+
+
+### Features
+
+* **presets:** add /api/v1/handbrake-presets endpoint ([b11681c](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/b11681c86aea9413c999754e669839b2362b1c0d))
+* **rsync:** add run_rsync_async helper ([d09f929](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/d09f929b0e9a55d6c02f60f0df8f941ff7e7a214))
+* **transcoder:** drive copying_source/finalizing progress from rsync ([54e9f36](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/54e9f3697963916637178d145f623868a3ec4f5a))
+
+
+### Bug Fixes
+
+* **tests:** use pytest.approx for rsync progress final-event assertion ([ff63251](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/ff6325189ccfde25746fcea6c9c162550354e320))
+* **transcoder:** chunk-and-split stdout reader to avoid CR-overwrite deadlock ([1c886a2](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/1c886a23a969907421fbc00f6bd959321356195f))
+* **transcoder:** retain strong refs to fire-and-forget progress tasks ([fd4b035](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/fd4b035ba4487440055b2ce19b055edb8bded16f))
+* **webhook:** raise body cap to 64KB so multi-track 4K BD payloads pass ([1774cad](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/1774cad0c4f713042f092717e49bf6101714e715))
+
 ## [18.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v17.6.0...v18.0.0) (2026-05-08)
 
 
