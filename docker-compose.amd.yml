@@ -23,19 +23,19 @@ services:
       - REQUIRE_API_AUTH=${REQUIRE_API_AUTH:-false}
       - API_KEYS=${API_KEYS:-}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
-      # Transcoding
-      - VIDEO_ENCODER=${VIDEO_ENCODER:-vaapi_h265}
-      - VIDEO_QUALITY=${VIDEO_QUALITY:-22}
-      - AUDIO_ENCODER=${AUDIO_ENCODER:-copy}
-      - SUBTITLE_MODE=${SUBTITLE_MODE:-all}
-      - HANDBRAKE_PRESET=${HANDBRAKE_PRESET:-}
-      - HANDBRAKE_PRESET_4K=${HANDBRAKE_PRESET_4K:-H.265 VCN 2160p 4K}
-      - HANDBRAKE_PRESET_FILE=${HANDBRAKE_PRESET_FILE:-}
+      # ARM callback — notify ARM when jobs complete/fail
+      - ARM_CALLBACK_URL=${ARM_CALLBACK_URL:-}
+      # Encoder selection is driven by the preset system (the amd
+      # scheme in src/presets/schemes/amd.py provides defaults tuned
+      # for VCN/VAAPI). v1 flat keys (VIDEO_ENCODER /
+      # HANDBRAKE_PRESET*) were retired in the v17.x preset rollout.
+      # VAAPI_DEVICE remains a live env var: read directly via
+      # os.environ.get in src/transcoder.py for the hardware probe.
       - VAAPI_DEVICE=/dev/dri/renderD128
+      - LOG_LEVEL_LIBRARIES=${LOG_LEVEL_LIBRARIES:-WARNING}
       # File handling
       - DELETE_SOURCE=${DELETE_SOURCE:-true}
       - OUTPUT_EXTENSION=${OUTPUT_EXTENSION:-mkv}
-      # Organization
       # Performance
       - MAX_CONCURRENT=${MAX_CONCURRENT:-1}
       - STABILIZE_SECONDS=${STABILIZE_SECONDS:-60}

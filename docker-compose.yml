@@ -26,20 +26,15 @@ services:
       - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
       # ARM callback — notify ARM when jobs complete/fail
       - ARM_CALLBACK_URL=${ARM_CALLBACK_URL:-}
-      # Transcoding
-      - VIDEO_ENCODER=${VIDEO_ENCODER:-x265}
-      - VIDEO_QUALITY=${VIDEO_QUALITY:-22}
-      - AUDIO_ENCODER=${AUDIO_ENCODER:-copy}
-      - SUBTITLE_MODE=${SUBTITLE_MODE:-all}
-      - HANDBRAKE_PRESET=${HANDBRAKE_PRESET:-}
-      - HANDBRAKE_PRESET_4K=${HANDBRAKE_PRESET_4K:-}
-      - HANDBRAKE_PRESET_DVD=${HANDBRAKE_PRESET_DVD:-}
-      - HANDBRAKE_PRESET_FILE=${HANDBRAKE_PRESET_FILE:-}
+      # Encoding is driven by the preset system (selected_preset_slug +
+      # global_overrides via PATCH /config). The flat v1 keys
+      # (VIDEO_ENCODER / VIDEO_QUALITY / AUDIO_ENCODER / SUBTITLE_MODE /
+      # HANDBRAKE_PRESET*) were retired in the v17.x preset rollout and
+      # are no longer read by the transcoder.
       - LOG_LEVEL_LIBRARIES=${LOG_LEVEL_LIBRARIES:-WARNING}
       # File handling
       - DELETE_SOURCE=${DELETE_SOURCE:-true}
       - OUTPUT_EXTENSION=${OUTPUT_EXTENSION:-mkv}
-      # Organization
       # Performance
       - MAX_CONCURRENT=${MAX_CONCURRENT:-1}
       - STABILIZE_SECONDS=${STABILIZE_SECONDS:-60}
