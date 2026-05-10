@@ -209,6 +209,9 @@ class TranscodeWorker:
         self._last_progress: dict[int, float] = {}
         self._last_progress_time: dict[int, float] = {}
         self._queue_lock = asyncio.Lock()
+        # Strong refs to fire-and-forget progress tasks so the GC doesn't reap
+        # them mid-flight (asyncio's task list is weak-ref only).
+        self._progress_tasks: set[asyncio.Task] = set()
         # Set by main.py lifespan after worker construction. See callback_drainer.py.
         self._drainer = None
 
@@ -562,6 +565,17 @@ class TranscodeWorker:
             await self._update_job(job_id, **update_kwargs)
             self._last_progress[job_id] = progress
             self._last_progress_time[job_id] = now
+
+    def _spawn_progress_task(self, coro) -> None:
+        """Schedule a fire-and-forget progress update with strong ref retention.
+
+        asyncio's task registry holds weak refs only, so a bare
+        `asyncio.create_task(coro)` can be GC'd before it runs. We pin the
+        task on `self._progress_tasks` and drop it again on completion.
+        """
+        task = asyncio.create_task(coro)
+        self._progress_tasks.add(task)
+        task.add_done_callback(self._progress_tasks.discard)
 
     async def _stream_progress_lines(
         self,
@@ -1622,7 +1636,7 @@ class TranscodeWorker:
             # schedule the coroutine without blocking the reader. The
             # progress write itself is rate-limited inside _update_progress,
             # so the create_task fan-out cannot flood the DB.
-            asyncio.create_task(
+            self._spawn_progress_task(
                 self._update_progress(job_id, float(match.group(1)), fps=fps)
             )
 
@@ -1777,7 +1791,9 @@ class TranscodeWorker:
                 fps = float(fps_match.group(1)) if fps_match else None
                 # _update_progress is async but the handler interface is sync;
                 # schedule the coroutine without blocking the reader.
-                asyncio.create_task(self._update_progress(job_id, file_progress, fps=fps))
+                self._spawn_progress_task(
+                    self._update_progress(job_id, file_progress, fps=fps)
+                )
 
         try:
             await self._stream_progress_lines(
