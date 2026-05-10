@@ -319,9 +319,15 @@ class TestDiscoverOrPassthrough:
 # ── _transcode_file_ffmpeg ───────────────────────────────────────────────────
 
 class _AsyncLineIterator:
-    """Helper to mock async stdout line iteration."""
+    """Helper to mock async stdout line iteration.
+
+    Supports both the legacy `async for line in stdout` interface and the
+    new chunk-based `await stdout.read(n)` interface used by
+    `_stream_progress_lines`.
+    """
     def __init__(self, lines):
         self._lines = iter(lines)
+        self._buffer = b"".join(lines) if lines else b""
 
     def __aiter__(self):
         return self
@@ -331,6 +337,15 @@ class _AsyncLineIterator:
             return next(self._lines)
         except StopIteration:
             raise StopAsyncIteration
+
+    async def read(self, n: int = -1) -> bytes:
+        if not self._buffer:
+            return b""
+        if n < 0 or n >= len(self._buffer):
+            chunk, self._buffer = self._buffer, b""
+        else:
+            chunk, self._buffer = self._buffer[:n], self._buffer[n:]
+        return chunk
 
 
 class TestTranscodeFileFFmpeg:
