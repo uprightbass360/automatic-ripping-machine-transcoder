@@ -354,55 +354,35 @@ WEBHOOK_SECRET=mySecret
 - `src/config.py` — `minimum_free_space_gb` setting (default 10)
 - `src/transcoder.py` — pre-job check wired in `_process_job` before copy
 
-### 4.7 Audio CD Passthrough — COMPLETE
+### 4.7 Audio CD Passthrough — COMPLETE (v17.x), superseded by webhook-driven output_path in v18.0.0
 
-**Implementation:**
+**v17.x implementation (audio passthrough still in place):**
 - ~~Detect audio-only source directories (FLAC/MP3/OGG/WAV/M4A/WMA/AAC/ALAC)~~
-- ~~Copy audio files directly to `completed_path/audio/Title/` without transcoding~~
+- ~~Copy audio files directly without transcoding~~
 - ~~Mark job as COMPLETED with track count~~
 - ~~Clean up source directory when `delete_source` is set~~
 - ~~Mixed MKV + audio directories treated as video (MKV path takes priority)~~
-- ~~Updated error message: "No video or audio files found" when neither type present~~
 
-**Configuration:**
-```
-AUDIO_SUBDIR=audio  # default
-```
+**Output-path partitioning removed in v18.0.0:**
+- The transcoder no longer infers an audio subdirectory from config. ARM resolves the full output directory (including any `AUDIO_SUBDIR`-style partition) and sends it as the webhook's `output_path` field. The transcoder joins `payload.output_path` to `settings.completed_path` and writes there.
+- `audio_subdir` was removed from `src/config.py`; the matching `AUDIO_SUBDIR` env var no longer has any effect on transcoder side.
 
-**Files Modified:**
-- `src/constants.py` — `AUDIO_FILE_EXTENSIONS` set (8 formats)
-- `src/config.py` — `audio_subdir` setting (default "audio")
-- `src/transcoder.py` — `_discover_audio_files()`, `_passthrough_audio()`, updated `_process_job()` fallback logic
+**Files (current):**
+- `src/constants.py` — `AUDIO_FILE_EXTENSIONS` set (still used to detect audio-only sources)
+- `src/transcoder.py` — `_discover_audio_files()`, `_passthrough_audio()` still ship the bytes; output dir comes from `payload.output_path`
 
-**Test Cases (all covered):**
-- ~~Audio files copied to audio/ and job marked COMPLETED~~
-- ~~Mixed MKV + audio treated as video~~
-- ~~No video or audio files fails with updated error message~~
-- ~~Source cleanup after audio passthrough~~
-- ~~Audio file discovery: FLAC, mixed formats, empty dirs, single files, sort order~~
+### 4.8 TV/Movie Routing — moved to ARM in v18.0.0
 
-### 4.8 TV Show Detection — COMPLETE
+**Pre-v18 transcoder behavior (REMOVED):**
+- ~~Detect TV shows via naming patterns (`S01`, `S01E01`)~~
+- ~~Route TV to `TV_SUBDIR`, movies to `MOVIES_SUBDIR` from transcoder config~~
 
-**Implementation:**
-- ~~Detect TV shows via ARM naming patterns (`S01`, `S01E01`, etc.) in title or source path~~
-- ~~Route TV shows to `TV_SUBDIR` (default `tv/`) and movies to `MOVIES_SUBDIR` (default `movies/`)~~
-- ~~Case-insensitive matching, supports underscore separators~~
+**Current v18.0.0+ behavior:**
+- The transcoder does not classify or route by video type. ARM is the single source of truth for output paths and folds any per-type subdir partition (movies/, tv/, audio/, unidentified/) into the webhook's `output_path` field.
+- `tv_subdir`, `movies_subdir`, `audio_subdir`, `unidentified_subdir` were removed from `src/config.py`. The matching `TV_SUBDIR` / `MOVIES_SUBDIR` / `AUDIO_SUBDIR` / `UNIDENTIFIED_SUBDIR` env vars are now ARM-side (in `arm.yaml`) and have no effect on the transcoder.
+- `_detect_video_type()` / `_determine_output_path()` in the pre-v18 transcoder are gone; see the `output_path` handling in the webhook router instead.
 
-**Configuration:**
-```
-MOVIES_SUBDIR=movies  # default
-TV_SUBDIR=tv          # default
-```
-
-**Files Modified:**
-- `src/transcoder.py` — `_detect_video_type()`, `_determine_output_path()` uses video type for subdirectory routing
-- `src/config.py` — `tv_subdir` setting
-
-**Test Cases (all covered in `tests/test_transcoder.py`):**
-- ~~Movie titles (plain, with year)~~
-- ~~TV season+episode, season-only, detected from source path~~
-- ~~Case insensitive, underscore separators~~
-- ~~Movie with 'S' in title not falsely detected~~
+See `docs/WEBHOOK-PAYLOAD.md` for the current path policy.
 
 ### 4.9 Resolution-Based Preset Selection — COMPLETE
 

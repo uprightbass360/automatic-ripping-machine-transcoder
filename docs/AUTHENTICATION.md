@@ -82,6 +82,21 @@ Webhooks from ARM use a separate secret:
 WEBHOOK_SECRET=your-webhook-secret
 ```
 
+### Required: `X-Api-Version` header
+
+As of v17.4.0 the webhook router enforces an API-version handshake.
+Every `POST /webhook/arm` request **must** include:
+
+```
+X-Api-Version: 2
+```
+
+The strict-mode flag `ACCEPT_MISSING_VERSION_HEADER = False` lives in
+`src/version.py`; missing-header requests are rejected with HTTP 400.
+ARM clients on v16.0.0+ send the header automatically. If you operate a
+custom ARM deployment or hand-craft webhook POSTs (curl, smoke scripts),
+add the header explicitly or your webhook will 400 silently.
+
 ### Configure ARM
 
 Update your ARM `arm.yaml`:
@@ -95,8 +110,9 @@ TRANSCODER_URL: "http://transcoder-ip:5000/webhook/arm"
 ```bash
 curl -X POST \
   -H "X-Webhook-Secret: your-webhook-secret" \
+  -H "X-Api-Version: 2" \
   -H "Content-Type: application/json" \
-  -d '{"title":"Test","body":"Rip of Movie (2024) complete","status":"success"}' \
+  -d '{"title":"Test","body":"Rip of Movie (2024) complete","status":"success","job_id":1}' \
   http://localhost:5000/webhook/arm
 ```
 
