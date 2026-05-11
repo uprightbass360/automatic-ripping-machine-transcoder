@@ -749,7 +749,7 @@ class TestPresetSnapshotOncePerJob:
 
         received_snapshots = []
 
-        async def fake_transcode(source, output, job_id, overrides=None, *, preset_snapshot=None):
+        async def fake_transcode(source, output, job_id, overrides=None, *, preset_snapshot=None, file_index=0, total_files=1):
             received_snapshots.append(preset_snapshot)
 
         mock_settings = MagicMock()
@@ -834,7 +834,7 @@ class TestPresetSnapshotOncePerJob:
         # the effective preset MUST remain test_sw.
         seen_encoders = []
 
-        async def capture_transcode(source, output, job_id, overrides=None, *, preset_snapshot=None):
+        async def capture_transcode(source, output, job_id, overrides=None, *, preset_snapshot=None, file_index=0, total_files=1):
             with patch("main.active_scheme", scheme_with_both), \
                  patch("transcoder.settings", mock_settings):
                 effective = await worker._resolve_effective_settings(
@@ -909,3 +909,125 @@ class TestTranscodePhase:
             result = await session.execute(_sel(TranscodeJobDB).where(TranscodeJobDB.id == 3))
             job = result.scalar_one()
         assert job.phase == "queued"
+
+
+class TestMultiFileProgressScaling:
+    """File-index-aware progress writes for multi-file jobs.
+
+    HandBrake / FFmpeg emit per-FILE progress (0..100% per file). When a
+    job has N source files, the per-file value must be scaled to overall
+    job progress before being persisted, otherwise the rate limiter sees
+    backward jumps at every file boundary and suppresses all writes after
+    file 0 completes. The job appears stuck at 0% (or the file-0 high-water
+    mark) for the rest of the encode.
+    """
+
+    @pytest.mark.asyncio
+    async def test_handbrake_scales_progress_by_file_index(self, worker_with_db, tmp_path):
+        """File 0 of 3 at 60% file-progress should write 20.0% overall."""
+        worker, _ = worker_with_db
+
+        source = tmp_path / "in.mkv"
+        source.write_bytes(b"\x00" * 100)
+        output = tmp_path / "out.mkv"
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = _AsyncLineIterator([
+            b"Encoding: task 1 of 1, 60.00 % (45.67 fps, ETA 00h05m30s)\n",
+        ])
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
+             patch.object(worker, "_update_progress", new_callable=AsyncMock) as mock_progress:
+            output.write_bytes(b"\x00" * 50)
+            await worker._transcode_file_handbrake(
+                source, output, job_id=1, file_index=0, total_files=3,
+            )
+
+        mock_progress.assert_called_once()
+        # (0 + 60/100) / 3 * 100 == 20.0
+        assert mock_progress.call_args.args[1] == pytest.approx(20.0)
+
+    @pytest.mark.asyncio
+    async def test_handbrake_scales_progress_mid_job(self, worker_with_db, tmp_path):
+        """File 3 of 6 at 50% file-progress should write 58.33% overall."""
+        worker, _ = worker_with_db
+
+        source = tmp_path / "in.mkv"
+        source.write_bytes(b"\x00" * 100)
+        output = tmp_path / "out.mkv"
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = _AsyncLineIterator([
+            b"Encoding: task 1 of 1, 50.00 %\n",
+        ])
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
+             patch.object(worker, "_update_progress", new_callable=AsyncMock) as mock_progress:
+            output.write_bytes(b"\x00" * 50)
+            await worker._transcode_file_handbrake(
+                source, output, job_id=1, file_index=3, total_files=6,
+            )
+
+        mock_progress.assert_called_once()
+        # (3 + 50/100) / 6 * 100 == 58.3333...
+        assert mock_progress.call_args.args[1] == pytest.approx(58.333, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_handbrake_single_file_unchanged(self, worker_with_db, tmp_path):
+        """file_index=0, total_files=1 (default) is a no-op scaling."""
+        worker, _ = worker_with_db
+
+        source = tmp_path / "in.mkv"
+        source.write_bytes(b"\x00" * 100)
+        output = tmp_path / "out.mkv"
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = _AsyncLineIterator([
+            b"Encoding: task 1 of 1, 33.30 %\n",
+        ])
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
+             patch.object(worker, "_update_progress", new_callable=AsyncMock) as mock_progress:
+            output.write_bytes(b"\x00" * 50)
+            await worker._transcode_file_handbrake(source, output, job_id=1)
+
+        mock_progress.assert_called_once()
+        # (0 + 33.3/100) / 1 * 100 == 33.3
+        assert mock_progress.call_args.args[1] == pytest.approx(33.30)
+
+    @pytest.mark.asyncio
+    async def test_ffmpeg_scales_progress_by_file_index(self, worker_with_db, tmp_path):
+        """Same scaling applies to the FFmpeg path."""
+        worker, _ = worker_with_db
+
+        source = tmp_path / "in.mkv"
+        source.write_bytes(b"\x00" * 100)
+        output = tmp_path / "out.mkv"
+
+        mock_proc = AsyncMock()
+        # FFmpeg-style stats: time=00:30:00 of a 60-min file = 50% file-progress.
+        mock_proc.stdout = _AsyncLineIterator([
+            b"frame=  100 fps= 24.0 time=00:30:00.00 bitrate=...\n",
+        ])
+        mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
+             patch.object(worker, "_get_video_resolution", new_callable=AsyncMock, return_value=(1920, 1080)), \
+             patch.object(worker, "_get_video_duration", new_callable=AsyncMock, return_value=3600.0), \
+             patch.object(worker, "_build_ffmpeg_command", return_value=["ffmpeg"]), \
+             patch.object(worker, "_update_progress", new_callable=AsyncMock) as mock_progress:
+            output.write_bytes(b"\x00" * 50)
+            await worker._transcode_file_ffmpeg(
+                source, output, job_id=1, file_index=1, total_files=4,
+            )
+
+        mock_progress.assert_called_once()
+        # (1 + 50/100) / 4 * 100 == 37.5
+        assert mock_progress.call_args.args[1] == pytest.approx(37.5)
