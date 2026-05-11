@@ -884,11 +884,13 @@ class TranscodeWorker:
                     await self._transcode_file_ffmpeg(
                         source_file, output_file, job.id,
                         overrides=overrides, preset_snapshot=preset_snapshot,
+                        file_index=i, total_files=len(local_source_files),
                     )
                 else:
                     await self._transcode_file_handbrake(
                         source_file, output_file, job.id,
                         overrides=overrides, preset_snapshot=preset_snapshot,
+                        file_index=i, total_files=len(local_source_files),
                     )
                 file_results.append({"file": source_file.name, "status": "completed"})
             except Exception as e:
@@ -1572,8 +1574,19 @@ class TranscodeWorker:
         overrides: dict | None = None,
         *,
         preset_snapshot: PresetSnapshot | None = None,
+        file_index: int = 0,
+        total_files: int = 1,
     ):
-        """Transcode a single file using HandBrake."""
+        """Transcode a single file using HandBrake.
+
+        ``file_index`` (0-based) and ``total_files`` are used to scale the
+        per-file progress value HandBrake emits (0..100% per file) into an
+        overall job-progress value (0..100% across all files). Without
+        this scaling, the rate-limiter in :meth:`_update_progress` would
+        see a backwards jump at every file boundary and suppress all
+        writes after file 0 completes, leaving the UI stuck at the
+        file-0 high-water mark for the rest of the encode.
+        """
         resolution = await self._get_video_resolution(source)
         effective = await self._resolve_effective_settings(
             resolution, overrides, snapshot=preset_snapshot,
@@ -1632,12 +1645,17 @@ class TranscodeWorker:
             # Prefer the instantaneous reading; fall back to avg.
             fps_match = _FPS_PATTERN.search(line)
             fps = float(fps_match.group(1)) if fps_match else None
+            # Scale per-file progress to overall job progress so the
+            # rate-limiter sees monotonically-increasing values across
+            # file boundaries.
+            file_progress = float(match.group(1))
+            overall = (file_index + file_progress / 100.0) / total_files * 100.0
             # _update_progress is async but the handler interface is sync;
             # schedule the coroutine without blocking the reader. The
             # progress write itself is rate-limited inside _update_progress,
             # so the create_task fan-out cannot flood the DB.
             self._spawn_progress_task(
-                self._update_progress(job_id, float(match.group(1)), fps=fps)
+                self._update_progress(job_id, overall, fps=fps)
             )
 
         try:
@@ -1758,6 +1776,8 @@ class TranscodeWorker:
         overrides: dict | None = None,
         *,
         preset_snapshot: PresetSnapshot | None = None,
+        file_index: int = 0,
+        total_files: int = 1,
     ):
         """Transcode a single file using FFmpeg."""
         resolution = await self._get_video_resolution(source)
@@ -1789,10 +1809,14 @@ class TranscodeWorker:
                 # FFmpeg stats line includes "fps=NN" or "fps=NN.N".
                 fps_match = _FFMPEG_FPS_PATTERN.search(line)
                 fps = float(fps_match.group(1)) if fps_match else None
+                # Scale per-file progress to overall job progress so the
+                # rate-limiter sees monotonically-increasing values across
+                # file boundaries.
+                overall = (file_index + file_progress / 100.0) / total_files * 100.0
                 # _update_progress is async but the handler interface is sync;
                 # schedule the coroutine without blocking the reader.
                 self._spawn_progress_task(
-                    self._update_progress(job_id, file_progress, fps=fps)
+                    self._update_progress(job_id, overall, fps=fps)
                 )
 
         try:
