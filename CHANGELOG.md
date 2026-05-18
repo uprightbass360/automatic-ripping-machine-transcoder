@@ -1,5 +1,12 @@
 # Changelog
 
+## [18.1.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v18.1.0...v18.1.1) (2026-05-18)
+
+
+### Bug Fixes
+
+* **progress:** scale per-file progress to overall for multi-file jobs ([6ad4ad3](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/6ad4ad38ebab87a8e15196e926c21eaf16535614))
+
 ## [18.1.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v18.0.0...v18.1.0) (2026-05-10)
 
 
