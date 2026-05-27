@@ -1,5 +1,17 @@
 # Changelog
 
+## [19.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v18.1.1...v19.0.0) (2026-05-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* contracts has breaking commits in this bump. Review the commit list above and verify consumer code still compiles before merging. release-please will cut a major consumer release when this PR lands.
+
+### Features
+
+* bump components/contracts to 3c73257 ([58de7f3](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/58de7f3e6a51f73652e385ae4898c2e1686fd998))
+* bump components/contracts to 5e9a6c2 ([6cce1da](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/6cce1da7ce5eb64126514146af3b3b4eea387b1e))
+
 ## [18.1.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v18.1.0...v18.1.1) (2026-05-18)
 
 
