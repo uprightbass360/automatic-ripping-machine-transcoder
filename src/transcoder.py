@@ -49,10 +49,78 @@ _MKV_GLOB = "*.mkv"
 # and FFmpeg can produce very long lines and we don't want to give an
 # attacker who can influence the output a way to wedge the worker.
 _NUM = r'\d+(?:\.\d+)?'  # Non-overlapping integer + optional fractional.
-_PCT_PATTERN = re.compile(rf'({_NUM})\s*%')
-_FPS_PATTERN = re.compile(rf'({_NUM})\s*fps')          # HandBrake "12.3 fps"
+# HandBrake progress is now parsed from --json blocks (see
+# _HandBrakeJsonProgress); the old %/fps line scrapers were removed with
+# that switch. FFmpeg still writes fps to stderr regardless of TTY.
 _FFMPEG_FPS_PATTERN = re.compile(rf'\bfps=\s*({_NUM})')  # FFmpeg "fps=24.0"
 _TIME_PATTERN = re.compile(rf'time=(\d+):(\d+):({_NUM})')
+
+
+class _HandBrakeJsonProgress:
+    """Accumulate HandBrake ``--json`` progress blocks fed one line at a time.
+
+    HandBrakeCLI 1.10.2 does not emit the human ``\\r12.3 % (45 fps)``
+    progress line when stdout is a pipe (no TTY), so the old %-scraping
+    handler never fired and the UI showed jobs stuck at 0%. With ``--json``
+    HandBrake instead prints labelled JSON objects, e.g.::
+
+        Progress:
+        {
+            "Progress": { "Progress": 0.4231, "Rate": 45.6, "RateAvg": 40.1, ... },
+            "State": "WORKING"
+        }
+
+    The stdout reader (:meth:`TranscodeWorker._stream_progress_lines`)
+    normalises ``\\r``→``\\n`` and splits, so this parser is fed ONE line at
+    a time and must buffer a block across calls. :meth:`feed` returns
+    ``(fraction, fps)`` once, on the line that closes a ``Progress:`` block,
+    and ``None`` otherwise. ``fraction`` is the per-file 0..1 value;
+    ``fps`` prefers the instantaneous ``Rate`` and falls back to ``RateAvg``.
+
+    Non-progress blocks HandBrake also emits with ``--json`` (``Version:``,
+    ``JSON Title Set:``) are ignored because we only start collecting after
+    the literal ``Progress:`` label. Malformed JSON self-heals: the parser
+    resets to idle and returns ``None`` without raising.
+    """
+
+    def __init__(self) -> None:
+        self._collecting = False
+        self._lines: list[str] = []
+        self._depth = 0
+
+    def feed(self, line: str) -> tuple[float, float | None] | None:
+        if not self._collecting:
+            # Only the literal "Progress:" label opens a block we care about.
+            if line.strip() == "Progress:":
+                self._collecting = True
+                self._lines = []
+                self._depth = 0
+            return None
+
+        self._lines.append(line)
+        self._depth += line.count("{") - line.count("}")
+        # The object is complete once braces balance and we've seen at least
+        # one '{'. Until the first '{' arrives depth stays 0, so guard on it.
+        if self._depth > 0 or not any("{" in s for s in self._lines):
+            return None
+
+        block = "\n".join(self._lines)
+        self._collecting = False
+        self._lines = []
+        try:
+            data = json.loads(block)
+            prog = data.get("Progress", {})
+            fraction = prog.get("Progress")
+            if not isinstance(fraction, (int, float)):
+                return None
+            rate = prog.get("Rate")
+            if not isinstance(rate, (int, float)) or rate <= 0:
+                rate = prog.get("RateAvg")
+            fps = float(rate) if isinstance(rate, (int, float)) and rate > 0 else None
+            return float(fraction), fps
+        except (ValueError, TypeError):
+            # Malformed JSON: drop the block and recover on the next one.
+            return None
 
 
 def _ffmpeg_encoder_works(encoder: str, hwaccel: str | None = None) -> bool:
@@ -1592,7 +1660,10 @@ class TranscodeWorker:
             resolution, overrides, snapshot=preset_snapshot,
         )
 
-        cmd = ["HandBrakeCLI", "-i", str(source), "-o", str(output)]
+        # --json makes HandBrake emit structured progress blocks regardless
+        # of TTY. Without it, HandBrakeCLI 1.10.x is silent on progress when
+        # stdout is a pipe, leaving the UI stuck at 0% (jobs look "hung").
+        cmd = ["HandBrakeCLI", "--json", "-i", str(source), "-o", str(output)]
 
         video_encoder = effective.get("video_encoder")
         if video_encoder:
@@ -1637,19 +1708,20 @@ class TranscodeWorker:
             # `\r12.34 % (45.67 fps, ...)\r12.35 % ...` with no \n in between.
         )
 
+        # HandBrake --json emits multi-line `Progress: {...}` blocks; this
+        # parser accumulates them across the one-line-at-a-time handler calls
+        # and yields (per-file fraction 0..1, fps) on each block close.
+        hb_progress = _HandBrakeJsonProgress()
+
         def _handbrake_handler(line: str) -> None:
-            match = _PCT_PATTERN.search(line)
-            if not match:
+            parsed = hb_progress.feed(line)
+            if parsed is None:
                 return
-            # HandBrake emits "12.34 % (45.67 fps, avg 40.12 fps, ETA ...)".
-            # Prefer the instantaneous reading; fall back to avg.
-            fps_match = _FPS_PATTERN.search(line)
-            fps = float(fps_match.group(1)) if fps_match else None
+            file_progress_fraction, fps = parsed
             # Scale per-file progress to overall job progress so the
             # rate-limiter sees monotonically-increasing values across
             # file boundaries.
-            file_progress = float(match.group(1))
-            overall = (file_index + file_progress / 100.0) / total_files * 100.0
+            overall = (file_index + file_progress_fraction) / total_files * 100.0
             # _update_progress is async but the handler interface is sync;
             # schedule the coroutine without blocking the reader. The
             # progress write itself is rate-limited inside _update_progress,
