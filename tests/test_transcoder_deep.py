@@ -348,6 +348,27 @@ class _AsyncLineIterator:
         return chunk
 
 
+def _hb_json_progress(fraction: float, *, rate: float = 0.0,
+                      rate_avg: float = 0.0) -> bytes:
+    """Build a HandBrake ``--json`` ``Progress:`` block as stdout bytes.
+
+    Mirrors the labelled multi-line JSON HandBrakeCLI emits with --json.
+    ``fraction`` is the 0..1 per-file progress; ``rate``/``rate_avg`` are
+    the instantaneous/average fps. Used to drive the JSON progress parser
+    through ``_transcode_file_handbrake`` in tests."""
+    block = {
+        "Progress": {
+            "Progress": fraction,
+            "Rate": rate,
+            "RateAvg": rate_avg,
+            "ETASeconds": 30,
+            "Pass": 1,
+        },
+        "State": "WORKING",
+    }
+    return ("Progress:\n" + json.dumps(block, indent=4) + "\n").encode()
+
+
 class TestTranscodeFileFFmpeg:
     @pytest.mark.asyncio
     async def test_ffmpeg_transcode_success(self, worker_with_db, tmp_path):
@@ -510,7 +531,7 @@ class TestTranscodeFileHandBrake:
 
         mock_proc = AsyncMock()
         mock_proc.stdout = _AsyncLineIterator([
-            b"Encoding: task 1 of 1, 12.34 % (45.67 fps, avg 40.12 fps, ETA 00h05m30s)\n",
+            _hb_json_progress(0.1234, rate=45.67),
         ])
         mock_proc.wait = AsyncMock(return_value=0)
         mock_proc.returncode = 0
@@ -535,7 +556,7 @@ class TestTranscodeFileHandBrake:
 
         mock_proc = AsyncMock()
         mock_proc.stdout = _AsyncLineIterator([
-            b"Encoding: task 1 of 1, 7.5 %\n",  # No fps section
+            _hb_json_progress(0.075, rate=0.0, rate_avg=0.0),  # No fps reading
         ])
         mock_proc.wait = AsyncMock(return_value=0)
         mock_proc.returncode = 0
@@ -933,7 +954,7 @@ class TestMultiFileProgressScaling:
 
         mock_proc = AsyncMock()
         mock_proc.stdout = _AsyncLineIterator([
-            b"Encoding: task 1 of 1, 60.00 % (45.67 fps, ETA 00h05m30s)\n",
+            _hb_json_progress(0.60, rate=45.67),
         ])
         mock_proc.wait = AsyncMock(return_value=0)
         mock_proc.returncode = 0
@@ -960,7 +981,7 @@ class TestMultiFileProgressScaling:
 
         mock_proc = AsyncMock()
         mock_proc.stdout = _AsyncLineIterator([
-            b"Encoding: task 1 of 1, 50.00 %\n",
+            _hb_json_progress(0.50, rate=0.0, rate_avg=0.0),
         ])
         mock_proc.wait = AsyncMock(return_value=0)
         mock_proc.returncode = 0
@@ -987,7 +1008,7 @@ class TestMultiFileProgressScaling:
 
         mock_proc = AsyncMock()
         mock_proc.stdout = _AsyncLineIterator([
-            b"Encoding: task 1 of 1, 33.30 %\n",
+            _hb_json_progress(0.333, rate=0.0, rate_avg=0.0),
         ])
         mock_proc.wait = AsyncMock(return_value=0)
         mock_proc.returncode = 0
