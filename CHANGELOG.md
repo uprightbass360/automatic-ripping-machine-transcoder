@@ -1,5 +1,12 @@
 # Changelog
 
+## [19.0.1](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v19.0.0...v19.0.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* **progress:** parse HandBrake --json progress (fixes UI showing jobs hung at 0%) ([13c9711](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/commit/13c97111d4f593335f1f28c9d6f15060d2e98d86))
+
 ## [19.0.0](https://github.com/uprightbass360/automatic-ripping-machine-transcoder/compare/v18.1.1...v19.0.0) (2026-05-27)
 
 
