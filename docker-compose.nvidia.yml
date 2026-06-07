@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.nvidia
+      additional_contexts:
+        contracts: ./components/contracts
     container_name: arm-transcoder-nvidia
     restart: unless-stopped
     ports:

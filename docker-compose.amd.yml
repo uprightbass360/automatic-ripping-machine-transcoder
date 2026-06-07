@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.amd
+      additional_contexts:
+        contracts: ./components/contracts
     container_name: arm-transcoder-amd
     restart: unless-stopped
     ports:

@@ -54,6 +54,8 @@ jobs:
           push: true
           platforms: linux/amd64
           build-args: HANDBRAKE_VERSION=${{ steps.version.outputs.version }}
+          build-contexts: |
+            contracts=components/contracts
           tags: |
             ${{ env.DOCKERHUB_IMAGE }}:${{ steps.version.outputs.version }}
             ${{ env.DOCKERHUB_IMAGE }}:latest
