@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+      additional_contexts:
+        contracts: ./components/contracts
     container_name: arm-transcoder-dev
     ports:
       - "5000:5000"

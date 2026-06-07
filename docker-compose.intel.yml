@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.intel
+      additional_contexts:
+        contracts: ./components/contracts
     container_name: arm-transcoder-intel
     restart: unless-stopped
     ports:

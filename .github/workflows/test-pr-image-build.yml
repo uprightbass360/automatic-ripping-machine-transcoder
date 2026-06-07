@@ -46,6 +46,8 @@ jobs:
           file: Dockerfile.handbrake
           platforms: linux/amd64
           build-args: HANDBRAKE_VERSION=${{ steps.hb_version.outputs.version }}
+          build-contexts: |
+            contracts=components/contracts
           tags: arm-handbrake:test
 
   # Always runs — uses published HandBrake image (~1 min)
@@ -69,6 +71,8 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64
           build-args: HANDBRAKE_TAG=${{ steps.hb_version.outputs.version }}
+          build-contexts: |
+            contracts=components/contracts
           tags: uprightbass360/arm-transcoder-base:latest
           load: true
           outputs: type=docker
@@ -103,6 +107,8 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64
           build-args: HANDBRAKE_TAG=${{ steps.hb_version.outputs.version }}
+          build-contexts: |
+            contracts=components/contracts
           tags: uprightbass360/arm-transcoder-base:latest
           load: true
       - name: Build GPU variant (${{ matrix.variant }})
@@ -113,5 +119,7 @@ jobs:
           file: Dockerfile.${{ matrix.variant }}
           platforms: linux/amd64
           build-args: BASE_TAG=latest
-          build-contexts: uprightbass360/arm-transcoder-base:latest=docker-image://uprightbass360/arm-transcoder-base:latest
+          build-contexts: |
+            uprightbass360/arm-transcoder-base:latest=docker-image://uprightbass360/arm-transcoder-base:latest
+            contracts=components/contracts
           tags: arm-transcoder:pr${{ github.event.number }}${{ matrix.suffix }}

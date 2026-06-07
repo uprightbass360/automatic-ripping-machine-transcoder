@@ -58,6 +58,8 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha,scope=base
           cache-to: type=gha,scope=base,mode=max
+          build-contexts: |
+            contracts=components/contracts
           build-args: |
             HANDBRAKE_TAG=${{ steps.hb_version.outputs.version }}
             IMAGE_TAG=${{ steps.version.outputs.version }}
@@ -131,6 +133,8 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha,scope=${{ matrix.variant }}
           cache-to: type=gha,scope=${{ matrix.variant }},mode=max
+          build-contexts: |
+            contracts=components/contracts
           build-args: BASE_TAG=${{ needs.build-base.outputs.version }}
           tags: ${{ steps.tags.outputs.tags }}
           labels: |
