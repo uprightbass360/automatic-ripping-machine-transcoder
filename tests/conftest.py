@@ -2,21 +2,28 @@
 Shared fixtures for ARM Transcoder tests.
 """
 
+import atexit
 import os
+import tempfile
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
+# Create a secure, process-private temp root (mode 0o700) for all session paths.
+# This replaces hard-coded /tmp/... literals to satisfy SonarCloud S5443.
+_SESSION_TMPDIR = tempfile.mkdtemp(prefix="arm_transcoder_test_")
+atexit.register(lambda: __import__("shutil").rmtree(_SESSION_TMPDIR, ignore_errors=True))
+
 # Set test environment variables before importing app modules
-os.environ.setdefault("RAW_PATH", "/tmp/test_raw")
-os.environ.setdefault("COMPLETED_PATH", "/tmp/test_completed")
-os.environ.setdefault("WORK_PATH", "/tmp/test_work")
-os.environ.setdefault("DB_PATH", "/tmp/test_transcoder.db")
+os.environ.setdefault("RAW_PATH", os.path.join(_SESSION_TMPDIR, "raw"))
+os.environ.setdefault("COMPLETED_PATH", os.path.join(_SESSION_TMPDIR, "completed"))
+os.environ.setdefault("WORK_PATH", os.path.join(_SESSION_TMPDIR, "work"))
+os.environ.setdefault("DB_PATH", os.path.join(_SESSION_TMPDIR, "test_transcoder.db"))
 os.environ.setdefault("REQUIRE_API_AUTH", "false")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
-os.environ.setdefault("LOG_PATH", "/tmp/test_transcoder_logs")
+os.environ.setdefault("LOG_PATH", os.path.join(_SESSION_TMPDIR, "logs"))
 # Force software scheme before any app imports so GPU probing is deterministic.
 os.environ.setdefault("GPU_VENDOR", "")
 
