@@ -16,7 +16,7 @@ jobs:
     outputs:
       handbrake: ${{ steps.filter.outputs.handbrake }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -33,7 +33,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
       - name: Read HandBrake version
         id: hb_version
@@ -56,7 +56,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - uses: docker/setup-buildx-action@v4
@@ -92,7 +92,7 @@ jobs:
           - variant: intel
             suffix: "-intel"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - uses: docker/setup-buildx-action@v4
