@@ -7,6 +7,13 @@
 [![Intel](https://img.shields.io/docker/v/uprightbass360/arm-transcoder?tag=latest-intel&label=intel)](https://hub.docker.com/r/uprightbass360/arm-transcoder)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+> [!IMPORTANT]
+> **This repository will be archived soon.**
+>
+> Development of the ARM (neu) ecosystem is moving to the upstream [Automatic Ripping Machine](https://github.com/automatic-ripping-machine/automatic-ripping-machine) project. Keep an eye on that repository in the very near future for what comes next.
+>
+> Once archived, this repository stays available read-only, but it will no longer receive updates or accept new issues and pull requests. Thank you to everyone who used, tested, and contributed.
+
 # ARM Transcoder
 
 Part of the [Automatic Ripping Machine (neu) ecosystem](#related-projects). Hardware-accelerated transcoding service that offloads encoding from your ARM ripper to a dedicated transcode server. Supports NVIDIA, AMD, and Intel GPUs, or CPU-only software encoding.
